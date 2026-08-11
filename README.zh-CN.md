@@ -90,7 +90,7 @@ ls /dev/cu.*
 ./scripts/install.sh
 ```
 
-9. 👤 当 macOS 弹出 `python3.14` 想用辅助功能控制这台电脑时，点击“打开系统设置”并勾选允许。粘贴转写结果需要这个权限。
+9. 👤 当 macOS 弹出 `VibeStick Paste` 想用辅助功能控制这台电脑时，点击“打开系统设置”并勾选允许。粘贴转写结果需要这个权限。安装后的后台项目会明确显示为 `VibeStick Bridge` 和 `VibeStick HUD`，不再显示成通用的 `sh` 或 Python 进程。
 
 10. 检查安装状态：
 
@@ -128,7 +128,7 @@ ESP-IDF 没有加载到当前 shell，或者还没有安装。先 source ESP-IDF
 
 ### 录音能转写但没有粘贴
 
-给执行粘贴的 Python runner 开辅助功能权限。macOS 路径：系统设置 -> 隐私与安全性 -> 辅助功能，然后允许 `python3.14` 或运行 VibeStick 的终端 / 启动器。
+给 `VibeStick Paste` 开辅助功能权限。macOS 路径：系统设置 -> 隐私与安全性 -> 辅助功能，然后允许 `VibeStick Paste`。正式安装使用这个具名原生组件；用 `scripts/dev.sh` 在终端调试时，仍可能回退到终端 / Python runner。重复运行安装脚本会保留未变化的辅助程序及其权限；只有辅助程序本身升级后，macOS 才可能要求重新允许一次。
 
 ### "No transcription adapter configured"
 
@@ -229,7 +229,9 @@ VibeStick/
   docs/
   firmware/sticks3/
   bridge/src/vibe_stick/
+  app/macos/VibeStickBridge/
   app/macos/VibeStickHUD/
+  app/macos/VibeStickPaste/
   scripts/
   tests/
 ```

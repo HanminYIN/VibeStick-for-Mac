@@ -93,7 +93,7 @@ Wait for `Hash of data verified`.
 ./scripts/install.sh
 ```
 
-9. 👤 When macOS prompts that `python3.14` wants Accessibility control, click "Open System Settings" and enable it. This permission is needed for paste injection.
+9. 👤 When macOS prompts that `VibeStick Paste` wants Accessibility control, click "Open System Settings" and enable it. This permission is needed for paste injection. The installed background items are named `VibeStick Bridge` and `VibeStick HUD` rather than generic `sh` or Python processes.
 
 10. Check the setup:
 
@@ -131,7 +131,7 @@ Use a 2.4 GHz Wi-Fi network. StickS3 / ESP32-S3 does not support 5 GHz Wi-Fi.
 
 ### Recording transcribes but does not paste
 
-Grant Accessibility permission to the Python runner that performs paste injection. On macOS, open System Settings -> Privacy & Security -> Accessibility, then enable `python3.14` or the terminal / launcher that runs VibeStick.
+Grant Accessibility permission to `VibeStick Paste`. On macOS, open System Settings -> Privacy & Security -> Accessibility, then enable `VibeStick Paste`. Installed builds use this named native helper; terminal development with `scripts/dev.sh` can still fall back to the terminal / Python runner. Re-running the installer preserves an unchanged helper and its permission identity; macOS may ask for permission again only when the helper itself changes.
 
 ### "No transcription adapter configured"
 
@@ -232,7 +232,9 @@ VibeStick/
   docs/
   firmware/sticks3/
   bridge/src/vibe_stick/
+  app/macos/VibeStickBridge/
   app/macos/VibeStickHUD/
+  app/macos/VibeStickPaste/
   scripts/
   tests/
 ```
