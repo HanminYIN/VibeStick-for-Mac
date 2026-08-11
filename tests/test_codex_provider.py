@@ -1,3 +1,4 @@
+import hashlib
 import unittest
 from datetime import datetime, timezone
 
@@ -47,6 +48,50 @@ class CodexProviderTests(unittest.TestCase):
         self.assertIsNone(observation.quota_5h_remaining)
         self.assertIsNone(observation.quota_7d_remaining)
         self.assertEqual(observation.alert_type, "NONE")
+
+    def test_completion_alert_is_preserved_while_another_main_task_is_running(self) -> None:
+        timestamp = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
+        event_key = "task-a:turn-a:DONE"
+        observation = observation_from_local_codex(
+            LocalCodexObservation(
+                status=AgentStatus.RUNNING,
+                project="VibeStick",
+                quota=None,
+                quota_found=False,
+                alert_type="DONE",
+                alert_message="Codex task completed",
+                alert_timestamp=timestamp,
+                alert_event_key=event_key,
+                codex_online=True,
+            )
+        )
+
+        digest = hashlib.sha256(event_key.encode("utf-8")).hexdigest()[:16]
+        self.assertEqual(observation.status, AgentStatus.RUNNING)
+        self.assertEqual(observation.alert_type, "DONE")
+        self.assertEqual(observation.alert_event_id, f"evt_{digest}_done")
+
+    def test_distinct_main_turns_have_distinct_completion_event_ids(self) -> None:
+        timestamp = datetime(2026, 8, 12, 10, 0, tzinfo=timezone.utc)
+
+        def event_id(event_key: str) -> str:
+            return observation_from_local_codex(
+                LocalCodexObservation(
+                    status=AgentStatus.DONE,
+                    project="VibeStick",
+                    quota=None,
+                    quota_found=False,
+                    alert_type="DONE",
+                    alert_timestamp=timestamp,
+                    alert_event_key=event_key,
+                    codex_online=True,
+                )
+            ).alert_event_id
+
+        self.assertNotEqual(
+            event_id("task-a:turn-a:DONE"),
+            event_id("task-b:turn-b:DONE"),
+        )
 
 
 if __name__ == "__main__":

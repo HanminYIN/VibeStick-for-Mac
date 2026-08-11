@@ -1,14 +1,31 @@
-# VibeStick
+# VibeStick for Mac
 
 [English README](README.md)
+
+> **项目状态：**这是基于
+> [Gary Zhang 原始 VibeStick](https://github.com/GaryGaryyy/VibeStick)、面向 macOS
+> 独立维护的衍生项目。原作者版权、MIT 许可和项目历史均完整保留。
 
 ![VibeStick 首页，显示 Codex 和 Claude 状态](assets/brand/home-screen-preview.png)
 
 ![VibeStick 语音输入流程，显示 StickS3 录音状态和 Mac HUD](assets/brand/voice-input-preview.png)
 
-VibeStick 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：显示状态、5H/7D 用量、提醒音，并支持长按说话后自动转写粘贴到 Mac。
+VibeStick for Mac 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：显示状态、可用额度窗口和提醒，并支持长按说话后自动转写粘贴到 Mac。
 
 VibeStick 面向 M5Stack StickS3，不是 M5Stack 官方项目。Codex、Claude 等第三方 agent 名称只用于说明本地兼容工具和集成。
+
+## 原生 Mac 控制中心
+
+M1 开发检查点已经加入原生 SwiftUI App、菜单栏控制、Bridge/HUD/Paste
+结构化健康状态、显式后台启停、本地设置、完整品牌图标，以及面向 arm64、macOS 15
+的开发版 DMG。它封装已经验证的本地运行链路，不替换稳定 StickS3 固件。
+
+当前 DMG 只用于已经安装稳定 VibeStick 后台服务的 Mac。全新机器安装、设备配对、
+配置同步、设备新界面和一键烧录仍属于 M2-M4。
+
+- [M1 成果与验收证据](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
+- [VibeStick for Mac Roadmap](docs/VIBESTICK_FOR_MAC_ROADMAP.md)
+- [原生 macOS 构建说明](app/macos/README.md)
 
 ## 开始前的准备
 
@@ -26,7 +43,7 @@ VibeStick 面向 M5Stack StickS3，不是 M5Stack 官方项目。Codex、Claude 
 1. 克隆仓库并创建本地配置文件：
 
 ```sh
-git clone https://github.com/GaryGaryyy/VibeStick.git
+git clone https://github.com/HanminYIN/VibeStick.git
 cd VibeStick
 ./scripts/setup.sh
 ```
@@ -229,6 +246,9 @@ VibeStick/
   docs/
   firmware/sticks3/
   bridge/src/vibe_stick/
+  app/macos/VibeStick.xcodeproj/
+  app/macos/VibeStickApp/
+  app/macos/VibeStickAppTests/
   app/macos/VibeStickBridge/
   app/macos/VibeStickHUD/
   app/macos/VibeStickPaste/
@@ -242,6 +262,7 @@ VibeStick/
 python3 -m compileall -q bridge/src tests
 PYTHONPATH=bridge/src python3 -m unittest discover -s tests
 bash -n scripts/setup.sh scripts/doctor.sh scripts/install.sh
+scripts/verify-macos-build.sh
 ```
 
 固件构建仍需要 ESP-IDF：
@@ -254,8 +275,9 @@ idf.py build
 
 ## 当前限制
 
-- 这是整理后的原型，不是打包好的 Mac app 或 DMG。
+- 当前 M1 DMG 用于管理已经存在的稳定安装，还不是全新 Mac 安装器。
 - 固件只面向 M5Stack StickS3。
+- Mac App 只支持 Apple Silicon 和 macOS 15 或更高版本；当前为 ad-hoc 签名且未经 Apple 公证。
 - Codex quota 来自本地 Codex session JSONL 里的 `rate_limits`，不是官方 quota API。
 - Claude usage 来自未公开的 Claude Code OAuth endpoint，默认关闭。
 - ASR 可靠性取决于麦克风采集、上传 PCM 质量、provider 可达性和模型配置。
@@ -267,4 +289,5 @@ idf.py build
 
 ## 许可证
 
-VibeStick 使用 MIT License 发布。见 [LICENSE](LICENSE)。
+原始 VibeStick 与 VibeStick for Mac 修改均使用 MIT License 发布，并保留原作者版权
+声明。详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。

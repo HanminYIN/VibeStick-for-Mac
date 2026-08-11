@@ -1,12 +1,14 @@
-# Contributing to VibeStick
+# Contributing to VibeStick for Mac
 
-Thanks for your interest! VibeStick is an early-preview project — bug reports, ideas, and
-pull requests are welcome.
+Thanks for your interest! VibeStick for Mac is an independently maintained derivative of
+Gary Zhang's VibeStick and remains an early-preview project. Bug reports, ideas, and pull
+requests are welcome.
 
 ## Project layout
 - `firmware/sticks3/` — ESP32-S3 firmware (C, ESP-IDF v5.5.x)
 - `bridge/` — local macOS bridge service (Python, standard library only)
-- `app/macos/` — minimal HUD (Swift)
+- `app/macos/VibeStickApp/` — native SwiftUI control center
+- `app/macos/VibeStickBridge/`, `VibeStickHUD/`, `VibeStickPaste/` — compatible native helpers
 - `scripts/`, `docs/`
 
 ## Dev setup & checks

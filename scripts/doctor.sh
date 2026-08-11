@@ -229,6 +229,7 @@ import json
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 app = Path(sys.argv[1])
@@ -236,24 +237,41 @@ with tempfile.TemporaryDirectory(prefix="vibestick-paste-check-") as tmp:
     request = Path(tmp) / "request.json"
     response = Path(tmp) / "response.json"
     request.write_text(json.dumps({"operation": "check"}))
-    result = subprocess.run(
-        [
-            "/usr/bin/open", "-W", "-g", "-n", str(app), "--args",
-            "--request", str(request), "--response", str(response),
-        ],
-        check=False,
-        capture_output=True,
-        timeout=8,
-    )
-    if result.returncode != 0 or not response.exists():
-        raise SystemExit(1)
-    data = json.loads(response.read_text())
-    raise SystemExit(0 if data.get("success") else 1)
+    try:
+        subprocess.run(
+            [
+                "/usr/bin/open", "-g", "-n", str(app), "--args",
+                "--request", str(request), "--response", str(response),
+            ],
+            check=False,
+            capture_output=True,
+            timeout=4,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise SystemExit(2)
+
+    deadline = time.monotonic() + 4
+    while time.monotonic() < deadline:
+        if response.exists():
+            try:
+                data = json.loads(response.read_text())
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                raise SystemExit(2)
+            if not isinstance(data, dict) or type(data.get("success")) is not bool:
+                raise SystemExit(2)
+            raise SystemExit(0 if data.get("success") else 1)
+        time.sleep(0.1)
+    raise SystemExit(2)
 PY
     then
       pass "VibeStick Paste has Accessibility permission."
     else
-      warn "Enable VibeStick Paste in System Settings -> Privacy & Security -> Accessibility."
+      paste_check_status="$?"
+      if [ "$paste_check_status" -eq 1 ]; then
+        warn "Enable VibeStick Paste in System Settings -> Privacy & Security -> Accessibility."
+      else
+        warn "VibeStick Paste permission check could not complete; the helper was not reported as unauthorized."
+      fi
     fi
   else
     warn "VibeStick Paste helper is missing; rerun scripts/install.sh."

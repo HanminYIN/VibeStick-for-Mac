@@ -1,14 +1,33 @@
-# VibeStick
+# VibeStick for Mac
 
 [中文说明](README.zh-CN.md)
+
+> **Project status:** independently maintained, macOS-focused derivative of
+> [Gary Zhang's VibeStick](https://github.com/GaryGaryyy/VibeStick). The original
+> copyright, MIT license, and project history are retained.
 
 ![VibeStick home screen showing Codex and Claude providers](assets/brand/home-screen-preview.png)
 
 ![VibeStick voice input flow showing StickS3 recording states and Mac HUD](assets/brand/voice-input-preview.png)
 
-VibeStick turns an M5Stack StickS3 into a tiny desktop companion for coding agents: status, 5H/7D usage, alerts, and push-to-talk transcription into your Mac.
+VibeStick for Mac turns an M5Stack StickS3 into a tiny desktop companion for coding agents: status, available usage windows, alerts, and push-to-talk transcription into your Mac.
 
 VibeStick targets M5Stack StickS3 hardware and is not an official M5Stack project. Third-party agent names such as Codex and Claude describe compatible local tools and integrations only.
+
+## Native Mac control center
+
+The M1 development checkpoint adds a native SwiftUI app, menu bar control,
+structured Bridge/HUD/Paste health, explicit service lifecycle controls, local
+settings, branded icons, and an arm64 macOS 15 development DMG. It wraps the
+validated local runtime without replacing the stable StickS3 firmware.
+
+The current DMG is for a Mac that already has the stable VibeStick services
+installed. Clean-machine setup, device pairing, configuration sync, firmware UI
+generation, and one-click flashing remain M2-M4 work.
+
+- [M1 achievements and validation evidence](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
+- [VibeStick for Mac roadmap](docs/VIBESTICK_FOR_MAC_ROADMAP.md)
+- [Native macOS build instructions](app/macos/README.md)
 
 ## What you'll need (prepare first)
 
@@ -29,7 +48,7 @@ You can do this manually, or hand the command steps to an AI coding agent such a
 1. Clone the repo and create local config files:
 
 ```sh
-git clone https://github.com/GaryGaryyy/VibeStick.git
+git clone https://github.com/HanminYIN/VibeStick.git
 cd VibeStick
 ./scripts/setup.sh
 ```
@@ -232,6 +251,9 @@ VibeStick/
   docs/
   firmware/sticks3/
   bridge/src/vibe_stick/
+  app/macos/VibeStick.xcodeproj/
+  app/macos/VibeStickApp/
+  app/macos/VibeStickAppTests/
   app/macos/VibeStickBridge/
   app/macos/VibeStickHUD/
   app/macos/VibeStickPaste/
@@ -245,6 +267,7 @@ VibeStick/
 python3 -m compileall -q bridge/src tests
 PYTHONPATH=bridge/src python3 -m unittest discover -s tests
 bash -n scripts/setup.sh scripts/doctor.sh scripts/install.sh
+scripts/verify-macos-build.sh
 ```
 
 Firmware builds still require ESP-IDF:
@@ -257,8 +280,9 @@ idf.py build
 
 ## Current limits
 
-- This is a cleaned prototype, not a packaged Mac app or DMG.
+- The M1 DMG manages an existing stable installation; it is not yet a clean-machine installer.
 - The firmware targets M5Stack StickS3 only.
+- The Mac app targets Apple Silicon and macOS 15 or newer; it is ad-hoc signed and not notarized.
 - Codex quota is inferred from local Codex session JSONL events with `rate_limits`; it is not an official quota API.
 - Claude usage comes from an undocumented Claude Code OAuth endpoint and is disabled by default.
 - ASR reliability depends on microphone capture, uploaded PCM quality, provider availability, and configured model.
@@ -270,4 +294,6 @@ see [SECURITY.md](SECURITY.md) (please report privately).
 
 ## License
 
-VibeStick is released under the MIT License. See [LICENSE](LICENSE).
+The original VibeStick and the VibeStick for Mac modifications are released
+under the MIT License. The original copyright notice is retained; see
+[LICENSE](LICENSE) and [NOTICE](NOTICE).

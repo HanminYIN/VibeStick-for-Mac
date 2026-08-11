@@ -1,5 +1,14 @@
-VibeStick
+VibeStick for Mac is independently maintained by HanminYIN and is derived from
+the original VibeStick project by Gary Zhang:
+
+  https://github.com/GaryGaryyy/VibeStick
+
+Original VibeStick
 Copyright (c) 2026 Gary Zhang
+
+The original copyright and MIT permission notice are retained in LICENSE.
+Project history is preserved so that upstream and derivative contributions
+remain attributable.
 
 This repository contains a generated LVGL glyph subset derived from Source Han Sans K Regular.
 
@@ -11,4 +20,6 @@ The generated glyph subset is used only for the StickS3 Chinese UI font in:
 
   firmware/sticks3/generated/vibe_stick_cn_16.c
 
-VibeStick does not intentionally vendor third-party brand assets or historical prototype application shells in v0.1.1.
+VibeStick for Mac does not intentionally vendor third-party brand assets or
+historical prototype application shells. Provider names describe compatibility
+only and do not imply endorsement.

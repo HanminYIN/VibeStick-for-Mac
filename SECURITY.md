@@ -3,7 +3,6 @@
 ## Reporting a vulnerability
 Please report security issues privately — do not open a public issue for anything sensitive.
 - Preferred: GitHub Security Advisories ("Report a vulnerability" on the Security tab).
-- Or email: garyzhang345@gmail.com
 
 Include a description, steps to reproduce, the affected version/commit, and impact. We'll
 acknowledge within a reasonable time and keep you posted on a fix.
@@ -24,4 +23,4 @@ VibeStick is an early-preview hobby project. Security-relevant areas:
   Claude Code credentials; it is off by default and may change or break without notice.
 
 ## Supported versions
-This is a fast-moving preview; only the latest `main` / release receives fixes.
+This is a fast-moving preview; only the latest maintained branch or release receives fixes.
