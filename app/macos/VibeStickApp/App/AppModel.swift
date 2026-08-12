@@ -26,8 +26,12 @@ final class AppModel: ObservableObject {
     @Published private(set) var configurationSummary = LegacyConfigurationSummary.empty
     @Published private(set) var keychainSummary = KeychainSummary.empty
     @Published private(set) var configuration = AppConfiguration.standard
+    @Published private(set) var deviceConfiguration = DeviceConfiguration.standard
+    @Published private(set) var bridgeDevices: BridgeDevicesDTO?
+    @Published private(set) var pairingPhase: PairingPhase = .idle
     @Published private(set) var isRefreshing = false
     @Published private(set) var serviceActionInProgress = false
+    @Published private(set) var deviceConfigurationSaveInProgress = false
     @Published var presentedMessage: AppMessage?
 
     private let bridgeClient: BridgeClient
@@ -35,6 +39,9 @@ final class AppModel: ObservableObject {
     private let configurationInspector: ConfigurationInspector
     private let preferencesStore: PreferencesStore
     private let loginItemController: LoginItemController
+    private let deviceConfigurationStore: DeviceConfigurationStore
+    private let usbDeviceDetector: USBDeviceDetector
+    private let devicePairingManager: DevicePairingManager
     private var refreshLoop: Task<Void, Never>?
     private var startupSmokeProbe: Task<Void, Never>?
     private var startupSmokeObservation: AnyCancellable?
@@ -47,13 +54,19 @@ final class AppModel: ObservableObject {
         runtimeManager: RuntimeServiceManager = RuntimeServiceManager(),
         configurationInspector: ConfigurationInspector = ConfigurationInspector(),
         preferencesStore: PreferencesStore = PreferencesStore(),
-        loginItemController: LoginItemController = LoginItemController()
+        loginItemController: LoginItemController = LoginItemController(),
+        deviceConfigurationStore: DeviceConfigurationStore = DeviceConfigurationStore(),
+        usbDeviceDetector: USBDeviceDetector = USBDeviceDetector(),
+        devicePairingManager: DevicePairingManager = DevicePairingManager()
     ) {
         self.bridgeClient = bridgeClient
         self.runtimeManager = runtimeManager
         self.configurationInspector = configurationInspector
         self.preferencesStore = preferencesStore
         self.loginItemController = loginItemController
+        self.deviceConfigurationStore = deviceConfigurationStore
+        self.usbDeviceDetector = usbDeviceDetector
+        self.devicePairingManager = devicePairingManager
     }
 
     var appVersion: String {
@@ -67,7 +80,10 @@ final class AppModel: ObservableObject {
         startStartupSmokeProbeIfRequested()
 
         Task {
-            configuration = await preferencesStore.load()
+            async let loadedPreferences = preferencesStore.load()
+            async let loadedDeviceConfiguration = deviceConfigurationStore.load()
+            configuration = await loadedPreferences
+            deviceConfiguration = await loadedDeviceConfiguration
             synchronizeMenuBarPreference()
             configuration.launchAtLogin = await loginItemController.isEnabled()
             await refresh(forcePermissionCheck: true)
@@ -92,9 +108,13 @@ final class AppModel: ObservableObject {
 
         async let bridge = bridgeClient.fetchSnapshot()
         async let inspected = configurationInspector.inspect()
+        async let devices = bridgeClient.fetchDevices()
+        async let usbDevice = usbDeviceDetector.detect()
 
         let fetchedBridge = await bridge
         let fetchedConfiguration = await inspected
+        let fetchedDevices = await devices
+        let detectedUSBDevice = await usbDevice
         let runtime = await runtimeManager.snapshot(
             bridge: fetchedBridge,
             forcePermissionCheck: forcePermissionCheck
@@ -104,6 +124,114 @@ final class AppModel: ObservableObject {
         runtimeSnapshot = runtime
         configurationSummary = fetchedConfiguration.legacy
         keychainSummary = fetchedConfiguration.keychain
+        bridgeDevices = fetchedDevices
+        if case .pairing = pairingPhase {
+            // Preserve the in-flight phase until the USB transaction finishes.
+        } else if case .paired = pairingPhase {
+            // Keep the success result visible until the user explicitly checks USB again.
+        } else if let detectedUSBDevice {
+            pairingPhase = .ready(detectedUSBDevice)
+        } else {
+            pairingPhase = .unavailable("未检测到 StickS3 USB 连接")
+        }
+    }
+
+    func detectUSBDevice() {
+        guard pairingPhase != .detecting else { return }
+        pairingPhase = .detecting
+        Task {
+            if let candidate = await usbDeviceDetector.detect() {
+                pairingPhase = .ready(candidate)
+            } else {
+                pairingPhase = .unavailable("未检测到 StickS3；请确认使用 USB-C 数据线")
+            }
+        }
+    }
+
+    func pairDetectedDevice() {
+        guard case .ready(let candidate) = pairingPhase else { return }
+        guard bridgeSnapshot.isM2PairingReady else {
+            presentedMessage = AppMessage(
+                title: "暂不写入配对密钥",
+                message: "当前运行的 Bridge 尚未载入 M2 协议。请先安装或启动经过验证的 M2 Bridge，再执行 USB 配对；现有固件与旧 token 保持不变。"
+            )
+            return
+        }
+        pairingPhase = .pairing
+        Task {
+            do {
+                let identity = try await devicePairingManager.pair(
+                    candidate: candidate,
+                    fallbackHost: configuration.manualBridgeAddress
+                )
+                pairingPhase = .paired(identity)
+                presentedMessage = AppMessage(
+                    title: "安全配对完成",
+                    message: "设备身份与专属密钥已写入；明文密钥未进入配置文件。Bridge 将通过 Bonjour 自动发现，手动地址只作回退。"
+                )
+                await refresh()
+            } catch {
+                pairingPhase = .unavailable(error.localizedDescription)
+                presentedMessage = AppMessage(title: "配对未完成", message: error.localizedDescription)
+            }
+        }
+    }
+
+    func setDeviceModule(_ module: DeviceModule, enabled: Bool) {
+        guard module != .codex, module != .connection else { return }
+        var value = deviceConfiguration
+        if enabled {
+            if !value.modules.contains(module) { value.modules.append(module) }
+        } else {
+            value.modules.removeAll { $0 == module }
+            if value.defaultPage == module { value.defaultPage = .codex }
+        }
+        deviceConfiguration = value.normalized
+    }
+
+    func setProjectVisibility(_ visible: Bool) {
+        deviceConfiguration.project.visible = visible
+    }
+
+    func setProjectName(_ name: String) {
+        deviceConfiguration.project.name = String(name.prefix(39))
+    }
+
+    func setFrontDoublePressAction(_ action: FrontDoublePressAction) {
+        deviceConfiguration.buttons.frontDouble = action
+    }
+
+    func setSidePressAction(_ action: SidePressAction) {
+        deviceConfiguration.buttons.sideSingle = action
+    }
+
+    func saveDeviceConfiguration() {
+        guard !deviceConfigurationSaveInProgress else { return }
+        deviceConfigurationSaveInProgress = true
+        let requested = deviceConfiguration
+        Task {
+            do {
+                deviceConfiguration = try await deviceConfigurationStore.save(requested)
+                deviceConfigurationSaveInProgress = false
+                presentedMessage = AppMessage(
+                    title: "设置已保存",
+                    message: "配置修订版 \(deviceConfiguration.revision) 已交给 Bridge；已配对设备在线时会自动拉取并确认。"
+                )
+                await refresh()
+            } catch {
+                deviceConfigurationSaveInProgress = false
+                presentedMessage = AppMessage(title: "设备设置未保存", message: error.localizedDescription)
+            }
+        }
+    }
+
+    func setManualBridgeAddress(_ value: String) {
+        do {
+            configuration.manualBridgeAddress = try ManualBridgeAddressValidator.normalized(value)
+            persistConfiguration()
+        } catch {
+            presentedMessage = AppMessage(title: "地址未保存", message: error.localizedDescription)
+        }
     }
 
     func performServiceAction(_ action: ServiceAction) {

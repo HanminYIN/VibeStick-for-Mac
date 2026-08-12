@@ -8,13 +8,64 @@ struct DeviceInterfaceView: View {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "设备界面",
-                    subtitle: "M1 只确认信息结构；M2 同步设置，M3 完成新首页和真实设备预览。",
-                    milestone: "M3"
+                    subtitle: "M2 使用通用配置同步模块和按键；项目名称留待 M3 实装。",
+                    milestone: "M2"
                 )
 
                 StatusCard(
+                    title: "页面与模块",
+                    subtitle: "Codex 与连接状态是基础能力，始终保留",
+                    systemImage: "square.stack.3d.up.fill",
+                    tone: .neutral
+                ) {
+                    Toggle("Codex", isOn: .constant(true))
+                        .disabled(true)
+                    Toggle(
+                        "Claude",
+                        isOn: Binding(
+                            get: { model.deviceConfiguration.modules.contains(.claude) },
+                            set: { model.setDeviceModule(.claude, enabled: $0) }
+                        )
+                    )
+                    Toggle("连接状态", isOn: .constant(true))
+                        .disabled(true)
+                    Picker(
+                        "默认页面",
+                        selection: Binding(
+                            get: { model.deviceConfiguration.defaultPage },
+                            set: { _ in }
+                        )
+                    ) {
+                        ForEach(model.deviceConfiguration.modules) { module in
+                            Text(module.title).tag(module)
+                        }
+                    }
+                    .disabled(true)
+                    Text("M2 固定 Codex 为默认页；M3 完成页面拖动排序与实机高保真布局。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    HStack {
+                        Button("保存并同步 M2 设置") {
+                            model.saveDeviceConfiguration()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.deviceConfigurationSaveInProgress)
+                        if model.deviceConfigurationSaveInProgress {
+                            ProgressView().controlSize(.small)
+                        }
+                        Spacer()
+                        Text(configurationSyncLabel)
+                            .font(.caption)
+                            .foregroundStyle(configurationSyncTone.color)
+                    }
+                    Text("设备在线后会自行拉取并 ACK；密钥、Wi-Fi 和 ASR 配置不会进入这个设置文件。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                StatusCard(
                     title: "新首页结构草图",
-                    subtitle: "只用于确认信息放在哪里，不是最终设计，也不是实机实时画面",
+                    subtitle: "M3 的视觉草图；M2 不改变当前稳定屏幕布局",
                     systemImage: "display",
                     tone: .neutral
                 ) {
@@ -28,7 +79,7 @@ struct DeviceInterfaceView: View {
                         VStack(alignment: .leading, spacing: 16) {
                             Label("Codex 固定为首页", systemImage: "house.fill")
                             Label("额度显示是基础能力", systemImage: "chart.bar.fill")
-                            Label("M2 接入设置同步与动态额度数据", systemImage: "arrow.triangle.2.circlepath")
+                            Label("M2 已接入设置同步与动态额度数据", systemImage: "arrow.triangle.2.circlepath")
                             Label("M3 完成页面排版与真实设备预览", systemImage: "rectangle.3.group")
                             Label("录音、识别、待发送时临时全屏覆盖", systemImage: "rectangle.inset.filled")
                             Label("关闭的模块不会留下空白页面", systemImage: "rectangle.stack.badge.minus")
@@ -40,14 +91,14 @@ struct DeviceInterfaceView: View {
                 }
 
                 StatusCard(
-                    title: "项目名称",
-                    subtitle: "显示时位于 Codex 下方；关闭时会重新平衡版面",
+                    title: "项目名称（M3 预览）",
+                    subtitle: "尚未接入实体设备屏幕，当前不会改变设备画面",
                     systemImage: "textformat",
                     tone: .inactive
                 ) {
-                    Toggle("显示当前项目名称", isOn: .constant(model.configurationSummary.projectName != nil))
-                        .disabled(true)
-                    Text("M2 会同步这个开关，M3 完成实机版面适配与真实预览。")
+                    Label("M3 实装后可显示在 Codex 下方，并在隐藏时重新平衡版面。", systemImage: "clock.badge")
+                    LabeledContent("计划支持", value: "当前项目 / 固定名称 / 隐藏")
+                    Text("当前版本只保留配置协议的向后兼容性；为避免产生看似成功但没有画面效果的设置，这里暂不提供编辑入口。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -56,6 +107,21 @@ struct DeviceInterfaceView: View {
             .frame(maxWidth: 920, alignment: .leading)
         }
         .navigationTitle("设备界面")
+    }
+
+    private var configurationSyncLabel: String {
+        guard let device = model.bridgeDevices?.devices.first else {
+            return "等待 M2 Bridge 或设备配对"
+        }
+        if device.lastConfigRevision == device.targetConfigRevision {
+            return "设备已同步 r\(device.targetConfigRevision)"
+        }
+        return device.online ? "等待设备确认 r\(device.targetConfigRevision)" : "设备离线，稍后同步"
+    }
+
+    private var configurationSyncTone: HealthTone {
+        guard let device = model.bridgeDevices?.devices.first else { return .inactive }
+        return device.lastConfigRevision == device.targetConfigRevision ? .healthy : .warning
     }
 
     private var deviceMockup: some View {
@@ -152,6 +218,7 @@ struct VoiceAndSendView: View {
 }
 
 struct ButtonAndReminderView: View {
+    @EnvironmentObject private var model: AppModel
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
@@ -176,16 +243,37 @@ struct ButtonAndReminderView: View {
 
                 StatusCard(
                     title: "普通状态双击动作",
-                    subtitle: "视觉上保持一个主动作，不在设备端堆叠菜单",
+                    subtitle: "M2 配置会同步到设备；智能审批仍留在后续实验功能",
                     systemImage: "hand.tap.fill",
-                    tone: .inactive
+                    tone: .neutral
                 ) {
-                    HStack(spacing: 10) {
-                        actionChip("刷新额度")
-                        actionChip("显示状态")
-                        actionChip("返回首页")
-                        actionChip("静音切换")
+                    Picker(
+                        "正面蓝键双击",
+                        selection: Binding(
+                            get: { model.deviceConfiguration.buttons.frontDouble },
+                            set: { model.setFrontDoublePressAction($0) }
+                        )
+                    ) {
+                        ForEach(FrontDoublePressAction.allCases) { action in
+                            Text(action.title).tag(action)
+                        }
                     }
+                    Picker(
+                        "侧键单击",
+                        selection: Binding(
+                            get: { model.deviceConfiguration.buttons.sideSingle },
+                            set: { model.setSidePressAction($0) }
+                        )
+                    ) {
+                        ForEach(SidePressAction.allCases) { action in
+                            Text(action.title).tag(action)
+                        }
+                    }
+                    Button("保存并同步按键设置") {
+                        model.saveDeviceConfiguration()
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(model.deviceConfigurationSaveInProgress)
                 }
             }
             .padding(30)

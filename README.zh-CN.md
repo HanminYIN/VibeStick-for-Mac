@@ -14,16 +14,22 @@ VibeStick for Mac 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：�
 
 VibeStick 面向 M5Stack StickS3，不是 M5Stack 官方项目。Codex、Claude 等第三方 agent 名称只用于说明本地兼容工具和集成。
 
-## 原生 Mac 控制中心
+## 从原始 VibeStick 到 M2
 
-M1 开发检查点已经加入原生 SwiftUI App、菜单栏控制、Bridge/HUD/Paste
-结构化健康状态、显式后台启停、本地设置、完整品牌图标，以及面向 arm64、macOS 15
-的开发版 DMG。它封装已经验证的本地运行链路，不替换稳定 StickS3 固件。
+原始 VibeStick 奠定了 StickS3 显示 coding agent 状态、额度、提醒和长按语音输入的
+核心闭环。M0 在此基础上增强状态观察、具名后台、Paste 权限与诊断；M1 加入原生
+SwiftUI App、菜单栏、结构化健康状态、显式后台启停、品牌图标，以及面向 arm64、
+macOS 15 的开发版 DMG。
 
-当前 DMG 只用于已经安装稳定 VibeStick 后台服务的 Mac。全新机器安装、设备配对、
-配置同步、设备新界面和一键烧录仍属于 M2-M4。
+M2 进一步完成设备 ID、USB 安全配对、每设备独立密钥、Bonjour 自动发现和带
+revision/ACK 的配置同步。真实 Mac 地址变化、凭据轮换、失败恢复，以及原有语音、
+HUD、Paste、Codex 状态和额度链路均已通过当前 Mac 与真实 StickS3 验收。M2 当前
+仍是未提交、未发布的本地开发检查点；全新机器安装、最终设备新界面和一键烧录仍
+属于 M3-M4。
 
 - [M1 成果与验收证据](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
+- [M2 成果与原作者版本对比](docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)
+- [M2 实现与验收边界](docs/VIBESTICK_FOR_MAC_M2_IMPLEMENTATION.md)
 - [VibeStick for Mac Roadmap](docs/VIBESTICK_FOR_MAC_ROADMAP.md)
 - [原生 macOS 构建说明](app/macos/README.md)
 
@@ -275,7 +281,7 @@ idf.py build
 
 ## 当前限制
 
-- 当前 M1 DMG 用于管理已经存在的稳定安装，还不是全新 Mac 安装器。
+- 当前开发 DMG 用于管理已经存在的稳定安装，还不是全新 Mac 安装器；M2 已完成本地真机验收，但尚未作为正式版本发布。
 - 固件只面向 M5Stack StickS3。
 - Mac App 只支持 Apple Silicon 和 macOS 15 或更高版本；当前为 ad-hoc 签名且未经 Apple 公证。
 - Codex quota 来自本地 Codex session JSONL 里的 `rate_limits`，不是官方 quota API。

@@ -16,16 +16,23 @@ VibeStick targets M5Stack StickS3 hardware and is not an official M5Stack projec
 
 ## Native Mac control center
 
-The M1 development checkpoint adds a native SwiftUI app, menu bar control,
+The M1 development checkpoint added a native SwiftUI app, menu bar control,
 structured Bridge/HUD/Paste health, explicit service lifecycle controls, local
-settings, branded icons, and an arm64 macOS 15 development DMG. It wraps the
-validated local runtime without replacing the stable StickS3 firmware.
+settings, branded icons, and an arm64 macOS 15 development DMG. M2 keeps that
+product shell and adds device discovery, secure USB pairing, per-device trust,
+Bonjour address recovery, and revision/ACK configuration sync.
 
-The current DMG is for a Mac that already has the stable VibeStick services
-installed. Clean-machine setup, device pairing, configuration sync, firmware UI
-generation, and one-click flashing remain M2-M4 work.
+The current M2 DMG is for a Mac that already has the VibeStick services and
+compatible firmware installed; it is not a firmware installer. The local M2
+build has completed real-device pairing and credential rotation, failure
+rollback, Bonjour recovery across a real Mac address change, configuration
+sync, and voice / HUD / Paste regression acceptance. It has not been committed
+or published. Clean-machine setup, firmware UI generation, and one-click
+flashing remain M3-M4 work.
 
 - [M1 achievements and validation evidence](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
+- [M2 achievements and upstream comparison](docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)
+- [M2 implementation and acceptance boundary](docs/VIBESTICK_FOR_MAC_M2_IMPLEMENTATION.md)
 - [VibeStick for Mac roadmap](docs/VIBESTICK_FOR_MAC_ROADMAP.md)
 - [Native macOS build instructions](app/macos/README.md)
 
@@ -280,7 +287,8 @@ idf.py build
 
 ## Current limits
 
-- The M1 DMG manages an existing stable installation; it is not yet a clean-machine installer.
+- The M2 DMG manages an existing compatible installation; it is not yet a clean-machine or firmware installer.
+- M2 has passed its local automated and controlled real-device acceptance run; the worktree is still an unpublished development checkpoint.
 - The firmware targets M5Stack StickS3 only.
 - The Mac app targets Apple Silicon and macOS 15 or newer; it is ad-hoc signed and not notarized.
 - Codex quota is inferred from local Codex session JSONL events with `rate_limits`; it is not an official quota API.

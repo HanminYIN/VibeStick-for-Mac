@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.2.0-m2 (unreleased)
+
+M2 pairing, discovery, and configuration-sync checkpoint for the independently maintained VibeStick for Mac derivative.
+
+### Added
+
+- Stable StickS3 device IDs, persistent Bridge UUID, and structured paired-device status.
+- Explicit USB-only pair/re-pair flow with per-device 256-bit tokens and salted token hashes.
+- macOS Keychain storage, staged credential rotation, idempotent pairing transactions, and rollback after USB write failure.
+- `_vibestick._tcp` Bonjour advertisement and Bridge-ID-based firmware discovery with manual-address fallback.
+- Versioned, allow-listed device configuration with monotonic revision, StickS3 NVS persistence, and authenticated ACK.
+- Mac controls for modules, project fields, front-button double-click, and side-button single-click behavior.
+- Dynamic `quota_windows` protocol fields while retaining the legacy 5H/7D fields.
+
+### Changed
+
+- Extended the native control center from service health to USB, pairing, LAN-online, firmware, and configuration-sync status.
+- Authenticated paired firmware requests with device ID plus a device-specific token while retaining the M1 legacy path.
+- Kept the M1 firmware layout and voice/HUD/Paste path stable while adding the M2 protocol foundation.
+
+### Fixed
+
+- ESP mDNS service queries missing the underscore-prefixed service/protocol names.
+- First USB identify attempts racing with delayed USB Serial/JTAG enumeration after reset.
+- Development-signature changes blocking safe Keychain credential rotation.
+- Lost final USB acknowledgements potentially creating ambiguous half-completed pairing transactions.
+- Harmless client disconnects producing `BrokenPipeError` noise in Bridge logs.
+
+### Validation
+
+- 97 Python tests and 23 hostless Swift tests pass.
+- ESP-IDF 5.5.1 firmware build, Release App, signatures, responsive-launch smoke tests, DMG content, and mounted-App verification pass.
+- `scripts/doctor.sh`: 16 PASS, 0 WARN, 0 FAIL.
+- Real-device acceptance covers first pairing, credential rotation, injected write-failure rollback, configuration revision/ACK, reboot persistence, Bonjour restart recovery, and a real Mac address change from `.173` to `.250`.
+- During the 95-second new-address-only window, the paired StickS3 completed 63 authenticated Bridge requests.
+- Voice recording, ASR, HUD, Paste, TextEdit insertion, alert sounds, Codex state, and dynamic `7D` quota remain operational.
+
+This checkpoint does not yet include the final M3 firmware UI, clean-machine installation, one-click flashing/recovery, Developer ID signing, notarization, or a formal Release.
+
 ## v0.2.0-m1 (unreleased)
 
 M1 development checkpoint for the independently maintained VibeStick for Mac derivative.

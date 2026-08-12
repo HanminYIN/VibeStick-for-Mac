@@ -428,15 +428,25 @@ actor RuntimeServiceManager {
 
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: .seconds(4))
+        var detectedPermission: Bool?
         repeat {
             if let data = try? Data(contentsOf: response),
                let permission = PastePermissionProbeProtocol.permission(from: data) {
-                return permission
+                detectedPermission = permission
+                break
             }
             try? await Task.sleep(for: .milliseconds(100))
         } while clock.now < deadline
 
-        return nil
+        let unregister = PastePermissionProbeProtocol.unregisterCommand(
+            appPath: SupportPaths.pasteApp.path
+        )
+        _ = await runner.run(
+            executable: unregister.executable,
+            arguments: unregister.arguments,
+            timeout: .seconds(2)
+        )
+        return detectedPermission
     }
 
     private func pastePermissionHealth(_ enabled: Bool) -> ComponentHealth {

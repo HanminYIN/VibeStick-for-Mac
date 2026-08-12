@@ -5,7 +5,10 @@
 
 #include "vibe_audio.h"
 #include "vibe_board.h"
+#include "vibe_device_config.h"
+#include "vibe_discovery.h"
 #include "vibe_stick_config.h"
+#include "vibe_usb_pairing.h"
 #include "button_gpio.h"
 #include "cJSON.h"
 #include "driver/gpio.h"
@@ -114,6 +117,9 @@ typedef struct {
     bool quota_7d_valid;
     char quota_updated_at[8];
     bool quota_stale;
+    char quota_5h_label[16];
+    char quota_7d_label[16];
+    int quota_window_count;
 } provider_display_state_t;
 
 typedef struct {
@@ -130,6 +136,7 @@ static bool s_long_press_active;
 static char s_last_alert_event_id[56];
 static char s_last_alert_type[24];
 static bool s_alert_sound_baseline_ready;
+static bool s_alert_muted;
 static char s_recording_session_id[40];
 
 static lv_display_t *s_display;
@@ -145,6 +152,7 @@ static lv_obj_t *s_status_dot;
 static lv_obj_t *s_status_label;
 static lv_obj_t *s_quota_5h_title_label;
 static lv_obj_t *s_quota_7d_title_label;
+static lv_obj_t *s_quota_divider;
 static lv_obj_t *s_quota_5h_bar;
 static lv_obj_t *s_quota_7d_bar;
 static lv_obj_t *s_quota_5h_label;
@@ -186,6 +194,9 @@ static provider_display_state_t s_provider_states[PROVIDER_COUNT] = {
         .quota_7d_valid = false,
         .quota_updated_at = "",
         .quota_stale = false,
+        .quota_5h_label = "5H",
+        .quota_7d_label = "7D",
+        .quota_window_count = 2,
     },
     [PROVIDER_CLAUDE] = {
         .status = "OFFLINE",
@@ -196,6 +207,9 @@ static provider_display_state_t s_provider_states[PROVIDER_COUNT] = {
         .quota_7d_valid = false,
         .quota_updated_at = "",
         .quota_stale = false,
+        .quota_5h_label = "5H",
+        .quota_7d_label = "7D",
+        .quota_window_count = 2,
     },
 };
 
@@ -293,7 +307,7 @@ static bool provider_from_key(const char *key, agent_provider_t *provider)
 static bool set_current_provider_from_key(const char *key)
 {
     agent_provider_t provider = PROVIDER_CODEX;
-    if (provider_from_key(key, &provider)) {
+    if (provider_from_key(key, &provider) && vibe_device_config_module_enabled(key)) {
         s_current_provider = provider;
         return true;
     }
@@ -312,7 +326,8 @@ static agent_provider_t next_enabled_provider(agent_provider_t current)
     }
     for (size_t offset = 1; offset <= count; ++offset) {
         const size_t candidate_index = (current_index + offset) % count;
-        if (s_provider_configs[candidate_index].enabled) {
+        if (s_provider_configs[candidate_index].enabled &&
+            vibe_device_config_module_enabled(s_provider_configs[candidate_index].key)) {
             return s_provider_configs[candidate_index].id;
         }
     }
@@ -323,6 +338,10 @@ static void switch_provider(void)
 {
     if (s_recording_overlay_visible) {
         ESP_LOGI(TAG, "provider switch ignored while overlay is visible");
+        return;
+    }
+    if (vibe_device_config_get()->side_single == VIBE_SIDE_NONE) {
+        ESP_LOGI(TAG, "provider switch disabled by device configuration");
         return;
     }
     s_current_provider = next_enabled_provider(s_current_provider);
@@ -679,8 +698,8 @@ static void create_ui(void)
     lv_obj_set_style_border_color(quota_wrap, lv_color_hex(0x22252b), 0);
     lv_obj_align(quota_wrap, LV_ALIGN_TOP_MID, 0, 118);
 
-    lv_obj_t *divider = make_plain_obj(quota_wrap, 1, 72, lv_color_hex(0x242832), LV_OPA_COVER, 1);
-    lv_obj_align(divider, LV_ALIGN_CENTER, 0, 10);
+    s_quota_divider = make_plain_obj(quota_wrap, 1, 72, lv_color_hex(0x242832), LV_OPA_COVER, 1);
+    lv_obj_align(s_quota_divider, LV_ALIGN_CENTER, 0, 10);
 
     s_quota_5h_title_label = make_label(screen, "5H --%", &lv_font_montserrat_12,
                                         lv_color_hex(0x8a9099), 44, LV_TEXT_ALIGN_CENTER);
@@ -749,7 +768,7 @@ static void set_quota_label(lv_obj_t *bar, lv_obj_t *label, int value, bool vali
 static void set_quota_title(lv_obj_t *label, const char *prefix, bool stale)
 {
     if (stale) {
-        char text[8];
+        char text[20];
         snprintf(text, sizeof(text), "%s*", prefix);
         lv_label_set_text(label, text);
     } else {
@@ -772,6 +791,38 @@ static void set_status_color(const agent_provider_config_t *provider, const char
         color = lv_color_hex(0x686e78);
     }
     lv_obj_set_style_bg_color(s_status_dot, color, 0);
+}
+
+static void layout_quota_windows(int count)
+{
+    lv_obj_t *first[] = {s_quota_5h_title_label, s_quota_5h_label, s_quota_5h_bar};
+    lv_obj_t *second[] = {s_quota_7d_title_label, s_quota_7d_label, s_quota_7d_bar};
+    for (size_t index = 0; index < sizeof(first) / sizeof(first[0]); ++index) {
+        if (count > 0) lv_obj_clear_flag(first[index], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(first[index], LV_OBJ_FLAG_HIDDEN);
+    }
+    for (size_t index = 0; index < sizeof(second) / sizeof(second[0]); ++index) {
+        if (count > 1) lv_obj_clear_flag(second[index], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(second[index], LV_OBJ_FLAG_HIDDEN);
+    }
+    if (count == 1) {
+        lv_obj_add_flag(s_quota_divider, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(s_quota_5h_title_label, 96);
+        lv_obj_set_width(s_quota_5h_label, 96);
+        lv_obj_set_width(s_quota_5h_bar, 96);
+        lv_obj_align(s_quota_5h_title_label, LV_ALIGN_TOP_MID, 0, 133);
+        lv_obj_align(s_quota_5h_label, LV_ALIGN_TOP_MID, 0, 153);
+        lv_obj_align(s_quota_5h_bar, LV_ALIGN_TOP_MID, 0, 190);
+    } else {
+        if (count > 1) lv_obj_clear_flag(s_quota_divider, LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(s_quota_divider, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(s_quota_5h_title_label, 44);
+        lv_obj_set_width(s_quota_5h_label, 54);
+        lv_obj_set_width(s_quota_5h_bar, 46);
+        lv_obj_align(s_quota_5h_title_label, LV_ALIGN_TOP_LEFT, 17, 133);
+        lv_obj_align(s_quota_5h_label, LV_ALIGN_TOP_LEFT, 10, 153);
+        lv_obj_align(s_quota_5h_bar, LV_ALIGN_TOP_LEFT, 16, 190);
+    }
 }
 
 static void render_state(void)
@@ -800,8 +851,9 @@ static void render_state(void)
     lv_obj_set_style_text_color(s_provider_label, provider->implemented ? lv_color_hex(0xf3f4f6) : lv_color_hex(0xd7d9de), 0);
     lv_label_set_text(s_status_label, implemented ? status_text_for(display_state->status) : "待命");
     set_status_color(provider, status_key);
-    set_quota_title(s_quota_5h_title_label, "5H", quota_stale);
-    set_quota_title(s_quota_7d_title_label, "7D", quota_stale);
+    layout_quota_windows(display_state->quota_window_count);
+    set_quota_title(s_quota_5h_title_label, display_state->quota_5h_label, quota_stale);
+    set_quota_title(s_quota_7d_title_label, display_state->quota_7d_label, quota_stale);
     set_quota_label(s_quota_5h_bar, s_quota_5h_label, display_state->quota_5h,
                     q5_valid, provider->accent_color);
     set_quota_label(s_quota_7d_bar, s_quota_7d_label, display_state->quota_7d,
@@ -872,6 +924,11 @@ static bool should_play_alert_sound(void)
     agent_sound_t ignored;
     const bool target = sound_for_alert_type(s_state.alert_type, &ignored);
 
+    if (s_alert_muted) {
+        remember_alert_sound_baseline();
+        return false;
+    }
+
     if (!s_alert_sound_baseline_ready) {
         remember_alert_sound_baseline();
         return false;
@@ -936,11 +993,27 @@ static esp_err_t http_event_handler(esp_http_client_event_t *evt)
     return ESP_OK;
 }
 
+static void set_firmware_headers(esp_http_client_handle_t client)
+{
+    const vibe_device_config_t *device_config = vibe_device_config_get();
+    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Name", FIRMWARE_NAME);
+    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Version", FIRMWARE_VERSION);
+    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Transport", TRANSPORT);
+    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Build-Date", __DATE__ " " __TIME__);
+    if (device_config->pairing_token[0] != '\0') {
+        esp_http_client_set_header(client, "X-Vibe-Stick-Token", device_config->pairing_token);
+    }
+    if (device_config->paired) {
+        esp_http_client_set_header(client, "X-Vibe-Stick-Device-ID", device_config->device_id);
+    }
+}
+
 static esp_err_t http_request_timeout(const char *method, const char *path, const char *body,
                                       char *response, int response_len, int timeout_ms)
 {
     char url[160];
-    snprintf(url, sizeof(url), "http://%s:%d%s", VIBE_STICK_BRIDGE_HOST, VIBE_STICK_BRIDGE_PORT, path);
+    snprintf(url, sizeof(url), "http://%s:%u%s", vibe_bridge_discovery_host(),
+             (unsigned)vibe_bridge_discovery_port(), path);
     http_response_capture_t capture = {
         .data = response,
         .capacity = response_len,
@@ -958,13 +1031,7 @@ static esp_err_t http_request_timeout(const char *method, const char *path, cons
     esp_http_client_handle_t client = esp_http_client_init(&config);
     ESP_RETURN_ON_FALSE(client != NULL, ESP_ERR_NO_MEM, TAG, "http init");
     esp_http_client_set_method(client, strcmp(method, "POST") == 0 ? HTTP_METHOD_POST : HTTP_METHOD_GET);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Name", FIRMWARE_NAME);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Version", FIRMWARE_VERSION);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Transport", TRANSPORT);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Build-Date", __DATE__ " " __TIME__);
-    if (strlen(VIBE_STICK_BRIDGE_TOKEN) > 0) {
-        esp_http_client_set_header(client, "X-Vibe-Stick-Token", VIBE_STICK_BRIDGE_TOKEN);
-    }
+    set_firmware_headers(client);
     if (body) {
         esp_http_client_set_header(client, "Content-Type", "application/json");
         esp_http_client_set_post_field(client, body, strlen(body));
@@ -975,6 +1042,9 @@ static esp_err_t http_request_timeout(const char *method, const char *path, cons
         ESP_LOGW(TAG, "http %s %s status=%d empty response", method, path, status_code);
     }
     esp_http_client_cleanup(client);
+    if (err == ESP_OK && (status_code < 200 || status_code >= 300)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
     return err;
 }
 
@@ -988,7 +1058,8 @@ static esp_err_t http_post_binary(const char *path, const uint8_t *body, size_t 
                                   char *response, int response_len)
 {
     char url[192];
-    snprintf(url, sizeof(url), "http://%s:%d%s", VIBE_STICK_BRIDGE_HOST, VIBE_STICK_BRIDGE_PORT, path);
+    snprintf(url, sizeof(url), "http://%s:%u%s", vibe_bridge_discovery_host(),
+             (unsigned)vibe_bridge_discovery_port(), path);
     http_response_capture_t capture = {
         .data = response,
         .capacity = response_len,
@@ -1006,13 +1077,7 @@ static esp_err_t http_post_binary(const char *path, const uint8_t *body, size_t 
     esp_http_client_handle_t client = esp_http_client_init(&config);
     ESP_RETURN_ON_FALSE(client != NULL, ESP_ERR_NO_MEM, TAG, "http init");
     esp_http_client_set_method(client, HTTP_METHOD_POST);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Name", FIRMWARE_NAME);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Version", FIRMWARE_VERSION);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Transport", TRANSPORT);
-    esp_http_client_set_header(client, "X-Vibe-Stick-Firmware-Build-Date", __DATE__ " " __TIME__);
-    if (strlen(VIBE_STICK_BRIDGE_TOKEN) > 0) {
-        esp_http_client_set_header(client, "X-Vibe-Stick-Token", VIBE_STICK_BRIDGE_TOKEN);
-    }
+    set_firmware_headers(client);
     esp_http_client_set_header(client, "Content-Type", "application/octet-stream");
     esp_http_client_set_header(client, "X-Vibe-Stick-Sample-Rate", "16000");
     esp_http_client_set_header(client, "X-Vibe-Stick-Channels", "1");
@@ -1024,6 +1089,9 @@ static esp_err_t http_post_binary(const char *path, const uint8_t *body, size_t 
         ESP_LOGW(TAG, "http POST %s status=%d empty response", path, status_code);
     }
     esp_http_client_cleanup(client);
+    if (err == ESP_OK && (status_code < 200 || status_code >= 300)) {
+        return ESP_ERR_INVALID_RESPONSE;
+    }
     return err;
 }
 
@@ -1063,11 +1131,58 @@ static bool json_percent_value(cJSON *item, int *value)
     return true;
 }
 
+static bool parse_quota_windows(cJSON *source, provider_display_state_t *target)
+{
+    cJSON *windows = cJSON_GetObjectItemCaseSensitive(source, "quota_windows");
+    if (!cJSON_IsArray(windows)) return false;
+
+    target->quota_5h_valid = false;
+    target->quota_7d_valid = false;
+    target->quota_stale = false;
+    strlcpy(target->quota_5h_label, "5H", sizeof(target->quota_5h_label));
+    strlcpy(target->quota_7d_label, "7D", sizeof(target->quota_7d_label));
+    int accepted = 0;
+    cJSON *window = NULL;
+    cJSON_ArrayForEach(window, windows) {
+        if (!cJSON_IsObject(window) || accepted >= 2) continue;
+        cJSON *label = cJSON_GetObjectItemCaseSensitive(window, "label");
+        cJSON *remaining = cJSON_GetObjectItemCaseSensitive(window, "remaining_percent");
+        cJSON *updated_at = cJSON_GetObjectItemCaseSensitive(window, "updated_at");
+        cJSON *stale = cJSON_GetObjectItemCaseSensitive(window, "stale");
+        int value = 0;
+        bool valid = json_percent_value(remaining, &value);
+        if (accepted == 0) {
+            target->quota_5h_valid = valid;
+            if (valid) target->quota_5h = value;
+            if (cJSON_IsString(label) && label->valuestring) {
+                strlcpy(target->quota_5h_label, label->valuestring, sizeof(target->quota_5h_label));
+            }
+        } else {
+            target->quota_7d_valid = valid;
+            if (valid) target->quota_7d = value;
+            if (cJSON_IsString(label) && label->valuestring) {
+                strlcpy(target->quota_7d_label, label->valuestring, sizeof(target->quota_7d_label));
+            }
+        }
+        if (cJSON_IsString(updated_at) && updated_at->valuestring) {
+            strlcpy(target->quota_updated_at, updated_at->valuestring, sizeof(target->quota_updated_at));
+        }
+        if (cJSON_IsBool(stale) && cJSON_IsTrue(stale)) target->quota_stale = true;
+        accepted++;
+    }
+    target->quota_window_count = accepted;
+    return true;
+}
+
 static void parse_provider_fields(cJSON *source, provider_display_state_t *target)
 {
     copy_json_string(source, "status", target->status, sizeof(target->status));
     copy_json_string(source, "project", target->project, sizeof(target->project));
     copy_json_string(source, "quota_updated_at", target->quota_updated_at, sizeof(target->quota_updated_at));
+
+    if (parse_quota_windows(source, target)) {
+        return;
+    }
 
     cJSON *quota_5h = cJSON_GetObjectItemCaseSensitive(source, "quota_5h_remaining");
     cJSON *quota_7d = cJSON_GetObjectItemCaseSensitive(source, "quota_7d_remaining");
@@ -1082,6 +1197,9 @@ static void parse_provider_fields(cJSON *source, provider_display_state_t *targe
         target->quota_7d = quota_value;
     }
     target->quota_stale = cJSON_IsBool(stale) ? cJSON_IsTrue(stale) : false;
+    target->quota_window_count = 2;
+    strlcpy(target->quota_5h_label, "5H", sizeof(target->quota_5h_label));
+    strlcpy(target->quota_7d_label, "7D", sizeof(target->quota_7d_label));
 }
 
 static void parse_provider_json(cJSON *state_root, cJSON *provider)
@@ -1093,7 +1211,7 @@ static void parse_provider_json(cJSON *state_root, cJSON *provider)
     }
     agent_provider_t provider_id = s_current_provider;
     if (provider_key[0] != '\0' && provider_from_key(provider_key, &provider_id)) {
-        if (!s_provider_manually_selected) {
+        if (!s_provider_manually_selected && vibe_device_config_module_enabled(provider_key)) {
             s_current_provider = provider_id;
         }
     }
@@ -1166,8 +1284,63 @@ static bool parse_state_json(const char *json)
     return true;
 }
 
+static int64_t s_last_discovery_attempt_ms;
+
+static void refresh_bridge_discovery_if_needed(void)
+{
+    const vibe_device_config_t *config = vibe_device_config_get();
+    if (!config->paired || vibe_bridge_discovery_is_bonjour()) return;
+    int64_t now_ms = esp_timer_get_time() / 1000;
+    if (s_last_discovery_attempt_ms != 0 && now_ms - s_last_discovery_attempt_ms < 15000) return;
+    s_last_discovery_attempt_ms = now_ms;
+    esp_err_t err = vibe_bridge_discovery_resolve();
+    if (err != ESP_OK) {
+        ESP_LOGD(TAG, "Bonjour discovery unavailable; using fallback host");
+    }
+}
+
+static void invalidate_bridge_discovery(void)
+{
+    if (!vibe_device_config_get()->paired) return;
+    vibe_bridge_discovery_use_fallback();
+    s_last_discovery_attempt_ms = 0;
+}
+
+static void sync_device_configuration(void)
+{
+    const vibe_device_config_t *config = vibe_device_config_get();
+    if (!config->paired) return;
+    refresh_bridge_discovery_if_needed();
+
+    char response[1536] = {0};
+    esp_err_t err = http_request("GET", VIBE_STICK_DEVICE_CONFIG_PATH, NULL, response, sizeof(response));
+    if (err != ESP_OK || response[0] == '\0') {
+        invalidate_bridge_discovery();
+        return;
+    }
+    bool changed = false;
+    err = vibe_device_config_apply_configuration_json(response, &changed);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "device configuration rejected: %s", esp_err_to_name(err));
+        return;
+    }
+    config = vibe_device_config_get();
+    if (!vibe_device_config_module_enabled(current_provider_config()->key)) {
+        s_current_provider = PROVIDER_CODEX;
+        s_provider_manually_selected = false;
+    }
+    if (changed) render_state();
+
+    char body[64];
+    snprintf(body, sizeof(body), "{\"revision\":%lu}", (unsigned long)config->revision);
+    char ack_response[160] = {0};
+    err = http_request("POST", VIBE_STICK_DEVICE_CONFIG_ACK_PATH, body, ack_response, sizeof(ack_response));
+    if (err != ESP_OK) invalidate_bridge_discovery();
+}
+
 static void poll_state(void)
 {
+    refresh_bridge_discovery_if_needed();
     char response[1536] = {0};
     int battery_level = 0;
     if (vibe_board_battery_level(&battery_level) == ESP_OK) {
@@ -1199,6 +1372,7 @@ static void poll_state(void)
     }
     esp_err_t err = http_request("GET", VIBE_STICK_STATE_PATH, NULL, response, sizeof(response));
     if (err != ESP_OK || response[0] == '\0' || !parse_state_json(response)) {
+        invalidate_bridge_discovery();
         provider_display_state_t *display_state = current_provider_display_state();
         strlcpy(display_state->status, "OFFLINE", sizeof(display_state->status));
         s_state.wifi = s_wifi_connected;
@@ -1518,11 +1692,17 @@ static void app_task(void *arg)
     (void)arg;
     agent_event_t event;
     int64_t last_poll = 0;
+    int64_t last_config_sync = 0;
     while (true) {
         int64_t now_ms = esp_timer_get_time() / 1000;
         if (s_wifi_connected && now_ms - last_poll >= VIBE_STICK_STATE_POLL_MS) {
             last_poll = now_ms;
             poll_state();
+        }
+        if (s_wifi_connected && vibe_device_config_get()->paired &&
+            now_ms - last_config_sync >= 10000) {
+            last_config_sync = now_ms;
+            sync_device_configuration();
         }
         if (xQueueReceive(s_event_queue, &event, pdMS_TO_TICKS(100)) != pdTRUE) {
             continue;
@@ -1535,7 +1715,19 @@ static void app_task(void *arg)
             post_simple_event("button_short", NULL);
             break;
         case VIBE_STICK_EVENT_DOUBLE_CLICK:
-            post_simple_event("button_double", VIBE_STICK_QUOTA_REFRESH_PATH);
+            switch (vibe_device_config_get()->front_double) {
+            case VIBE_DOUBLE_REFRESH_QUOTA:
+                post_simple_event("button_double", VIBE_STICK_QUOTA_REFRESH_PATH);
+                break;
+            case VIBE_DOUBLE_TOGGLE_MUTE:
+                s_alert_muted = !s_alert_muted;
+                ESP_LOGI(TAG, "alert sounds muted=%d", s_alert_muted);
+                break;
+            case VIBE_DOUBLE_SHOW_STATUS:
+            case VIBE_DOUBLE_HOME:
+                post_simple_event("button_double", NULL);
+                break;
+            }
             poll_state();
             break;
         case VIBE_STICK_EVENT_LONG_START:
@@ -1563,6 +1755,8 @@ void app_main(void)
         ESP_ERROR_CHECK(nvs);
     }
 
+    ESP_ERROR_CHECK(vibe_device_config_init());
+
     ESP_ERROR_CHECK_WITHOUT_ABORT(vibe_board_init_power());
     s_event_queue = xQueueCreate(10, sizeof(agent_event_t));
     s_lvgl_lock = xSemaphoreCreateMutex();
@@ -1574,5 +1768,7 @@ void app_main(void)
     ESP_ERROR_CHECK(init_button());
     ESP_ERROR_CHECK(vibe_audio_init());
     ESP_ERROR_CHECK(init_wifi());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(vibe_bridge_discovery_init());
+    ESP_ERROR_CHECK_WITHOUT_ABORT(vibe_usb_pairing_start());
     xTaskCreate(app_task, "agent_app", 6144, NULL, 4, NULL);
 }

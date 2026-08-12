@@ -5,12 +5,14 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 ENV_PATH="$ROOT_DIR/.env"
 SECRETS_PATH="$ROOT_DIR/firmware/sticks3/include/vibe_stick_secrets.h"
 APP_SUPPORT_DIR="$HOME/Library/Application Support/VibeStick"
+COMPONENTS_DIR="$APP_SUPPORT_DIR/Components.noindex"
 BRIDGE_PLIST_PATH="$HOME/Library/LaunchAgents/com.vibestick.bridge.plist"
 HUD_PLIST_PATH="$HOME/Library/LaunchAgents/com.vibestick.hud.plist"
-BRIDGE_BINARY_PATH="$APP_SUPPORT_DIR/VibeStick Bridge.app/Contents/MacOS/VibeStickBridge"
-HUD_BINARY_PATH="$APP_SUPPORT_DIR/VibeStick HUD.app/Contents/MacOS/VibeStickHUD"
-PASTE_BINARY_PATH="$APP_SUPPORT_DIR/VibeStick Paste.app/Contents/MacOS/VibeStickPaste"
-PASTE_APP_PATH="$APP_SUPPORT_DIR/VibeStick Paste.app"
+BRIDGE_BINARY_PATH="$COMPONENTS_DIR/VibeStick Bridge.app/Contents/MacOS/VibeStickBridge"
+HUD_BINARY_PATH="$COMPONENTS_DIR/VibeStick HUD.app/Contents/MacOS/VibeStickHUD"
+PASTE_BINARY_PATH="$COMPONENTS_DIR/VibeStick Paste.app/Contents/MacOS/VibeStickPaste"
+PASTE_APP_PATH="$COMPONENTS_DIR/VibeStick Paste.app"
+LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 PASS_COUNT=0
 WARN_COUNT=0
@@ -240,17 +242,17 @@ with tempfile.TemporaryDirectory(prefix="vibestick-paste-check-") as tmp:
     try:
         subprocess.run(
             [
-                "/usr/bin/open", "-g", "-n", str(app), "--args",
+                "/usr/bin/open", "-W", "-g", "-n", str(app), "--args",
                 "--request", str(request), "--response", str(response),
             ],
             check=False,
             capture_output=True,
-            timeout=4,
+            timeout=8,
         )
     except (OSError, subprocess.TimeoutExpired):
         raise SystemExit(2)
 
-    deadline = time.monotonic() + 4
+    deadline = time.monotonic() + 8
     while time.monotonic() < deadline:
         if response.exists():
             try:
@@ -273,6 +275,7 @@ PY
         warn "VibeStick Paste permission check could not complete; the helper was not reported as unauthorized."
       fi
     fi
+    "$LSREGISTER_PATH" -u "$PASTE_APP_PATH" >/dev/null 2>&1 || true
   else
     warn "VibeStick Paste helper is missing; rerun scripts/install.sh."
   fi

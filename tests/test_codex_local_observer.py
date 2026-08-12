@@ -226,6 +226,93 @@ class CodexMainTaskObservationTests(unittest.TestCase):
         self.assertEqual(observation.status, AgentStatus.RUNNING)
         self.assertEqual(observation.alert_type, "")
 
+    def test_account_quota_outranks_newer_named_model_quota(self) -> None:
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_session(
+                self._session_path(root, "account-quota"),
+                "account-quota",
+                "vscode",
+                [self._quota_event(now - timedelta(seconds=20), 4.0, "codex")],
+            )
+            self._write_session(
+                self._session_path(root, "model-quota"),
+                "model-quota",
+                "vscode",
+                [
+                    self._quota_event(
+                        now - timedelta(seconds=5),
+                        0.0,
+                        "codex_bengalfox",
+                        "GPT-5.3-Codex-Spark",
+                    )
+                ],
+            )
+            observation = self._observe(root)
+
+        self.assertTrue(observation.quota_found)
+        self.assertIsNotNone(observation.quota)
+        self.assertEqual(observation.quota.quota_7d_remaining, 96)
+
+    def test_named_model_quota_is_used_when_account_quota_is_missing(self) -> None:
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_session(
+                self._session_path(root, "model-quota"),
+                "model-quota",
+                "vscode",
+                [
+                    self._quota_event(
+                        now - timedelta(seconds=5),
+                        0.0,
+                        "codex_bengalfox",
+                        "GPT-5.3-Codex-Spark",
+                    )
+                ],
+            )
+            observation = self._observe(root)
+
+        self.assertTrue(observation.quota_found)
+        self.assertIsNotNone(observation.quota)
+        self.assertEqual(observation.quota.quota_7d_remaining, 100)
+
+    def test_internal_account_quota_is_observed_without_affecting_task_state(self) -> None:
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_session(
+                self._session_path(root, "main-model-quota"),
+                "main-model-quota",
+                "vscode",
+                [
+                    self._event(now - timedelta(seconds=10), "task_started", "main-turn"),
+                    self._quota_event(
+                        now - timedelta(seconds=5),
+                        0.0,
+                        "codex_bengalfox",
+                        "GPT-5.3-Codex-Spark",
+                    ),
+                ],
+            )
+            self._write_session(
+                self._session_path(root, "internal-account-quota"),
+                "internal-account-quota",
+                {"subagent": {"other": "approval-reviewer"}},
+                [
+                    self._event(now - timedelta(seconds=4), "task_complete", "review-turn"),
+                    self._quota_event(now - timedelta(seconds=3), 4.0, "codex"),
+                ],
+            )
+            observation = self._observe(root)
+
+        self.assertEqual(observation.status, AgentStatus.RUNNING)
+        self.assertEqual(observation.alert_type, "")
+        self.assertTrue(observation.quota_found)
+        self.assertIsNotNone(observation.quota)
+        self.assertEqual(observation.quota.quota_7d_remaining, 96)
+
     @staticmethod
     def _session_path(root: Path, session_id: str) -> Path:
         return root / f"rollout-test-{session_id}.jsonl"
@@ -236,6 +323,30 @@ class CodexMainTaskObservationTests(unittest.TestCase):
             "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
             "type": "event_msg",
             "payload": {"type": payload_type, "turn_id": turn_id},
+        }
+
+    @staticmethod
+    def _quota_event(
+        timestamp: datetime,
+        used_percent: float,
+        limit_id: str,
+        limit_name: str = "",
+    ) -> dict[str, object]:
+        return {
+            "timestamp": timestamp.isoformat().replace("+00:00", "Z"),
+            "type": "event_msg",
+            "payload": {
+                "type": "token_count",
+                "rate_limits": {
+                    "limit_id": limit_id,
+                    "limit_name": limit_name,
+                    "primary": {
+                        "used_percent": used_percent,
+                        "window_minutes": 10080,
+                    },
+                    "secondary": None,
+                },
+            },
         }
 
     @staticmethod

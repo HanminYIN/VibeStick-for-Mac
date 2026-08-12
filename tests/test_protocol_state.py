@@ -57,6 +57,59 @@ class ProtocolStateTests(unittest.TestCase):
         self.assertEqual(payload["provider"]["id"], "claude")
         self.assertEqual(payload["provider"]["status"], "ERROR")
 
+    def test_dynamic_quota_windows_are_emitted_with_legacy_fields(self) -> None:
+        state = state_from_dict(
+            {
+                "codex": {
+                    "status": "RUNNING",
+                    "project": "VibeStick",
+                    "quota_5h_remaining": 64,
+                    "quota_7d_remaining": 91,
+                    "quota_updated_at": "09:38",
+                    "quota_stale": False,
+                }
+            }
+        )
+
+        provider = state.to_jsonable()["provider"]
+        self.assertEqual(provider["quota_5h_remaining"], 64)
+        self.assertEqual(provider["quota_7d_remaining"], 91)
+        self.assertEqual(
+            provider["quota_windows"],
+            [
+                {
+                    "id": "5h",
+                    "label": "5H",
+                    "remaining_percent": 64,
+                    "updated_at": "09:38",
+                    "stale": False,
+                },
+                {
+                    "id": "7d",
+                    "label": "7D",
+                    "remaining_percent": 91,
+                    "updated_at": "09:38",
+                    "stale": False,
+                },
+            ],
+        )
+
+    def test_dynamic_quota_windows_omit_unknown_legacy_slots(self) -> None:
+        state = state_from_dict(
+            {
+                "codex": {
+                    "status": "RUNNING",
+                    "quota_5h_remaining": None,
+                    "quota_7d_remaining": 97,
+                    "quota_updated_at": "04:02",
+                }
+            }
+        )
+
+        windows = state.to_jsonable()["provider"]["quota_windows"]
+        self.assertEqual([window["id"] for window in windows], ["7d"])
+        self.assertEqual(windows[0]["remaining_percent"], 97)
+
 
 if __name__ == "__main__":
     unittest.main()

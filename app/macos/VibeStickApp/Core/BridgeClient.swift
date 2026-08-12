@@ -28,6 +28,10 @@ actor BridgeClient {
         )
     }
 
+    func fetchDevices() async -> BridgeDevicesDTO? {
+        try? await fetch(path: "v1/devices")
+    }
+
     private func fetchHealth() async -> BridgeHealthFetchResult {
         var request = URLRequest(url: baseURL.appendingPathComponent("health"))
         request.timeoutInterval = 2.5

@@ -138,6 +138,7 @@ enum PastePermissionProbeProtocol {
         PastePermissionProbeCommand(
             executable: "/usr/bin/open",
             arguments: [
+                "-W",
                 "-g",
                 "-n",
                 appPath,
@@ -150,7 +151,114 @@ enum PastePermissionProbeProtocol {
         )
     }
 
+    static func unregisterCommand(appPath: String) -> PastePermissionProbeCommand {
+        PastePermissionProbeCommand(
+            executable: "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister",
+            arguments: ["-u", appPath]
+        )
+    }
+
     static func permission(from data: Data) -> Bool? {
         try? JSONDecoder().decode(PastePermissionProbeResponse.self, from: data).success
+    }
+}
+
+enum USBDeviceDetectionParser {
+    static func detect(ioregOutput: String, ports: [String]) -> USBDeviceCandidate? {
+        let availablePorts = Set(ports.filter { $0.hasPrefix("/dev/cu.usbmodem") })
+        var candidates: [USBDeviceCandidate] = []
+        for rawBlock in ioregOutput.components(separatedBy: "+-o AppleUSBACMData").dropFirst() {
+            guard rawBlock.contains("\"idVendor\" = 12346"),
+                  rawBlock.contains("\"idProduct\" = 4097"),
+                  let suffix = quotedValue(after: "IOTTYSuffix", in: rawBlock) else {
+                continue
+            }
+            let port = "/dev/cu.usbmodem\(suffix)"
+            guard availablePorts.contains(port) else { continue }
+            candidates.append(
+                USBDeviceCandidate(
+                    portPath: port,
+                    serialNumber: quotedValue(after: "USB Serial Number", in: rawBlock),
+                    vendorID: USBDeviceCandidate.esp32S3VendorID,
+                    productID: USBDeviceCandidate.usbSerialJTAGProductID
+                )
+            )
+        }
+        return candidates.sorted { $0.portPath < $1.portPath }.first
+    }
+
+    private static func quotedValue(after key: String, in text: String) -> String? {
+        for line in text.split(whereSeparator: \Character.isNewline) where line.contains(key) {
+            guard let equals = line.firstIndex(of: "=") else { continue }
+            let value = line[line.index(after: equals)...]
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+            if !value.isEmpty { return value }
+        }
+        return nil
+    }
+}
+
+enum SerialResponseParser {
+    private static let marker = Data("VIBESTICK_RESPONSE ".utf8)
+
+    static func responsePayload(in data: Data) -> Data? {
+        guard let markerRange = data.range(of: marker) else { return nil }
+        let start = markerRange.upperBound
+        let suffix = data[start...]
+        guard let newline = suffix.firstIndex(of: 0x0A) else { return nil }
+        let payload = Data(suffix[..<newline])
+        guard !payload.isEmpty, payload.count <= 4096 else { return nil }
+        return payload
+    }
+}
+
+enum ManualBridgeAddressValidator {
+    static func normalized(_ value: String?) throws -> String? {
+        guard let value else { return nil }
+        let candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !candidate.isEmpty else { return nil }
+        guard candidate.count <= 253,
+              !candidate.contains(":"),
+              !candidate.contains("/"),
+              !candidate.contains(" "),
+              candidate.lowercased() != "localhost",
+              candidate != "0.0.0.0" else {
+            throw ManualBridgeAddressError.invalid
+        }
+        if isIPv4(candidate) { return candidate }
+
+        let labels = candidate.split(separator: ".", omittingEmptySubsequences: false)
+        guard !labels.isEmpty, labels.allSatisfy({ label in
+            guard !label.isEmpty, label.count <= 63,
+                  label.first?.isLetter == true || label.first?.isNumber == true,
+                  label.last?.isLetter == true || label.last?.isNumber == true else {
+                return false
+            }
+            return label.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
+        }) else {
+            throw ManualBridgeAddressError.invalid
+        }
+        return candidate.lowercased()
+    }
+
+    static func isIPv4(_ value: String) -> Bool {
+        let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4 else { return false }
+        return parts.allSatisfy { part in
+            guard !part.isEmpty, part.count <= 3, part.allSatisfy(\.isNumber),
+                  let number = Int(part), (0...255).contains(number) else {
+                return false
+            }
+            return String(number) == part || part == "0"
+        }
+    }
+}
+
+enum ManualBridgeAddressError: LocalizedError {
+    case invalid
+
+    var errorDescription: String? {
+        "手动 Bridge 地址无效；请填写 IPv4 地址或局域网主机名"
     }
 }

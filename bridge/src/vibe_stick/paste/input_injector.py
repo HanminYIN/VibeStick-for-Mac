@@ -10,6 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+_LSREGISTER_PATH = Path(
+    "/System/Library/Frameworks/CoreServices.framework/Frameworks/"
+    "LaunchServices.framework/Support/lsregister"
+)
+
+
 @dataclass
 class PasteResult:
     success: bool
@@ -90,6 +96,8 @@ class MacPasteInjector:
                 )
             except (OSError, subprocess.TimeoutExpired) as exc:
                 return PasteResult(False, f"VibeStick Paste helper failed: {exc}")
+            finally:
+                self._unregister_helper(helper_path)
             if result.returncode != 0:
                 message = (result.stderr or result.stdout or "VibeStick Paste helper failed").strip()
                 return PasteResult(False, message)
@@ -100,6 +108,19 @@ class MacPasteInjector:
             success = bool(response.get("success"))
             message = str(response.get("message") or "VibeStick Paste helper failed")
             return PasteResult(success, message)
+
+    @staticmethod
+    def _unregister_helper(helper_path: Path) -> None:
+        try:
+            subprocess.run(
+                [str(_LSREGISTER_PATH), "-u", str(helper_path)],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=2,
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
     def _read_clipboard(self) -> str | None:
         try:

@@ -38,6 +38,8 @@
 		A1000000000000000000001D /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* Security.framework */; };
 		A1000000000000000000001E /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001A /* ServiceManagement.framework */; };
 		A1000000000000000000001F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* Assets.xcassets */; };
+		A10000000000000000000020 /* M2Infrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* M2Infrastructure.swift */; };
+		A10000000000000000000021 /* M2Infrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* M2Infrastructure.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -82,6 +84,7 @@
 		A2000000000000000000001C /* ApplicationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ApplicationServices.framework; path = System/Library/Frameworks/ApplicationServices.framework; sourceTree = SDKROOT; };
 		A2000000000000000000001E /* TestableLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestableLogic.swift; sourceTree = "<group>"; };
 		A2000000000000000000001F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A20000000000000000000020 /* M2Infrastructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M2Infrastructure.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -172,6 +175,7 @@
 				A20000000000000000000005 /* BridgeClient.swift */,
 				A20000000000000000000006 /* RuntimeServiceManager.swift */,
 				A2000000000000000000001E /* TestableLogic.swift */,
+				A20000000000000000000020 /* M2Infrastructure.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -357,10 +361,11 @@
 				A10000000000000000000009 /* DashboardView.swift in Sources */,
 				A1000000000000000000000A /* ConnectionAndRuntimeView.swift in Sources */,
 				A1000000000000000000000B /* SectionViews.swift in Sources */,
+				A10000000000000000000020 /* M2Infrastructure.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		A90000000000000000000002 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000C /* VibeStickAppTests.swift in Sources */, A10000000000000000000018 /* Models.swift in Sources */, A10000000000000000000019 /* VibeStickStyle.swift in Sources */, A1000000000000000000001A /* TestableLogic.swift in Sources */, A1000000000000000000001B /* Infrastructure.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		A90000000000000000000002 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000C /* VibeStickAppTests.swift in Sources */, A10000000000000000000018 /* Models.swift in Sources */, A10000000000000000000019 /* VibeStickStyle.swift in Sources */, A1000000000000000000001A /* TestableLogic.swift in Sources */, A1000000000000000000001B /* Infrastructure.swift in Sources */, A10000000000000000000021 /* M2Infrastructure.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
 		A90000000000000000000003 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000D /* main.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
 		A90000000000000000000004 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000E /* main.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
 		A90000000000000000000005 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000F /* main.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };

@@ -6,17 +6,22 @@ SETUP_PATH="$ROOT_DIR/scripts/setup.sh"
 ENV_PATH="$ROOT_DIR/.env"
 SECRETS_PATH="$ROOT_DIR/firmware/sticks3/include/vibe_stick_secrets.h"
 CONFIG_DIR="$HOME/Library/Application Support/VibeStick"
+COMPONENTS_DIR="$CONFIG_DIR/Components.noindex"
 RUNTIME_DIR="$CONFIG_DIR/runtime"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.bridge.plist"
 HUD_PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.hud.plist"
-BRIDGE_APP_PATH="$CONFIG_DIR/VibeStick Bridge.app"
+BRIDGE_APP_PATH="$COMPONENTS_DIR/VibeStick Bridge.app"
 BRIDGE_BINARY_PATH="$BRIDGE_APP_PATH/Contents/MacOS/VibeStickBridge"
-HUD_APP_PATH="$CONFIG_DIR/VibeStick HUD.app"
+HUD_APP_PATH="$COMPONENTS_DIR/VibeStick HUD.app"
 HUD_BINARY_PATH="$HUD_APP_PATH/Contents/MacOS/VibeStickHUD"
-PASTE_APP_PATH="$CONFIG_DIR/VibeStick Paste.app"
+PASTE_APP_PATH="$COMPONENTS_DIR/VibeStick Paste.app"
 PASTE_BINARY_PATH="$PASTE_APP_PATH/Contents/MacOS/VibeStickPaste"
 PASTE_BUILD_STAMP_PATH="$PASTE_APP_PATH/Contents/Resources/VibeStickPaste.build"
+LEGACY_BRIDGE_APP_PATH="$CONFIG_DIR/VibeStick Bridge.app"
+LEGACY_HUD_APP_PATH="$CONFIG_DIR/VibeStick HUD.app"
+LEGACY_PASTE_APP_PATH="$CONFIG_DIR/VibeStick Paste.app"
+LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 BRIDGE_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickBridge/main.swift"
 HUD_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickHUD/main.swift"
 PASTE_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickPaste/main.swift"
@@ -104,6 +109,7 @@ if ! PYTHON_PATH="$(command -v python3)"; then
 fi
 
 mkdir -p "$CONFIG_DIR"
+mkdir -p "$COMPONENTS_DIR"
 mkdir -p "$LAUNCH_AGENTS_DIR"
 
 RUNTIME_TEMP="$CONFIG_DIR/.runtime.installing"
@@ -234,10 +240,16 @@ codesign --force --deep --sign - --requirements '=designated => identifier "com.
 # valid. Source or bundle changes intentionally replace it and require the user
 # to enable the new build once.
 PRESERVE_PASTE_APP=0
-if [ -x "$PASTE_BINARY_PATH" ] \
-  && [ -f "$PASTE_BUILD_STAMP_PATH" ] \
-  && [ "$(sed -n '1p' "$PASTE_BUILD_STAMP_PATH")" = "$PASTE_BUILD_FINGERPRINT" ] \
-  && codesign --verify --deep --strict "$PASTE_APP_PATH" >/dev/null 2>&1; then
+EXISTING_PASTE_APP_PATH="$PASTE_APP_PATH"
+if [ ! -x "$PASTE_BINARY_PATH" ] \
+  && [ -x "$LEGACY_PASTE_APP_PATH/Contents/MacOS/VibeStickPaste" ]; then
+  EXISTING_PASTE_APP_PATH="$LEGACY_PASTE_APP_PATH"
+fi
+EXISTING_PASTE_BUILD_STAMP_PATH="$EXISTING_PASTE_APP_PATH/Contents/Resources/VibeStickPaste.build"
+if [ -x "$EXISTING_PASTE_APP_PATH/Contents/MacOS/VibeStickPaste" ] \
+  && [ -f "$EXISTING_PASTE_BUILD_STAMP_PATH" ] \
+  && [ "$(sed -n '1p' "$EXISTING_PASTE_BUILD_STAMP_PATH")" = "$PASTE_BUILD_FINGERPRINT" ] \
+  && codesign --verify --deep --strict "$EXISTING_PASTE_APP_PATH" >/dev/null 2>&1; then
   PRESERVE_PASTE_APP=1
 fi
 
@@ -245,14 +257,23 @@ launchctl bootout "gui/$(id -u)" "$PLIST_PATH" >/dev/null 2>&1 || true
 launchctl bootout "gui/$(id -u)" "$HUD_PLIST_PATH" >/dev/null 2>&1 || true
 rm -f "$PLIST_PATH" "$HUD_PLIST_PATH"
 rm -f "$LEGACY_RUNNER_PATH" "$LEGACY_HUD_BINARY_PATH"
-rm -rf "$RUNTIME_DIR" "$BRIDGE_APP_PATH" "$HUD_APP_PATH"
+rm -rf \
+  "$RUNTIME_DIR" \
+  "$BRIDGE_APP_PATH" \
+  "$HUD_APP_PATH" \
+  "$LEGACY_BRIDGE_APP_PATH" \
+  "$LEGACY_HUD_APP_PATH"
 mv "$RUNTIME_TEMP" "$RUNTIME_DIR"
 mv "$BRIDGE_APP_TEMP" "$BRIDGE_APP_PATH"
 mv "$HUD_APP_TEMP" "$HUD_APP_PATH"
 if [ "$PRESERVE_PASTE_APP" -eq 1 ]; then
+  if [ "$EXISTING_PASTE_APP_PATH" != "$PASTE_APP_PATH" ]; then
+    rm -rf "$PASTE_APP_PATH"
+    mv "$EXISTING_PASTE_APP_PATH" "$PASTE_APP_PATH"
+  fi
   rm -rf "$PASTE_APP_TEMP"
 else
-  rm -rf "$PASTE_APP_PATH"
+  rm -rf "$PASTE_APP_PATH" "$LEGACY_PASTE_APP_PATH"
   mv "$PASTE_APP_TEMP" "$PASTE_APP_PATH"
 fi
 
@@ -323,6 +344,13 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
 launchctl bootstrap "gui/$(id -u)" "$HUD_PLIST_PATH"
 launchctl kickstart -k "gui/$(id -u)/com.vibestick.bridge"
 launchctl kickstart -k "gui/$(id -u)/com.vibestick.hud"
+"$LSREGISTER_PATH" -u \
+  "$LEGACY_BRIDGE_APP_PATH" \
+  "$LEGACY_HUD_APP_PATH" \
+  "$LEGACY_PASTE_APP_PATH" \
+  "$BRIDGE_APP_PATH" \
+  "$HUD_APP_PATH" \
+  "$PASTE_APP_PATH" >/dev/null 2>&1 || true
 
 printf '%s\n' "VibeStick config directory is ready:"
 printf '%s\n' "$CONFIG_DIR"

@@ -19,7 +19,9 @@ TAIL_BYTES = 1_500_000
 MAX_SESSION_FILES = 40
 MAX_DISCOVERY_SESSION_FILES = 160
 MAX_UNKNOWN_SESSION_FILES = 10
+MAX_INTERNAL_QUOTA_SESSION_FILES = 40
 SESSION_META_BYTES = 262_144
+INTERNAL_QUOTA_TAIL_BYTES = 262_144
 RUNNING_ACTIVITY_WINDOW = timedelta(minutes=4)
 ALERT_ACTIVITY_WINDOW = timedelta(minutes=5)
 QUOTA_STALE_AFTER = timedelta(minutes=30)
@@ -40,6 +42,13 @@ class _AlertCandidate:
     event_key: str
 
 
+@dataclass(frozen=True)
+class _QuotaCandidate:
+    timestamp: datetime
+    snapshot: QuotaSnapshot
+    account_wide: bool
+
+
 @dataclass
 class _SessionObservation:
     identity: _SessionIdentity
@@ -50,7 +59,7 @@ class _SessionObservation:
     completion: _AlertCandidate | None = None
     approval: _AlertCandidate | None = None
     error: _AlertCandidate | None = None
-    quota: tuple[datetime, QuotaSnapshot] | None = None
+    quota: _QuotaCandidate | None = None
 
 
 _SESSION_IDENTITY_CACHE: dict[Path, _SessionIdentity] = {}
@@ -82,17 +91,14 @@ def observe_codex(project_root: Path) -> LocalCodexObservation:
     latest_completion: _AlertCandidate | None = None
     latest_approval: _AlertCandidate | None = None
     latest_error: _AlertCandidate | None = None
-    latest_quota: tuple[datetime, QuotaSnapshot] | None = None
+    latest_quota: _QuotaCandidate | None = None
     latest_session_path = ""
     user_session_found = False
     user_task_running = False
 
     for session_path, identity in _session_candidates():
         session = _observe_session(session_path, identity, now)
-        if session.quota is not None and (
-            latest_quota is None or session.quota[0] > latest_quota[0]
-        ):
-            latest_quota = session.quota
+        latest_quota = _preferred_quota(latest_quota, session.quota)
 
         if identity.user_initiated is not True:
             if session.latest_event is not None and (
@@ -131,7 +137,7 @@ def observe_codex(project_root: Path) -> LocalCodexObservation:
     if latest_event is None and not user_session_found:
         latest_event = latest_fallback_event
 
-    quota_snapshot = latest_quota[1] if latest_quota else None
+    quota_snapshot = latest_quota.snapshot if latest_quota else None
     selected_alert = latest_error or latest_approval or latest_completion
 
     if not codex_online:
@@ -176,13 +182,23 @@ def observe_codex(project_root: Path) -> LocalCodexObservation:
 def _session_candidates() -> list[tuple[Path, _SessionIdentity]]:
     user_sessions: list[tuple[Path, _SessionIdentity]] = []
     unknown_sessions: list[tuple[Path, _SessionIdentity]] = []
+    internal_quota_sessions: list[tuple[Path, _SessionIdentity]] = []
     for path in session_files(SESSIONS_DIR, max_files=MAX_DISCOVERY_SESSION_FILES):
         identity = _session_identity(path)
         if identity.user_initiated is True and len(user_sessions) < MAX_SESSION_FILES:
             user_sessions.append((path, identity))
         elif identity.user_initiated is None and len(unknown_sessions) < MAX_UNKNOWN_SESSION_FILES:
             unknown_sessions.append((path, identity))
-    return user_sessions + unknown_sessions
+        elif (
+            identity.user_initiated is False
+            and len(internal_quota_sessions) < MAX_INTERNAL_QUOTA_SESSION_FILES
+        ):
+            # Codex may emit the account-wide rate-limit snapshot from an
+            # internal approval/review session while the user-facing session
+            # only reports a model-specific bucket. Internal sessions must not
+            # affect task state or alerts, but their quota data is authoritative.
+            internal_quota_sessions.append((path, identity))
+    return user_sessions + unknown_sessions + internal_quota_sessions
 
 
 def _session_identity(path: Path) -> _SessionIdentity:
@@ -232,7 +248,12 @@ def _observe_session(
     now: datetime,
 ) -> _SessionObservation:
     observation = _SessionObservation(identity=identity)
-    for event in _tail_json_events(session_path):
+    tail_bytes = (
+        INTERNAL_QUOTA_TAIL_BYTES
+        if identity.user_initiated is False
+        else TAIL_BYTES
+    )
+    for event in _tail_json_events(session_path, tail_bytes=tail_bytes):
         timestamp = _parse_timestamp(event.get("timestamp"))
         if timestamp is None:
             continue
@@ -266,10 +287,13 @@ def _observe_session(
                 observation.active_turns.discard(turn_id)
 
         quota = _quota_from_payload(payload, timestamp, now)
-        if quota is not None and (
-            observation.quota is None or timestamp > observation.quota[0]
-        ):
-            observation.quota = (timestamp, quota)
+        if quota is not None:
+            candidate = _QuotaCandidate(
+                timestamp=timestamp,
+                snapshot=quota,
+                account_wide=_is_account_wide_quota(payload),
+            )
+            observation.quota = _preferred_quota(observation.quota, candidate)
 
         alert = _alert_from_payload(candidate_type, payload)
         if alert is None:
@@ -342,8 +366,33 @@ def _newer_alert(
     return current
 
 
-def _tail_json_events(path: Path) -> list[dict[str, Any]]:
-    return list(tail_json_events(path, tail_bytes=TAIL_BYTES))
+def _preferred_quota(
+    current: _QuotaCandidate | None,
+    candidate: _QuotaCandidate | None,
+) -> _QuotaCandidate | None:
+    if candidate is None:
+        return current
+    if current is None:
+        return candidate
+    if candidate.account_wide != current.account_wide:
+        return candidate if candidate.account_wide else current
+    return candidate if candidate.timestamp > current.timestamp else current
+
+
+def _is_account_wide_quota(payload: dict[str, Any]) -> bool:
+    rate_limits = payload.get("rate_limits")
+    if not isinstance(rate_limits, dict):
+        return False
+    limit_id = str(rate_limits.get("limit_id") or "").strip().lower()
+    return not limit_id or limit_id == "codex"
+
+
+def _tail_json_events(
+    path: Path,
+    *,
+    tail_bytes: int = TAIL_BYTES,
+) -> list[dict[str, Any]]:
+    return list(tail_json_events(path, tail_bytes=tail_bytes))
 
 
 def _quota_from_payload(

@@ -12,6 +12,9 @@ CLAUDE_QUOTA_PATH = APP_SUPPORT_DIR / "claude-quota.json"
 RECORDING_PATH = APP_SUPPORT_DIR / "recording.json"
 HUD_STATE_PATH = APP_SUPPORT_DIR / "hud-state.json"
 RECORDINGS_DIR = APP_SUPPORT_DIR / "Recordings"
+DEVICE_REGISTRY_PATH = APP_SUPPORT_DIR / "devices-v1.json"
+DEVICE_CONFIGURATION_PATH = APP_SUPPORT_DIR / "device-config-v1.json"
+BRIDGE_IDENTITY_PATH = APP_SUPPORT_DIR / "bridge-identity-v1.json"
 
 
 def ensure_app_support() -> Path:

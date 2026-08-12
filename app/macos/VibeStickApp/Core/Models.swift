@@ -204,11 +204,31 @@ struct BridgeHealthDTO: Decodable, Equatable, Sendable {
     let ok: Bool
     let bridgeName: String
     let bridgeVersion: String
+    let protocolVersion: Int?
+    let bridgeID: String?
 
     enum CodingKeys: String, CodingKey {
         case ok
         case bridgeName = "bridge_name"
         case bridgeVersion = "bridge_version"
+        case protocolVersion = "protocol_version"
+        case bridgeID = "bridge_id"
+    }
+}
+
+struct QuotaWindowDTO: Decodable, Equatable, Identifiable, Sendable {
+    let id: String
+    let label: String
+    let remainingPercent: Double?
+    let updatedAt: String?
+    let stale: Bool
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case label
+        case remainingPercent = "remaining_percent"
+        case updatedAt = "updated_at"
+        case stale
     }
 }
 
@@ -221,6 +241,7 @@ struct AgentStateDTO: Decodable, Equatable, Sendable {
     let quota7DRemaining: Double?
     let quotaUpdatedAt: String?
     let quotaStale: Bool?
+    let quotaWindows: [QuotaWindowDTO]?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -231,6 +252,7 @@ struct AgentStateDTO: Decodable, Equatable, Sendable {
         case quota7DRemaining = "quota_7d_remaining"
         case quotaUpdatedAt = "quota_updated_at"
         case quotaStale = "quota_stale"
+        case quotaWindows = "quota_windows"
     }
 }
 
@@ -282,6 +304,10 @@ struct BridgeSnapshot: Equatable, Sendable {
     var hasPortConflict: Bool {
         healthEndpointResponded && !isHealthy
     }
+
+    var isM2PairingReady: Bool {
+        isHealthy && health?.protocolVersion == 2 && health?.bridgeID.flatMap(UUID.init(uuidString:)) != nil
+    }
 }
 
 struct LegacyConfigurationSummary: Equatable, Sendable {
@@ -327,13 +353,15 @@ struct AppConfiguration: Codable, Equatable, Sendable {
     var launchAtLogin: Bool
     var showTechnicalDetails: Bool
     var refreshIntervalSeconds: Double
+    var manualBridgeAddress: String?
 
     static let standard = AppConfiguration(
         schemaVersion: currentSchemaVersion,
         showMenuBarItem: true,
         launchAtLogin: false,
         showTechnicalDetails: false,
-        refreshIntervalSeconds: 15
+        refreshIntervalSeconds: 15,
+        manualBridgeAddress: nil
     )
 }
 
@@ -357,4 +385,230 @@ struct AppMessage: Identifiable {
     let id = UUID()
     let title: String
     let message: String
+}
+
+enum DeviceModule: String, CaseIterable, Codable, Identifiable, Sendable {
+    case codex
+    case claude
+    case connection
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .codex: "Codex"
+        case .claude: "Claude"
+        case .connection: "连接状态"
+        }
+    }
+}
+
+enum FrontDoublePressAction: String, CaseIterable, Codable, Identifiable, Sendable {
+    case refreshQuota = "refresh_quota"
+    case showStatus = "show_status"
+    case home
+    case toggleMute = "toggle_mute"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .refreshQuota: "刷新额度"
+        case .showStatus: "显示状态"
+        case .home: "返回首页"
+        case .toggleMute: "静音切换"
+        }
+    }
+}
+
+enum SidePressAction: String, CaseIterable, Codable, Identifiable, Sendable {
+    case nextPage = "next_page"
+    case none
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .nextPage: "切换下一页"
+        case .none: "不执行动作"
+        }
+    }
+}
+
+struct DeviceProjectConfiguration: Codable, Equatable, Sendable {
+    var visible: Bool
+    var name: String
+}
+
+struct DeviceButtonConfiguration: Codable, Equatable, Sendable {
+    var frontDouble: FrontDoublePressAction
+    var sideSingle: SidePressAction
+
+    enum CodingKeys: String, CodingKey {
+        case frontDouble = "front_double"
+        case sideSingle = "side_single"
+    }
+}
+
+struct DeviceConfiguration: Codable, Equatable, Sendable {
+    static let schemaVersion = 1
+
+    var schemaVersion: Int
+    var revision: Int
+    var modules: [DeviceModule]
+    var defaultPage: DeviceModule
+    var project: DeviceProjectConfiguration
+    var buttons: DeviceButtonConfiguration
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case revision
+        case modules
+        case defaultPage = "default_page"
+        case project
+        case buttons
+    }
+
+    static let standard = DeviceConfiguration(
+        schemaVersion: schemaVersion,
+        revision: 0,
+        modules: [.codex, .connection],
+        defaultPage: .codex,
+        project: DeviceProjectConfiguration(visible: true, name: ""),
+        buttons: DeviceButtonConfiguration(frontDouble: .refreshQuota, sideSingle: .nextPage)
+    )
+
+    var normalized: DeviceConfiguration {
+        var value = self
+        value.schemaVersion = Self.schemaVersion
+        value.revision = max(0, revision)
+        value.project.name = String(project.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(39))
+        value.modules = Array(modules.reduce(into: [DeviceModule]()) { result, module in
+            if !result.contains(module) { result.append(module) }
+        })
+        if !value.modules.contains(.codex) { value.modules.insert(.codex, at: 0) }
+        if !value.modules.contains(.connection) { value.modules.append(.connection) }
+        if !value.modules.contains(value.defaultPage) { value.defaultPage = .codex }
+        return value
+    }
+}
+
+struct USBDeviceCandidate: Equatable, Sendable {
+    let portPath: String
+    let serialNumber: String?
+    let vendorID: Int
+    let productID: Int
+
+    static let esp32S3VendorID = 0x303A
+    static let usbSerialJTAGProductID = 0x1001
+}
+
+struct DeviceIdentity: Codable, Equatable, Sendable {
+    let deviceID: String
+    let model: String
+    let firmwareVersion: String
+    let protocolVersion: Int
+    let pairingID: String?
+
+    enum CodingKeys: String, CodingKey {
+        case deviceID = "device_id"
+        case model
+        case firmwareVersion = "firmware_version"
+        case protocolVersion = "protocol_version"
+        case pairingID = "pairing_id"
+    }
+}
+
+struct PairedDeviceRecord: Codable, Equatable, Identifiable, Sendable {
+    let deviceID: String
+    var name: String
+    let tokenSalt: String
+    let tokenHash: String
+    var keychainAccount: String? = nil
+    let pairedAt: String
+    let firmwareVersion: String
+    var revoked: Bool
+
+    var id: String { deviceID }
+
+    enum CodingKeys: String, CodingKey {
+        case deviceID = "device_id"
+        case name
+        case tokenSalt = "token_salt"
+        case tokenHash = "token_hash"
+        case keychainAccount = "keychain_account"
+        case pairedAt = "paired_at"
+        case firmwareVersion = "firmware_version"
+        case revoked
+    }
+}
+
+struct PairedDeviceRegistryDocument: Codable, Equatable, Sendable {
+    var schemaVersion: Int
+    var devices: [PairedDeviceRecord]
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case devices
+    }
+
+    static let empty = PairedDeviceRegistryDocument(schemaVersion: 1, devices: [])
+}
+
+struct PairedDeviceStatusDTO: Decodable, Equatable, Identifiable, Sendable {
+    let deviceID: String
+    let name: String
+    let pairedAt: String
+    let firmwareVersion: String
+    let online: Bool
+    let lastSeenEpoch: Double?
+    let lastConfigRevision: Int?
+    let targetConfigRevision: Int
+    let revoked: Bool
+
+    var id: String { deviceID }
+
+    enum CodingKeys: String, CodingKey {
+        case deviceID = "device_id"
+        case name
+        case pairedAt = "paired_at"
+        case firmwareVersion = "firmware_version"
+        case online
+        case lastSeenEpoch = "last_seen_epoch"
+        case lastConfigRevision = "last_config_revision"
+        case targetConfigRevision = "target_config_revision"
+        case revoked
+    }
+}
+
+struct BridgeDevicesDTO: Decodable, Equatable, Sendable {
+    let bridgeID: String
+    let protocolVersion: Int
+    let devices: [PairedDeviceStatusDTO]
+
+    enum CodingKeys: String, CodingKey {
+        case bridgeID = "bridge_id"
+        case protocolVersion = "protocol_version"
+        case devices
+    }
+}
+
+enum PairingPhase: Equatable, Sendable {
+    case idle
+    case detecting
+    case ready(USBDeviceCandidate)
+    case pairing
+    case paired(DeviceIdentity)
+    case unavailable(String)
+
+    var label: String {
+        switch self {
+        case .idle: "尚未检查"
+        case .detecting: "正在识别 USB"
+        case .ready: "已连接 StickS3"
+        case .pairing: "正在安全配对"
+        case .paired: "配对完成"
+        case .unavailable: "需要处理"
+        }
+    }
 }

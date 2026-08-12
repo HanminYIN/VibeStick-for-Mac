@@ -39,7 +39,7 @@ loadDotEnv(supportDirectory.appendingPathComponent(".env"))
 let runtimeSource = supportDirectory
     .appendingPathComponent("runtime/bridge/src", isDirectory: true)
 let pasteHelper = supportDirectory
-    .appendingPathComponent("VibeStick Paste.app", isDirectory: true)
+    .appendingPathComponent("Components.noindex/VibeStick Paste.app", isDirectory: true)
 setenv("PYTHONPATH", runtimeSource.path, 1)
 setenv("VIBE_STICK_PASTE_HELPER", pasteHelper.path, 1)
 

@@ -17,6 +17,18 @@ enum SupportPaths {
         supportDirectory.appendingPathComponent(".env")
     }
 
+    static var deviceRegistryFile: URL {
+        supportDirectory.appendingPathComponent("devices-v1.json")
+    }
+
+    static var deviceConfigurationFile: URL {
+        supportDirectory.appendingPathComponent("device-config-v1.json")
+    }
+
+    static var bridgeIdentityFile: URL {
+        supportDirectory.appendingPathComponent("bridge-identity-v1.json")
+    }
+
     static var bridgeLaunchAgent: URL {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/LaunchAgents/com.vibestick.bridge.plist")
@@ -28,7 +40,7 @@ enum SupportPaths {
     }
 
     static var bridgeApp: URL {
-        supportDirectory.appendingPathComponent("VibeStick Bridge.app", isDirectory: true)
+        componentsDirectory.appendingPathComponent("VibeStick Bridge.app", isDirectory: true)
     }
 
     static var bridgeExecutable: URL {
@@ -36,7 +48,7 @@ enum SupportPaths {
     }
 
     static var hudApp: URL {
-        supportDirectory.appendingPathComponent("VibeStick HUD.app", isDirectory: true)
+        componentsDirectory.appendingPathComponent("VibeStick HUD.app", isDirectory: true)
     }
 
     static var hudExecutable: URL {
@@ -44,11 +56,15 @@ enum SupportPaths {
     }
 
     static var pasteApp: URL {
-        supportDirectory.appendingPathComponent("VibeStick Paste.app", isDirectory: true)
+        componentsDirectory.appendingPathComponent("VibeStick Paste.app", isDirectory: true)
     }
 
     static var pasteExecutable: URL {
         pasteApp.appendingPathComponent("Contents/MacOS/VibeStickPaste")
+    }
+
+    private static var componentsDirectory: URL {
+        supportDirectory.appendingPathComponent("Components.noindex", isDirectory: true)
     }
 
     static var recordingFile: URL {
@@ -123,7 +139,11 @@ struct KeychainStore: SecretStoring, Sendable {
     }
 
     func read(_ key: KeychainSecret) throws -> Data? {
-        var query = baseQuery(for: key)
+        try read(account: key.rawValue)
+    }
+
+    func read(account: String) throws -> Data? {
+        var query = baseQuery(account: account)
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
@@ -137,7 +157,11 @@ struct KeychainStore: SecretStoring, Sendable {
     }
 
     func write(_ data: Data, for key: KeychainSecret) throws {
-        let query = baseQuery(for: key)
+        try write(data, account: key.rawValue)
+    }
+
+    func write(_ data: Data, account: String) throws {
+        let query = baseQuery(account: account)
         let attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
@@ -159,17 +183,21 @@ struct KeychainStore: SecretStoring, Sendable {
     }
 
     func delete(_ key: KeychainSecret) throws {
-        let status = SecItemDelete(baseQuery(for: key) as CFDictionary)
+        try delete(account: key.rawValue)
+    }
+
+    func delete(account: String) throws {
+        let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError(status: status)
         }
     }
 
-    private func baseQuery(for key: KeychainSecret) -> [String: Any] {
+    private func baseQuery(account: String) -> [String: Any] {
         [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: key.rawValue,
+            kSecAttrAccount as String: account,
         ]
     }
 }

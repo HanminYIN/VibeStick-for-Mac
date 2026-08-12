@@ -1,11 +1,12 @@
 # VibeStick for Mac
 
-`VibeStick.xcodeproj` is the native SwiftUI control center introduced in M1. It targets Apple Silicon and macOS 15 or newer.
+`VibeStick.xcodeproj` is the native SwiftUI control center introduced in M1 and extended with the M2 pairing/configuration source implementation. It targets Apple Silicon and macOS 15 or newer.
 
 See the [M1 achievements and validation evidence](../../docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
-for the upstream boundary, implemented scope, manual acceptance, and deferred work.
+and [M2 achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)
+for the upstream boundary, implemented scope, real-device acceptance, and deferred work.
 
-## M1 scope
+## M1 foundation and M2 extension
 
 The M1 app intentionally manages the existing stable installation instead of replacing it:
 
@@ -15,9 +16,12 @@ The M1 app intentionally manages the existing stable installation instead of rep
 - Checks Accessibility by launching the installed `VibeStick Paste.app` through LaunchServices, matching the real paste path so the permission identity is not confused with the main app.
 - Reads only a redacted summary of the legacy `.env`; presence is not presented as a successful ASR test, and secret values are never displayed.
 - Stores new non-secret preferences in `config-v1.json` with mode `0600` and provides a Keychain storage boundary for later migrations.
-- Includes placeholders for the agreed M2–M4 modules without pretending that pairing, firmware generation, or flashing already works.
+- Provides M2 device configuration controls, local paired-device status, strict StickS3 USB detection, and explicit USB pair/re-pair actions.
+- Refuses to write a new pairing key unless the running Bridge reports protocol 2 and a valid Bridge ID, protecting the installed M1 runtime from a token mismatch.
 
 First launch does not run `scripts/install.sh`, rebuild helpers, modify `.env`, alter firmware, or re-sign the installed Paste app. Closing or quitting the control center does not stop background services.
+
+The M2 control surface does not turn the current development DMG into a firmware installer. Installing the M2 Bridge and flashing compatible firmware remain separately authorized maintenance actions. No firmware operation happens on app launch or USB detection.
 
 If a healthy Bridge is already running outside the installed LaunchAgent, the control center reports it as externally managed and keeps service controls read-only. This avoids creating a second process on port 8765. Stop and restart are also blocked while a recording or transcription is active.
 
@@ -37,7 +41,7 @@ Open `VibeStick.xcodeproj` in Xcode and choose the `VibeStickForMac` scheme, or 
 scripts/build-macos-app.sh
 ```
 
-The ad-hoc-signed development app is written to `.build/macos/VibeStick for Mac.app`.
+The ad-hoc-signed development app is written to `.build/macos.noindex/VibeStick for Mac.app` so macOS does not list build artifacts as installed apps.
 
 Build the development DMG with:
 
@@ -45,7 +49,7 @@ Build the development DMG with:
 scripts/build-macos-dmg.sh
 ```
 
-The result is `.build/macos/VibeStick-for-Mac-M1.dmg`. This M1 DMG is for a Mac that already has the stable VibeStick services installed. A self-contained clean-machine installer and on-demand flashing tool download belong to M4/R1.
+The result is `.build/macos.noindex/VibeStick-for-Mac-M2.dmg`. This M2 development DMG is for a Mac that already has compatible VibeStick services and firmware installed; it does not install or flash firmware. A self-contained clean-machine installer and on-demand flashing tool download belong to M4/R1.
 
 Run the complete local acceptance chain with:
 

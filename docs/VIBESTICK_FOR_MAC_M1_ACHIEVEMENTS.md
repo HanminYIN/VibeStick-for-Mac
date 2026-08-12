@@ -10,6 +10,8 @@
 >
 > 独立维护：[HanminYIN/VibeStick](https://github.com/HanminYIN/VibeStick)
 
+> 本文件保留 M1 封存时的完成范围与后续待办；M2 的当前成果见 [M2 阶段成果与版本演进对比](VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)。
+
 ## 1. 阶段结论
 
 VibeStick for Mac 已经从“在原项目上修几个问题”发展为一个具备独立产品方向、原生 Mac 应用、质量门禁和后续路线图的 macOS / M5Stack StickS3 衍生项目。

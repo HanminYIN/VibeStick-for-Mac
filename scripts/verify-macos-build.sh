@@ -3,12 +3,13 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
-BUILD_ROOT="$ROOT_DIR/.build/macos"
+BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M1.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M2.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
+LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 assert_binary() {
   binary_path="$1"
@@ -352,6 +353,9 @@ cleanup_all() {
     stop_smoke_app "$ACTIVE_SMOKE_PID"
     ACTIVE_SMOKE_PID=""
   fi
+  if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT/VibeStick for Mac.app" ]; then
+    "$LSREGISTER_PATH" -u "$MOUNT_POINT/VibeStick for Mac.app" >/dev/null 2>&1 || true
+  fi
   if [ "$mounted" -eq 1 ] && [ -n "$MOUNT_POINT" ]; then
     /usr/bin/hdiutil detach "$MOUNT_POINT" >/dev/null 2>&1 || true
     mounted=0
@@ -366,6 +370,8 @@ cleanup_all() {
       ;;
   esac
   ACTIVE_SMOKE_DIR=""
+  /usr/bin/find "$BUILD_ROOT" -type d -name 'VibeStick*.app' -prune \
+    -exec "$LSREGISTER_PATH" -u '{}' + >/dev/null 2>&1 || true
   exit "$cleanup_status"
 }
 
@@ -612,6 +618,7 @@ assert_menu_bar_icon "$MOUNTED_APP" "DMG app"
 assert_no_forbidden_files "$MOUNT_POINT" "mounted DMG"
 assert_app_launch_smoke "$MOUNTED_APP" "DMG app"
 
+"$LSREGISTER_PATH" -u "$MOUNTED_APP" >/dev/null 2>&1 || true
 /usr/bin/hdiutil detach "$MOUNT_POINT" >/dev/null
 mounted=0
 /bin/rmdir "$MOUNT_POINT"

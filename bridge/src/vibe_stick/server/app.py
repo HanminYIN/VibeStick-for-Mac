@@ -35,6 +35,9 @@ from vibe_stick.protocol.state import (
 from vibe_stick.providers.base import ProviderObservation
 from vibe_stick.providers.claude import observe_claude
 from vibe_stick.providers.codex import observe_codex
+from vibe_stick.protocol.device_config import DeviceConfigurationStore
+from vibe_stick.protocol.discovery import BonjourAdvertiser, BridgeIdentityStore
+from vibe_stick.protocol.pairing import PairedDeviceRegistry
 
 MANUAL_STATUS_SECONDS = 60
 BRIDGE_NAME = "vibestick-bridge"
@@ -50,7 +53,13 @@ PLACEHOLDER_BRIDGE_TOKENS = {
 
 
 class BridgeStateStore:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        device_registry: PairedDeviceRegistry | None = None,
+        device_configuration: DeviceConfigurationStore | None = None,
+        bridge_identity: BridgeIdentityStore | None = None,
+    ) -> None:
         ensure_app_support()
         self._lock = threading.RLock()
         self._project_root = _resolve_project_root()
@@ -62,6 +71,10 @@ class BridgeStateStore:
             self._claude_quota = _claude_quota_from_state(self._state)
         self._claude_usage_last_attempt = 0.0
         self._claude_usage_last_success = 0.0
+        self.device_registry = device_registry or PairedDeviceRegistry()
+        self.device_configuration = device_configuration or DeviceConfigurationStore()
+        self.bridge_id = (bridge_identity or BridgeIdentityStore()).bridge_id()
+        self._device_runtime: dict[str, dict[str, Any]] = {}
         quota = load_quota(QUOTA_PATH)
         self._state.codex.quota_5h_remaining = quota.quota_5h_remaining
         self._state.codex.quota_7d_remaining = quota.quota_7d_remaining
@@ -69,6 +82,55 @@ class BridgeStateStore:
         self._state.codex.quota_stale = quota.quota_stale
         self.recording = RecordingController(RECORDING_PATH)
         hide_hud()
+
+    def note_device_request(self, device_id: str, headers: Any) -> None:
+        with self._lock:
+            runtime = self._device_runtime.setdefault(device_id, {})
+            runtime["last_seen_epoch"] = time.time()
+            runtime["firmware_name"] = str(headers.get("X-Vibe-Stick-Firmware-Name", ""))[:32]
+            runtime["firmware_version"] = str(headers.get("X-Vibe-Stick-Firmware-Version", ""))[:32]
+
+    def acknowledge_configuration(self, device_id: str, revision: int) -> dict[str, Any]:
+        current_revision = int(self.device_configuration.current().get("revision", 0))
+        accepted = revision == current_revision
+        with self._lock:
+            runtime = self._device_runtime.setdefault(device_id, {})
+            runtime["last_seen_epoch"] = time.time()
+            if accepted:
+                runtime["last_config_revision"] = revision
+        return {
+            "accepted": accepted,
+            "current_revision": current_revision,
+        }
+
+    def devices_status(self) -> dict[str, Any]:
+        now = time.time()
+        current_revision = int(self.device_configuration.current().get("revision", 0))
+        with self._lock:
+            runtime = {device_id: dict(value) for device_id, value in self._device_runtime.items()}
+        devices = []
+        for paired in self.device_registry.devices():
+            live = runtime.get(paired.device_id, {})
+            last_seen = live.get("last_seen_epoch")
+            online = isinstance(last_seen, (int, float)) and now - float(last_seen) <= 10
+            devices.append(
+                {
+                    "device_id": paired.device_id,
+                    "name": paired.name,
+                    "paired_at": paired.paired_at,
+                    "firmware_version": live.get("firmware_version") or paired.firmware_version,
+                    "online": online,
+                    "last_seen_epoch": last_seen,
+                    "last_config_revision": live.get("last_config_revision"),
+                    "target_config_revision": current_revision,
+                    "revoked": paired.revoked,
+                }
+            )
+        return {
+            "bridge_id": self.bridge_id,
+            "protocol_version": 2,
+            "devices": devices,
+        }
 
     def get_state(self) -> VibeStickState:
         with self._lock:
@@ -290,22 +352,40 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
         server_version = "VibeStick/0.1"
 
         def do_GET(self) -> None:
-            if self.path == "/state":
+            parsed = urlparse(self.path)
+            if parsed.path == "/state":
+                if not self._is_loopback_request() and not self._is_runtime_authorized():
+                    self._send_error(HTTPStatus.UNAUTHORIZED, "Unauthorized")
+                    return
                 self._send_json(_with_bridge_metadata(store.get_state().to_jsonable()))
-            elif self.path == "/health":
+            elif parsed.path == "/health":
                 self._send_json(
                     {
                         "ok": True,
                         "bridge_name": BRIDGE_NAME,
                         "bridge_version": BRIDGE_VERSION,
+                        "protocol_version": 2,
+                        "bridge_id": store.bridge_id,
                     }
                 )
+            elif parsed.path == "/v1/devices":
+                if not self._is_loopback_request():
+                    self._send_error(HTTPStatus.FORBIDDEN, "Local management endpoint")
+                    return
+                self._send_json(store.devices_status())
+            elif parsed.path == "/v1/device/config":
+                device_id = self._paired_device_id()
+                if device_id is None:
+                    self._send_error(HTTPStatus.UNAUTHORIZED, "Paired device required")
+                    return
+                store.note_device_request(device_id, self.headers)
+                self._send_json(store.device_configuration.current())
             else:
                 self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
-            if parsed.path in _protected_paths() and not self._is_authorized():
+            if parsed.path in _protected_paths() and not self._is_runtime_authorized():
                 self._send_error(HTTPStatus.UNAUTHORIZED, "Unauthorized")
                 return
 
@@ -341,6 +421,18 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
             elif parsed.path == "/recording/stop":
                 body = self._read_json_body()
                 self._send_json(store.stop_recording(body))
+            elif parsed.path == "/v1/device/config/ack":
+                device_id = self._paired_device_id()
+                if device_id is None:
+                    self._send_error(HTTPStatus.UNAUTHORIZED, "Paired device required")
+                    return
+                body = self._read_json_body()
+                revision = body.get("revision")
+                if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "Invalid revision")
+                    return
+                store.note_device_request(device_id, self.headers)
+                self._send_json(store.acknowledge_configuration(device_id, revision))
             else:
                 self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
@@ -377,21 +469,45 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                 return 0
             return max(0, length)
 
-        def _is_authorized(self) -> bool:
+        def _is_runtime_authorized(self) -> bool:
+            paired_device_id = self._paired_device_id()
+            if paired_device_id is not None:
+                store.note_device_request(paired_device_id, self.headers)
+                return True
             expected = _bridge_token()
             if not expected:
-                return True
+                return self._is_loopback_request()
             supplied = self.headers.get("X-Vibe-Stick-Token", "")
             return hmac.compare_digest(supplied, expected)
 
+        def _paired_device_id(self) -> str | None:
+            device_id = self.headers.get("X-Vibe-Stick-Device-ID", "").strip()
+            supplied = self.headers.get("X-Vibe-Stick-Token", "")
+            if store.device_registry.authenticate(device_id, supplied):
+                return device_id
+            return None
+
+        def _is_loopback_request(self) -> bool:
+            try:
+                return ipaddress.ip_address(self.client_address[0]).is_loopback
+            except ValueError:
+                return False
+
         def _send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                # StickS3 may time out or reset after sending a request but
+                # before reading the response. The request has already been
+                # handled, so a disconnected response socket is not a Bridge
+                # failure and should not emit a server traceback.
+                return
 
         def _send_error(self, status: HTTPStatus, message: str) -> None:
             self._send_json({"error": message}, status=status)
@@ -400,16 +516,22 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
 
 
 def run_server(host: str, port: int) -> None:
-    _enforce_bind_security(host)
     store = BridgeStateStore()
+    _enforce_bind_security(host, store.device_registry)
     server = ThreadingHTTPServer((host, port), make_handler(store))
-    if not _bridge_token():
+    advertiser = BonjourAdvertiser(bridge_id=store.bridge_id, port=port)
+    advertiser.start()
+    if not _bridge_token() and not store.device_registry.devices():
         print(
             "WARNING: VIBE_STICK_BRIDGE_TOKEN is not set; POST endpoints are unauthenticated on loopback only.",
             flush=True,
         )
     print(f"VibeStick Bridge listening on http://{host}:{port}", flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        advertiser.stop()
+        server.server_close()
 
 
 def _protected_paths() -> set[str]:
@@ -429,11 +551,13 @@ def _bridge_token() -> str:
     return token
 
 
-def _enforce_bind_security(host: str) -> None:
-    if _host_requires_token(host) and not _bridge_token():
+def _enforce_bind_security(host: str, registry: PairedDeviceRegistry | None = None) -> None:
+    paired_devices = (registry or PairedDeviceRegistry()).devices()
+    if _host_requires_token(host) and not _bridge_token() and not paired_devices:
         raise SystemExit(
             "Refusing to bind VibeStick Bridge outside loopback without "
-            "VIBE_STICK_BRIDGE_TOKEN. Set a strong shared token or use --host 127.0.0.1."
+            "a paired device or VIBE_STICK_BRIDGE_TOKEN. Pair over USB, set a strong legacy token, "
+            "or use --host 127.0.0.1."
         )
 
 

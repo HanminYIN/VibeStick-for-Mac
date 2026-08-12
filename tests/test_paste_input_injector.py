@@ -16,6 +16,8 @@ class MacPasteInjectorTests(unittest.TestCase):
             helper.mkdir()
 
             def launch_helper(args, **kwargs):
+                if args[0].endswith("/lsregister"):
+                    return subprocess.CompletedProcess(args, 0, "", "")
                 request_path = Path(args[args.index("--request") + 1])
                 response_path = Path(args[args.index("--response") + 1])
                 request = json.loads(request_path.read_text())
@@ -34,10 +36,17 @@ class MacPasteInjectorTests(unittest.TestCase):
                 result = MacPasteInjector().paste("hello from VibeStick", press_enter=True)
 
         self.assertTrue(result.success)
-        run.assert_called_once()
-        args, kwargs = run.call_args
+        self.assertEqual(run.call_count, 2)
+        args, kwargs = run.call_args_list[0]
         self.assertEqual(args[0][:6], ["/usr/bin/open", "-W", "-g", "-n", str(helper), "--args"])
         self.assertEqual(kwargs, {"check": False, "capture_output": True, "text": True, "timeout": 5})
+        unregister_args, unregister_kwargs = run.call_args_list[1]
+        self.assertTrue(unregister_args[0][0].endswith("/lsregister"))
+        self.assertEqual(unregister_args[0][1:], ["-u", str(helper)])
+        self.assertEqual(
+            unregister_kwargs,
+            {"check": False, "capture_output": True, "text": True, "timeout": 2},
+        )
 
     def test_configured_missing_helper_is_reported(self) -> None:
         with (
