@@ -42,6 +42,23 @@ class DeviceConfigurationTests(unittest.TestCase):
         self.assertNotIn("password", serialized)
         self.assertNotIn("api_key", serialized)
 
+    def test_project_name_respects_ui_and_firmware_limits(self) -> None:
+        latin = normalize_device_configuration(
+            {
+                "schema_version": 1,
+                "project": {"visible": True, "name": "abcdefghijklmnopqrstuvwxyz"},
+            }
+        )
+        chinese = normalize_device_configuration(
+            {
+                "schema_version": 1,
+                "project": {"visible": True, "name": "这是一个长度超过固件字节限制的项目名称"},
+            }
+        )
+
+        self.assertEqual(latin["project"]["name"], "abcdefghijklmnopqr")
+        self.assertLess(len(chinese["project"]["name"].encode("utf-8")), 40)
+
 
 if __name__ == "__main__":
     unittest.main()

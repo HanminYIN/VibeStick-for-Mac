@@ -8,8 +8,8 @@ struct DeviceInterfaceView: View {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "设备界面",
-                    subtitle: "M2 使用通用配置同步模块和按键；项目名称留待 M3 实装。",
-                    milestone: "M2"
+                    subtitle: "M3 将已确认的 Codex Focus 布局接入真实设备配置。",
+                    milestone: "M3"
                 )
 
                 StatusCard(
@@ -41,11 +41,11 @@ struct DeviceInterfaceView: View {
                         }
                     }
                     .disabled(true)
-                    Text("M2 固定 Codex 为默认页；M3 完成页面拖动排序与实机高保真布局。")
+                    Text("Codex Focus 当前固定为首页；页面拖动排序将在后续 M3 小阶段开放。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack {
-                        Button("保存并同步 M2 设置") {
+                        Button("保存并同步设备设置") {
                             model.saveDeviceConfiguration()
                         }
                         .buttonStyle(.borderedProminent)
@@ -64,23 +64,23 @@ struct DeviceInterfaceView: View {
                 }
 
                 StatusCard(
-                    title: "新首页结构草图",
-                    subtitle: "M3 的视觉草图；M2 不改变当前稳定屏幕布局",
+                    title: "Codex Focus 实时预览",
+                    subtitle: "项目名开关会同步改变预览与设备首页布局",
                     systemImage: "display",
-                    tone: .neutral
+                    tone: .healthy
                 ) {
                     HStack(spacing: 30) {
                         VStack(spacing: 10) {
-                            Label("草图", systemImage: "pencil.and.outline")
+                            Label("135 × 240", systemImage: "display")
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(VibeStickStyle.accent)
                             deviceMockup
                         }
                         VStack(alignment: .leading, spacing: 16) {
                             Label("Codex 固定为首页", systemImage: "house.fill")
                             Label("额度显示是基础能力", systemImage: "chart.bar.fill")
-                            Label("M2 已接入设置同步与动态额度数据", systemImage: "arrow.triangle.2.circlepath")
-                            Label("M3 完成页面排版与真实设备预览", systemImage: "rectangle.3.group")
+                            Label("单额度与 5H + 7D 双窗口自动重排", systemImage: "arrow.triangle.2.circlepath")
+                            Label("有无项目名时分别平衡视觉重心", systemImage: "rectangle.3.group")
                             Label("录音、识别、待发送时临时全屏覆盖", systemImage: "rectangle.inset.filled")
                             Label("关闭的模块不会留下空白页面", systemImage: "rectangle.stack.badge.minus")
                         }
@@ -91,14 +91,27 @@ struct DeviceInterfaceView: View {
                 }
 
                 StatusCard(
-                    title: "项目名称（M3 预览）",
-                    subtitle: "尚未接入实体设备屏幕，当前不会改变设备画面",
+                    title: "项目名称",
+                    subtitle: "名称与显示开关通过 M2 安全配置通道同步",
                     systemImage: "textformat",
-                    tone: .inactive
+                    tone: .neutral
                 ) {
-                    Label("M3 实装后可显示在 Codex 下方，并在隐藏时重新平衡版面。", systemImage: "clock.badge")
-                    LabeledContent("计划支持", value: "当前项目 / 固定名称 / 隐藏")
-                    Text("当前版本只保留配置协议的向后兼容性；为避免产生看似成功但没有画面效果的设置，这里暂不提供编辑入口。")
+                    Toggle(
+                        "在设备首页显示项目名称",
+                        isOn: Binding(
+                            get: { model.deviceConfiguration.project.visible },
+                            set: { model.setProjectVisibility($0) }
+                        )
+                    )
+                    TextField(
+                        "例如 VibeStick",
+                        text: Binding(
+                            get: { model.deviceConfiguration.project.name },
+                            set: { model.setProjectName($0) }
+                        )
+                    )
+                    .disabled(!model.deviceConfiguration.project.visible)
+                    Text("留空时显示 Bridge 当前识别到的 Codex 项目；填写名称时使用固定名称。当前小屏字体优先支持英文、数字和常用符号；隐藏后状态卡会自动放大并重新平衡。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -125,31 +138,96 @@ struct DeviceInterfaceView: View {
     }
 
     private var deviceMockup: some View {
-        VStack(spacing: 8) {
-            Text("Codex")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-            Spacer()
-            Text("状态区域")
-                .font(.title3.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.65))
-            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                Text("—")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                Text("额度")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.65))
+        VStack(spacing: 6) {
+            HStack(spacing: 5) {
+                Text("WiFi")
+                    .offset(y: 1)
+                Circle().fill(.green).frame(width: 5, height: 5)
+                Spacer()
+                Text("96%")
             }
-            .foregroundStyle(.white)
+            .font(.system(size: 10, weight: .medium))
+
+            VStack(spacing: 7) {
+                HStack(spacing: 10) {
+                    Image(systemName: "terminal.fill")
+                        .font(.system(size: 28, weight: .semibold))
+                        .frame(width: 52, height: 52)
+                        .foregroundStyle(.white)
+                        .background(VibeStickStyle.accent, in: RoundedRectangle(cornerRadius: 15))
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text("CODEX")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .tracking(1)
+                        HStack(spacing: 5) {
+                            Circle().fill(.gray).frame(width: 7, height: 7)
+                            Text("待命").font(.title2.weight(.semibold))
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .offset(
+                        x: model.deviceConfiguration.project.visible ? -3 : 0,
+                        y: model.deviceConfiguration.project.visible ? 3 : 0
+                    )
+                }
+                if model.deviceConfiguration.project.visible {
+                    Label(previewProjectName, systemImage: "circle.fill")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .labelStyle(.titleAndIcon)
+                }
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity)
+            .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+
+            VStack(spacing: 7) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text("7D")
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer()
+                    Text("LEFT")
+                        .font(.system(size: 11, weight: .medium))
+                }
+                .foregroundStyle(.secondary)
+                Text("98%")
+                    .font(.system(size: 30, weight: .semibold, design: .rounded))
+                ProgressView(value: 0.98).tint(VibeStickStyle.accent)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
+
+            HStack(spacing: 4) {
+                Circle().fill(.green).frame(width: 4, height: 4)
+                Text("SYNC")
+                Spacer()
+                Text("2X REFRESH")
+            }
+            .font(.system(size: 8, weight: .medium))
+            .foregroundStyle(.secondary)
+
+            Text("HOLD TO SPEAK")
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
         }
-        .padding(18)
-        .frame(width: 180, height: 320)
-        .background(Color.black, in: RoundedRectangle(cornerRadius: 26))
+        .foregroundStyle(.white)
+        .padding(12)
+        .frame(width: 180, height: 320, alignment: .top)
+        .background(Color.black, in: RoundedRectangle(cornerRadius: 22))
         .overlay {
-            RoundedRectangle(cornerRadius: 26)
+            RoundedRectangle(cornerRadius: 22)
                 .stroke(Color.white.opacity(0.16), lineWidth: 1)
         }
         .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+    }
+
+    private var previewProjectName: String {
+        let fixedName = model.deviceConfiguration.project.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !fixedName.isEmpty { return fixedName }
+        let liveName = model.bridgeSnapshot.state?.codexState?.project?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return liveName?.isEmpty == false ? liveName! : "VibeStick"
     }
 
 }

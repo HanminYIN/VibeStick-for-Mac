@@ -1,9 +1,10 @@
 # Roadmap
 
 VibeStick for Mac has completed its local M0 stable-baseline, M1 native-control-center,
-and M2 pairing/discovery/configuration-sync checkpoints. See the
+M2 pairing/discovery/configuration-sync, and M3-A Codex Focus checkpoints. See the
 [M1 achievements](VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md),
 [M2 achievements and upstream comparison](VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md),
+[M3-A achievements and upstream comparison](VIBESTICK_FOR_MAC_M3A_ACHIEVEMENTS.md),
 and the detailed [VibeStick for Mac roadmap](VIBESTICK_FOR_MAC_ROADMAP.md).
 
 The milestones below preserve the earlier upstream planning context. The independently

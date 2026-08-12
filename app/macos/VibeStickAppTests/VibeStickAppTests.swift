@@ -462,11 +462,22 @@ struct VibeStickAppTests {
 
         #expect(saved.revision == 1)
         #expect(loaded.modules == [.codex, .claude, .connection])
-        #expect(loaded.project.name.count == 39)
+        #expect(loaded.project.name.count == 18)
         #expect(permissions?.intValue == 0o600)
         #expect(!raw.contains("token"))
         #expect(!raw.contains("password"))
         #expect(!raw.contains("api_key"))
+    }
+
+    @Test
+    func projectNameRespectsFirmwareCharacterAndByteLimits() {
+        var latin = DeviceConfiguration.standard
+        latin.project.name = "abcdefghijklmnopqrstuvwxyz"
+        var chinese = DeviceConfiguration.standard
+        chinese.project.name = "这是一个长度超过固件字节限制的项目名称"
+
+        #expect(latin.normalized.project.name == "abcdefghijklmnopqr")
+        #expect(chinese.normalized.project.name.utf8.count < 40)
     }
 }
 
@@ -547,6 +558,6 @@ private actor RejectingPairingSerialClient: DeviceSerialPairing {
 
 private actor FixedPairingBridgeIdentityStore: PairingBridgeIdentityStoring {
     func bridgeID() -> String {
-        "5be5e010-cbc4-432c-9579-0ec418e75a98"
+        "11111111-2222-4333-8444-555555555555"
     }
 }

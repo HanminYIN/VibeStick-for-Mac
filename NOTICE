@@ -10,15 +10,18 @@ The original copyright and MIT permission notice are retained in LICENSE.
 Project history is preserved so that upstream and derivative contributions
 remain attributable.
 
-This repository contains a generated LVGL glyph subset derived from Source Han Sans K Regular.
+This repository contains generated LVGL glyph subsets derived from Source Han Sans K Regular
+and Noto Sans SC Regular.
 
 Source Han Sans K Regular
 Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name "Source".
 Licensed under the SIL Open Font License, Version 1.1.
+The license text is included at docs/SIL-OFL-1.1.txt.
 
-The generated glyph subset is used only for the StickS3 Chinese UI font in:
+The generated glyph subsets are used only for the StickS3 Chinese UI fonts in:
 
   firmware/sticks3/generated/vibe_stick_cn_16.c
+  firmware/sticks3/generated/vibe_stick_ui_12.c
 
 VibeStick for Mac does not intentionally vendor third-party brand assets or
 historical prototype application shells. Provider names describe compatibility

@@ -20,7 +20,7 @@ class PairingProtocolTests(unittest.TestCase):
                         "schema_version": 1,
                         "devices": [
                             {
-                                "device_id": "vs-14c19fd56070",
+                                "device_id": "vs-001122334455",
                                 "name": "StickS3",
                                 "token_salt": salt,
                                 "token_hash": pairing_token_hash(salt, token),
@@ -35,8 +35,8 @@ class PairingProtocolTests(unittest.TestCase):
             )
             registry = PairedDeviceRegistry(path)
 
-            self.assertTrue(registry.authenticate("vs-14c19fd56070", token))
-            self.assertFalse(registry.authenticate("vs-14c19fd56070", "b" * 43))
+            self.assertTrue(registry.authenticate("vs-001122334455", token))
+            self.assertFalse(registry.authenticate("vs-001122334455", "b" * 43))
             self.assertFalse(registry.authenticate("vs-other-device", token))
 
     def test_revoked_or_malformed_entries_never_authenticate(self) -> None:
@@ -48,7 +48,7 @@ class PairingProtocolTests(unittest.TestCase):
                         "schema_version": 1,
                         "devices": [
                             {
-                                "device_id": "vs-14c19fd56070",
+                                "device_id": "vs-001122334455",
                                 "token_salt": "not-hex",
                                 "token_hash": "0" * 64,
                             }
@@ -57,10 +57,10 @@ class PairingProtocolTests(unittest.TestCase):
                 ),
                 encoding="utf-8",
             )
-            self.assertFalse(PairedDeviceRegistry(path).authenticate("vs-14c19fd56070", "a" * 43))
+            self.assertFalse(PairedDeviceRegistry(path).authenticate("vs-001122334455", "a" * 43))
 
     def test_device_id_validation_is_narrow(self) -> None:
-        self.assertTrue(valid_device_id("vs-14c19fd56070"))
+        self.assertTrue(valid_device_id("vs-001122334455"))
         self.assertFalse(valid_device_id("../../secrets"))
         self.assertFalse(valid_device_id("short"))
 

@@ -29,10 +29,23 @@ class QuotaTests(unittest.TestCase):
     def test_save_and_load_quota_round_trips(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "quota.json"
-            save_quota(path, QuotaSnapshot(53, 93, "13:01", False))
+            save_quota(
+                path,
+                QuotaSnapshot(
+                    53,
+                    93,
+                    "13:01",
+                    False,
+                    "codex-app-server",
+                    1_786_520_460.0,
+                ),
+            )
             quota = load_quota(path)
 
-        self.assertEqual(quota, QuotaSnapshot(53, 93, "13:01", False))
+        self.assertEqual(
+            quota,
+            QuotaSnapshot(53, 93, "13:01", False, "codex-app-server", 1_786_520_460.0),
+        )
 
 
 if __name__ == "__main__":

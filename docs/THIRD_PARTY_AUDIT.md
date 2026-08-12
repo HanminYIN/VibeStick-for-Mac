@@ -1,7 +1,7 @@
 # Third-Party Audit
 
-This audit began with the v0.1.1 cleanup and was reviewed for the VibeStick for Mac
-M1 checkpoint on 2026-08-12.
+This audit began with the v0.1.1 cleanup and was reviewed through the VibeStick for Mac
+M3-A checkpoint on 2026-08-12.
 
 | Project / file / dependency | Source | Current use | License status | Risk | Recommendation |
 | --- | --- | --- | --- | --- | --- |
@@ -17,6 +17,7 @@ M1 checkpoint on 2026-08-12.
 | `assets/brand/home-screen-preview.png` and `assets/brand/voice-input-preview.png` | Existing upstream repository assets; separate generation metadata is not recorded | README and product preview imagery | Covered by the upstream repository license, but provenance is less explicit than the geometric icon assets | Medium | Keep for current project documentation; document provenance or regenerate before a broad standalone marketing release. |
 | `firmware/sticks3/generated/vibe_stick_ui_assets.c/.h` | Generated from project-owned PNG icons | LVGL image descriptors for provider icons | MIT under this repository | Low | Keep. |
 | `firmware/sticks3/generated/vibe_stick_cn_16.c` | Generated from Source Han Sans K Regular | LVGL Chinese glyph subset for StickS3 UI | Source font is SIL Open Font License 1.1, copyright Adobe 2014-2021 | Medium | Keep with NOTICE attribution. Do not use the reserved Source name as an VibeStick brand. |
+| `firmware/sticks3/generated/vibe_stick_ui_12.c` | Generated from Noto Sans SC Regular | Compact LVGL glyph subset for fixed Chinese home-screen labels | Source font is SIL Open Font License 1.1, copyright Adobe 2014-2021 | Medium | Keep with NOTICE attribution. Do not use the reserved Source name as a VibeStick brand. |
 | `firmware/sticks3/src/idf_component.yml` dependencies: `espressif/button`, `espressif/esp_codec_dev`, `lvgl/lvgl` | ESP Component Registry | Build-time firmware dependencies | External open-source components, not vendored after cleanup | Low | Keep dependency manifest and lock file. Review component licenses before binary release. |
 | ESP-IDF framework | Espressif | Firmware framework | External SDK, not vendored | Low | Keep as build prerequisite. |
 | Groq ASR API | Optional external service | Optional speech-to-text when configured | Service API, no source vendored | Medium | Document that audio leaves the Mac when Groq is configured. Do not commit API keys. |
@@ -28,7 +29,7 @@ M1 checkpoint on 2026-08-12.
 
 ## Summary
 
-The M1 macOS application, tests, AppIcon, and menu-bar icon are project-authored or
+The M1-M3-A macOS application, tests, AppIcon, and menu-bar icon are project-authored or
 derived from the project-generated VibeStick geometry. No third-party source code or
 brand assets are intentionally vendored after cleanup, except the generated Chinese
 LVGL glyph subset derived from Source Han Sans K under the SIL Open Font License 1.1.
@@ -36,5 +37,5 @@ Build-time firmware dependencies are resolved through the ESP-IDF component mana
 and are not committed as vendored source.
 
 Before a public binary release, review the exact ESP-IDF/component licenses included
-in the firmware image, ensure the Source Han Sans K attribution remains in NOTICE, and
+in the firmware image, ensure the generated Chinese font attribution remains in NOTICE, and
 either document or replace the two older preview composites noted above.

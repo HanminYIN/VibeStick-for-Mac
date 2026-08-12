@@ -151,6 +151,47 @@ class CodexMainTaskObservationTests(unittest.TestCase):
         self.assertEqual(observation.alert_type, "DONE")
         self.assertEqual(observation.alert_event_key, "task-a:turn-a:DONE")
 
+    def test_running_task_project_outranks_more_recent_completed_task(self) -> None:
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_session(
+                self._session_path(root, "current-task"),
+                "current-task",
+                "vscode",
+                [self._event(now - timedelta(seconds=20), "task_started", "current-turn")],
+                cwd="/workspace/M5StickS3",
+            )
+            self._write_session(
+                self._session_path(root, "old-task"),
+                "old-task",
+                "vscode",
+                [
+                    self._event(now - timedelta(seconds=10), "task_started", "old-turn"),
+                    self._event(now - timedelta(seconds=5), "task_complete", "old-turn"),
+                ],
+                cwd="/workspace/VPS",
+            )
+            observation = self._observe(root)
+
+        self.assertEqual(observation.status, AgentStatus.RUNNING)
+        self.assertEqual(observation.project, "M5StickS3")
+
+    def test_session_metadata_supplies_project_when_tail_has_no_turn_context(self) -> None:
+        now = datetime.now(timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self._write_session(
+                self._session_path(root, "large-task"),
+                "large-task",
+                "vscode",
+                [self._event(now - timedelta(seconds=5), "custom_tool_call", "turn-1")],
+                cwd="/workspace/M5StickS3",
+            )
+            observation = self._observe(root)
+
+        self.assertEqual(observation.project, "M5StickS3")
+
     def test_new_main_turn_keeps_prior_completion_event_while_running(self) -> None:
         now = datetime.now(timezone.utc)
         with tempfile.TemporaryDirectory() as tmp:
@@ -355,6 +396,8 @@ class CodexMainTaskObservationTests(unittest.TestCase):
         session_id: str,
         source: object,
         events: list[dict[str, object]],
+        *,
+        cwd: str | None = None,
     ) -> None:
         metadata = {
             "timestamp": "2026-08-11T00:00:00Z",
@@ -363,6 +406,7 @@ class CodexMainTaskObservationTests(unittest.TestCase):
                 "id": session_id,
                 "source": source,
                 "thread_source": "subagent",
+                **({"cwd": cwd} if cwd else {}),
             },
         }
         path.write_text("".join(json.dumps(event) + "\n" for event in [metadata, *events]))

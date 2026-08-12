@@ -31,6 +31,7 @@ QUOTA_STALE_AFTER = timedelta(minutes=30)
 class _SessionIdentity:
     session_id: str
     user_initiated: bool | None
+    cwd: Path | None
 
 
 @dataclass(frozen=True)
@@ -85,7 +86,8 @@ def observe_codex(project_root: Path) -> LocalCodexObservation:
     now = datetime.now(timezone.utc)
     codex_online = _codex_process_running()
     project = _project_name_from_env_or_root(project_root)
-    latest_cwd: tuple[datetime, Path] | None = None
+    latest_project: tuple[datetime, Path] | None = None
+    latest_running_project: tuple[datetime, Path] | None = None
     latest_event: tuple[datetime, str, str] | None = None
     latest_fallback_event: tuple[datetime, str, str] | None = None
     latest_completion: _AlertCandidate | None = None
@@ -114,12 +116,25 @@ def observe_codex(project_root: Path) -> LocalCodexObservation:
             latest_event is None or session.latest_event[0] > latest_event[0]
         ):
             latest_event = session.latest_event
-        if session.latest_cwd is not None and (
-            latest_cwd is None or session.latest_cwd[0] > latest_cwd[0]
-        ):
-            latest_cwd = session.latest_cwd
-
-        user_task_running = user_task_running or _session_is_running(session, now)
+        session_running = _session_is_running(session, now)
+        user_task_running = user_task_running or session_running
+        project_path = session.latest_cwd[1] if session.latest_cwd else identity.cwd
+        project_timestamp = (
+            session.latest_event[0]
+            if session.latest_event is not None
+            else session.latest_cwd[0]
+            if session.latest_cwd is not None
+            else None
+        )
+        if project_path is not None and project_timestamp is not None:
+            project_candidate = (project_timestamp, project_path)
+            if latest_project is None or project_timestamp > latest_project[0]:
+                latest_project = project_candidate
+            if session_running and (
+                latest_running_project is None
+                or project_timestamp > latest_running_project[0]
+            ):
+                latest_running_project = project_candidate
         if (
             session.completion is not None
             and now - session.completion.timestamp <= ALERT_ACTIVITY_WINDOW
@@ -131,8 +146,9 @@ def observe_codex(project_root: Path) -> LocalCodexObservation:
         if _alert_is_current(session, session.error, now):
             latest_error = _newer_alert(latest_error, session.error)
 
-    if latest_cwd is not None:
-        project = _project_name_from_path(latest_cwd[1])
+    selected_project = latest_running_project or latest_project
+    if selected_project is not None:
+        project = _project_name_from_path(selected_project[1])
 
     if latest_event is None and not user_session_found:
         latest_event = latest_fallback_event
@@ -206,7 +222,7 @@ def _session_identity(path: Path) -> _SessionIdentity:
     if cached is not None:
         return cached
 
-    identity = _SessionIdentity(session_id="", user_initiated=None)
+    identity = _SessionIdentity(session_id="", user_initiated=None, cwd=None)
     try:
         with path.open("rb") as handle:
             raw_line = handle.readline(SESSION_META_BYTES)
@@ -235,7 +251,13 @@ def _session_identity(path: Path) -> _SessionIdentity:
     else:
         user_initiated = True
 
-    identity = _SessionIdentity(session_id=session_id, user_initiated=user_initiated)
+    cwd_value = payload.get("cwd")
+    cwd = Path(cwd_value) if isinstance(cwd_value, str) and cwd_value else None
+    identity = _SessionIdentity(
+        session_id=session_id,
+        user_initiated=user_initiated,
+        cwd=cwd,
+    )
     if len(_SESSION_IDENTITY_CACHE) >= 512:
         _SESSION_IDENTITY_CACHE.clear()
     _SESSION_IDENTITY_CACHE[path] = identity
@@ -427,6 +449,8 @@ def _quota_from_payload(
         quota_7d_remaining=seven_day,
         quota_updated_at=timestamp.astimezone().strftime("%H:%M"),
         quota_stale=now - timestamp > QUOTA_STALE_AFTER,
+        quota_source="codex-session-log",
+        quota_observed_at_epoch=timestamp.timestamp(),
     )
 
 

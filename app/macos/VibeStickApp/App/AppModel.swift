@@ -194,7 +194,11 @@ final class AppModel: ObservableObject {
     }
 
     func setProjectName(_ name: String) {
-        deviceConfiguration.project.name = String(name.prefix(39))
+        var value = String(name.prefix(18))
+        while value.utf8.count > 39 {
+            value.removeLast()
+        }
+        deviceConfiguration.project.name = value
     }
 
     func setFrontDoublePressAction(_ action: FrontDoublePressAction) {

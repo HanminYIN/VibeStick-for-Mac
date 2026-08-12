@@ -1,5 +1,44 @@
 # Changelog
 
+## v0.2.0-m3a (unreleased)
+
+M3-A Codex Focus interface checkpoint for the independently maintained VibeStick for Mac derivative.
+
+### Added
+
+- A real-device Codex Focus home screen with compact Wi-Fi, Bridge, battery, status, quota, sync, refresh, and voice affordances.
+- A live 135 × 240 SwiftUI preview linked to project-name visibility and fixed-name configuration.
+- Dynamic single-window and multi-window quota layouts; the current single 7D window expands to the full card.
+- Per-state optical compensation for running, done, approval, error, offline, idle, and unknown states.
+- A manual Codex account-quota reader using one short-lived local app-server process only when refresh is explicitly requested.
+
+### Changed
+
+- Prioritize the currently running Codex task's project over a newer completed task when selecting the device project name.
+- Keep passive session `rate_limits` events as the normal low-resource quota source; use the active account read only for double-click/manual refresh.
+- Merge active and passive quota observations by timestamp and source so older values do not overwrite newer readings.
+- Normalize project names to both the Mac UI limit and the firmware UTF-8 byte limit.
+- Rename the development image to `VibeStick-for-Mac-M3-A.dmg`.
+
+### Fixed
+
+- Project status incorrectly showing a different, more recently completed Codex task.
+- Stale 7D quota remaining visible after an explicit refresh.
+- Single-window quota cards reserving space for an unavailable 5H window.
+- Mathematical alignment that looked unbalanced on the real low-resolution LCD.
+- Real local Bridge/device identifiers retained in test fixtures.
+
+### Validation
+
+- 109 Python tests and 24 hostless Swift tests pass.
+- ESP-IDF 5.5.1 firmware build, Release App, helper targets, signatures, responsive-launch smoke tests, M3-A DMG content, and mounted-App verification pass.
+- Firmware image size is `0x154c90`; the smallest app partition retains `0x22370` (9%).
+- The paired StickS3 is online with configuration revision `1/1`; firmware flashes completed with hash verification.
+- User acceptance covers the high-fidelity preview, real-device status layouts, project shown/hidden states, 7D/LEFT optical balance, footer, and final LCD appearance.
+- Bridge/HUD/Paste, push-to-talk voice input, alert sound, M2 pairing, and configuration synchronization remain operational.
+
+This checkpoint does not yet complete M3 voice/send interaction, clean-machine installation, one-click flashing/recovery, Developer ID signing, notarization, or a formal Release.
+
 ## v0.2.0-m2 (unreleased)
 
 M2 pairing, discovery, and configuration-sync checkpoint for the independently maintained VibeStick for Mac derivative.
@@ -33,7 +72,7 @@ M2 pairing, discovery, and configuration-sync checkpoint for the independently m
 - 97 Python tests and 23 hostless Swift tests pass.
 - ESP-IDF 5.5.1 firmware build, Release App, signatures, responsive-launch smoke tests, DMG content, and mounted-App verification pass.
 - `scripts/doctor.sh`: 16 PASS, 0 WARN, 0 FAIL.
-- Real-device acceptance covers first pairing, credential rotation, injected write-failure rollback, configuration revision/ACK, reboot persistence, Bonjour restart recovery, and a real Mac address change from `.173` to `.250`.
+- Real-device acceptance covers first pairing, credential rotation, injected write-failure rollback, configuration revision/ACK, reboot persistence, Bonjour restart recovery, and a real Mac address change from the original DHCP address to a temporary address.
 - During the 95-second new-address-only window, the paired StickS3 completed 63 authenticated Bridge requests.
 - Voice recording, ASR, HUD, Paste, TextEdit insertion, alert sounds, Codex state, and dynamic `7D` quota remain operational.
 

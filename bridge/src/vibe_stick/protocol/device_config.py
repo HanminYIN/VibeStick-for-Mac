@@ -12,6 +12,8 @@ MAX_CONFIGURATION_BYTES = 16_384
 ALLOWED_MODULES = {"codex", "claude", "connection"}
 ALLOWED_DOUBLE_PRESS_ACTIONS = {"refresh_quota", "show_status", "home", "toggle_mute"}
 ALLOWED_SIDE_PRESS_ACTIONS = {"next_page", "none"}
+MAX_PROJECT_NAME_CHARACTERS = 18
+MAX_PROJECT_NAME_BYTES = 39
 
 
 def default_device_configuration() -> dict[str, Any]:
@@ -75,7 +77,9 @@ def normalize_device_configuration(value: Any) -> dict[str, Any]:
     project_name = project.get("name")
     if not isinstance(project_name, str):
         project_name = ""
-    project_name = project_name.strip()[:39]
+    project_name = project_name.strip()[:MAX_PROJECT_NAME_CHARACTERS]
+    while len(project_name.encode("utf-8")) > MAX_PROJECT_NAME_BYTES:
+        project_name = project_name[:-1]
 
     buttons_value = value.get("buttons")
     buttons = buttons_value if isinstance(buttons_value, dict) else {}

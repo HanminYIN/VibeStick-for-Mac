@@ -482,7 +482,10 @@ struct DeviceConfiguration: Codable, Equatable, Sendable {
         var value = self
         value.schemaVersion = Self.schemaVersion
         value.revision = max(0, revision)
-        value.project.name = String(project.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(39))
+        value.project.name = String(project.name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(18))
+        while value.project.name.utf8.count > 39 {
+            value.project.name.removeLast()
+        }
         value.modules = Array(modules.reduce(into: [DeviceModule]()) { result, module in
             if !result.contains(module) { result.append(module) }
         })

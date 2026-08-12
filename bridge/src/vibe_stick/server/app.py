@@ -18,6 +18,7 @@ from vibe_stick.audio.recorder import RecordingController
 from vibe_stick.claude.usage import fetch_usage as fetch_claude_usage
 from vibe_stick.claude.usage import to_quota_snapshot as claude_usage_to_quota
 from vibe_stick.codex.quota import QuotaSnapshot, load_quota, save_quota
+from vibe_stick.codex.rate_limits import fetch_account_quota as fetch_codex_account_quota
 from vibe_stick.config.paths import CLAUDE_QUOTA_PATH, QUOTA_PATH, RECORDING_PATH, STATE_PATH, ensure_app_support
 from vibe_stick.desktop.hud import hide_hud
 from vibe_stick.protocol.state import (
@@ -44,6 +45,7 @@ BRIDGE_NAME = "vibestick-bridge"
 DEFAULT_MAX_RECORDING_AUDIO_BYTES = 2_000_000
 DEFAULT_CLAUDE_USAGE_INTERVAL_SECONDS = 300
 MIN_CLAUDE_USAGE_INTERVAL_SECONDS = 30
+QUOTA_STALE_AFTER_SECONDS = 30 * 60
 PLACEHOLDER_BRIDGE_TOKENS = {
     "change-this-shared-token",
     "paste-generated-token-here",
@@ -75,11 +77,12 @@ class BridgeStateStore:
         self.device_configuration = device_configuration or DeviceConfigurationStore()
         self.bridge_id = (bridge_identity or BridgeIdentityStore()).bridge_id()
         self._device_runtime: dict[str, dict[str, Any]] = {}
-        quota = load_quota(QUOTA_PATH)
-        self._state.codex.quota_5h_remaining = quota.quota_5h_remaining
-        self._state.codex.quota_7d_remaining = quota.quota_7d_remaining
-        self._state.codex.quota_updated_at = quota.quota_updated_at
-        self._state.codex.quota_stale = quota.quota_stale
+        self._codex_quota = load_quota(QUOTA_PATH)
+        self._codex_quota_refreshing = False
+        self._state.codex.quota_5h_remaining = self._codex_quota.quota_5h_remaining
+        self._state.codex.quota_7d_remaining = self._codex_quota.quota_7d_remaining
+        self._state.codex.quota_updated_at = self._codex_quota.quota_updated_at
+        self._state.codex.quota_stale = self._codex_quota.quota_stale
         self.recording = RecordingController(RECORDING_PATH)
         hide_hud()
 
@@ -168,7 +171,8 @@ class BridgeStateStore:
             return
 
         codex_observation = observe_codex(self._project_root)
-        self._apply_codex_quota(codex_observation, force_stale=True)
+        self._schedule_codex_quota_refresh_locked()
+        self._apply_codex_quota(codex_observation)
         self._state.codex = _codex_state_from_observation(codex_observation)
         if self._state.active_provider == "codex":
             self._state.provider = _provider_state_from_observation(codex_observation)
@@ -249,33 +253,75 @@ class BridgeStateStore:
         else:
             self._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
 
-    def _apply_codex_quota(self, observation: ProviderObservation, *, force_stale: bool = False) -> None:
+    def _apply_codex_quota(self, observation: ProviderObservation) -> None:
+        refreshed = self._current_codex_quota()
         if observation.quota_5h_remaining is not None or observation.quota_7d_remaining is not None:
-            refreshed = QuotaSnapshot(
+            candidate = QuotaSnapshot(
                 quota_5h_remaining=observation.quota_5h_remaining,
                 quota_7d_remaining=observation.quota_7d_remaining,
                 quota_updated_at=observation.quota_updated_at,
                 quota_stale=observation.quota_stale,
+                quota_source=observation.quota_source,
+                quota_observed_at_epoch=observation.quota_observed_at_epoch,
             )
-            save_quota(QUOTA_PATH, refreshed)
-        else:
-            existing = QuotaSnapshot(
-                quota_5h_remaining=self._state.codex.quota_5h_remaining,
-                quota_7d_remaining=self._state.codex.quota_7d_remaining,
-                quota_updated_at=self._state.codex.quota_updated_at,
-                quota_stale=self._state.codex.quota_stale,
-            )
-            if existing.quota_5h_remaining is None and existing.quota_7d_remaining is None:
-                refreshed = existing
-            else:
-                refreshed = _stale_quota(existing)
-            if force_stale:
+            if not _has_quota(refreshed) or _quota_is_newer(candidate, refreshed):
+                refreshed = candidate
+                self._codex_quota = refreshed
                 save_quota(QUOTA_PATH, refreshed)
 
         observation.quota_5h_remaining = refreshed.quota_5h_remaining
         observation.quota_7d_remaining = refreshed.quota_7d_remaining
         observation.quota_updated_at = refreshed.quota_updated_at
         observation.quota_stale = refreshed.quota_stale
+        observation.quota_source = refreshed.quota_source
+        observation.quota_observed_at_epoch = refreshed.quota_observed_at_epoch
+
+    def _schedule_codex_quota_refresh_locked(self) -> None:
+        if self._codex_quota_refreshing:
+            return
+        self._codex_quota_refreshing = True
+        threading.Thread(
+            target=self._refresh_codex_quota_worker,
+            name="vibestick-codex-quota",
+            daemon=True,
+        ).start()
+
+    def _refresh_codex_quota_worker(self) -> None:
+        refreshed = fetch_codex_account_quota()
+        with self._lock:
+            self._codex_quota_refreshing = False
+            if refreshed is None:
+                stale = self._current_codex_quota()
+                if stale.quota_stale and stale != self._codex_quota:
+                    self._codex_quota = stale
+                    save_quota(QUOTA_PATH, stale)
+                return
+            if not _has_quota(self._codex_quota) or _quota_is_newer(refreshed, self._codex_quota):
+                self._codex_quota = refreshed
+                save_quota(QUOTA_PATH, refreshed)
+            self._apply_codex_quota_to_state_locked(self._codex_quota)
+            self._save_state_locked()
+
+    def _current_codex_quota(self) -> QuotaSnapshot:
+        quota = self._codex_quota
+        if (
+            _has_quota(quota)
+            and quota.quota_observed_at_epoch > 0
+            and time.time() - quota.quota_observed_at_epoch > QUOTA_STALE_AFTER_SECONDS
+        ):
+            return _stale_quota(quota)
+        return quota
+
+    def _apply_codex_quota_to_state_locked(self, quota: QuotaSnapshot) -> None:
+        self._state.codex.quota_5h_remaining = quota.quota_5h_remaining
+        self._state.codex.quota_7d_remaining = quota.quota_7d_remaining
+        self._state.codex.quota_updated_at = quota.quota_updated_at
+        self._state.codex.quota_stale = quota.quota_stale
+        if self._state.active_provider == "codex":
+            self._state.provider.quota_5h_remaining = quota.quota_5h_remaining
+            self._state.provider.quota_7d_remaining = quota.quota_7d_remaining
+            self._state.provider.quota_updated_at = quota.quota_updated_at
+            self._state.provider.quota_stale = quota.quota_stale
 
     def _refresh_claude_usage_locked(self, *, force: bool) -> None:
         now = time.monotonic()
@@ -599,11 +645,19 @@ def _stale_quota(existing: QuotaSnapshot) -> QuotaSnapshot:
         quota_7d_remaining=existing.quota_7d_remaining,
         quota_updated_at=existing.quota_updated_at,
         quota_stale=True,
+        quota_source=existing.quota_source,
+        quota_observed_at_epoch=existing.quota_observed_at_epoch,
     )
 
 
 def _has_quota(snapshot: QuotaSnapshot) -> bool:
     return snapshot.quota_5h_remaining is not None or snapshot.quota_7d_remaining is not None
+
+
+def _quota_is_newer(candidate: QuotaSnapshot, current: QuotaSnapshot) -> bool:
+    if candidate.quota_observed_at_epoch != current.quota_observed_at_epoch:
+        return candidate.quota_observed_at_epoch > current.quota_observed_at_epoch
+    return candidate.quota_source == "codex-app-server" and current.quota_source != "codex-app-server"
 
 
 def _claude_quota_from_state(state: VibeStickState) -> QuotaSnapshot:

@@ -6,7 +6,7 @@ PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M2.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M3-A.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -160,16 +160,21 @@ assert_menu_bar_source_contract() {
   printf '%s\n' "PASS: source uses the branded VibeStick menu bar asset"
 }
 
-assert_m1_polish_source_contract() {
+assert_m3a_interface_source_contract() {
   section_views="$ROOT_DIR/app/macos/VibeStickApp/Features/SectionViews.swift"
   infrastructure="$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift"
 
   if ! /usr/bin/grep -F 'Text("显示故障排查信息")' "$section_views" >/dev/null \
     || ! /usr/bin/grep -F 'Button("打开本地数据文件夹（故障排查）")' "$section_views" >/dev/null \
-    || ! /usr/bin/grep -F 'Label("草图", systemImage: "pencil.and.outline")' "$section_views" >/dev/null \
-    || ! /usr/bin/grep -F 'Text("状态区域")' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'Label("135 × 240", systemImage: "display")' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'title: "Codex Focus 实时预览"' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'Toggle(' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F '"在设备首页显示项目名称"' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'Text("LEFT")' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'make_label(screen, "LEFT", &lv_font_montserrat_12' "$ROOT_DIR/firmware/sticks3/src/main.c" >/dev/null \
+    || ! /usr/bin/grep -F 'focus_status_optics' "$ROOT_DIR/firmware/sticks3/src/main.c" >/dev/null \
     || ! /usr/bin/grep -F 'NSWorkspace.shared.open(SupportPaths.supportDirectory)' "$infrastructure" >/dev/null; then
-    printf '%s\n' "FAIL: the M1 usability polish source contract is incomplete" >&2
+    printf '%s\n' "FAIL: the M3-A interface source contract is incomplete" >&2
     exit 1
   fi
 
@@ -178,7 +183,7 @@ assert_m1_polish_source_contract() {
     printf '%s\n' "FAIL: a misleading M1 preview or legacy Finder interaction remains" >&2
     exit 1
   fi
-  printf '%s\n' "PASS: source keeps diagnostics understandable and the device preview explicitly schematic"
+  printf '%s\n' "PASS: source keeps diagnostics understandable and the device preview tracks M3 Codex Focus"
 }
 
 assert_menu_bar_icon() {
@@ -535,7 +540,7 @@ assert_app_launch_smoke() {
 }
 
 assert_menu_bar_source_contract
-assert_m1_polish_source_contract
+assert_m3a_interface_source_contract
 "$ROOT_DIR/scripts/build-macos-app.sh"
 assert_binary "$APP_BINARY" "VibeStick for Mac"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"

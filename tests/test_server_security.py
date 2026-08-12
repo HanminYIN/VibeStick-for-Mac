@@ -32,7 +32,7 @@ class ServerSecurityTests(unittest.TestCase):
             registry_path = Path(directory) / "devices-v1.json"
             registry_path.write_text(
                 '{"schema_version":1,"devices":[{'
-                '"device_id":"vs-14c19fd56070",'
+                '"device_id":"vs-001122334455",'
                 '"token_salt":"0123456789abcdef0123456789abcdef",'
                 '"token_hash":"' + ("0" * 64) + '",'
                 '"paired_at":"","firmware_version":"","revoked":false}]}',

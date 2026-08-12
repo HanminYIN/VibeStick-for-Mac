@@ -146,18 +146,29 @@ static lv_obj_t *s_battery_icon;
 static lv_obj_t *s_battery_fill;
 static lv_obj_t *s_battery_cap;
 static lv_obj_t *s_battery_bolt;
+static lv_obj_t *s_bridge_dot;
+static lv_obj_t *s_focus_card;
 static lv_obj_t *s_provider_icon;
 static lv_obj_t *s_provider_label;
 static lv_obj_t *s_status_dot;
 static lv_obj_t *s_status_label;
+static lv_obj_t *s_project_dot;
+static lv_obj_t *s_project_label;
+static lv_obj_t *s_quota_card;
 static lv_obj_t *s_quota_5h_title_label;
 static lv_obj_t *s_quota_7d_title_label;
+static lv_obj_t *s_quota_single_remaining_label;
 static lv_obj_t *s_quota_divider;
 static lv_obj_t *s_quota_5h_bar;
 static lv_obj_t *s_quota_7d_bar;
 static lv_obj_t *s_quota_5h_label;
 static lv_obj_t *s_quota_7d_label;
 static lv_obj_t *s_quota_status_label;
+static lv_obj_t *s_footer_sync_dot;
+static lv_obj_t *s_footer_sync_label;
+static lv_obj_t *s_footer_action_label;
+static lv_obj_t *s_footer_divider;
+static lv_obj_t *s_footer_voice_label;
 static lv_obj_t *s_recording_overlay;
 static lv_obj_t *s_recording_wave_group;
 static lv_obj_t *s_recording_wave_bars[5];
@@ -214,7 +225,9 @@ static provider_display_state_t s_provider_states[PROVIDER_COUNT] = {
 };
 
 extern const lv_font_t vibe_stick_cn_16;
+extern const lv_font_t vibe_stick_ui_12;
 #define FONT_CN (&vibe_stick_cn_16)
+#define FONT_UI (&vibe_stick_ui_12)
 
 static const agent_provider_config_t s_provider_configs[] = {
     {
@@ -655,15 +668,18 @@ static void create_ui(void)
     lv_obj_set_style_bg_color(screen, lv_color_hex(0x050608), 0);
     lv_obj_set_style_pad_all(screen, 0, 0);
 
-    s_wifi_label = make_label(screen, "WiFi", &lv_font_montserrat_10, lv_color_hex(0xf3f4f6), 38, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(s_wifi_label, LV_ALIGN_TOP_LEFT, 9, 9);
+    s_wifi_label = make_label(screen, "WiFi", &lv_font_montserrat_10, lv_color_hex(0xf3f4f6), 22, LV_TEXT_ALIGN_LEFT);
+    lv_obj_align(s_wifi_label, LV_ALIGN_TOP_LEFT, 8, 9);
 
-    s_battery_label = make_label(screen, "--%", &lv_font_montserrat_10, lv_color_hex(0xf3f4f6), 28, LV_TEXT_ALIGN_RIGHT);
-    lv_obj_align(s_battery_label, LV_ALIGN_TOP_RIGHT, -35, 9);
+    s_bridge_dot = make_plain_obj(screen, 5, 5, lv_color_hex(0x32d583), LV_OPA_COVER, LV_RADIUS_CIRCLE);
+    lv_obj_align(s_bridge_dot, LV_ALIGN_TOP_LEFT, 35, 11);
+
+    s_battery_label = make_label(screen, "--%", &lv_font_montserrat_10, lv_color_hex(0xf3f4f6), 26, LV_TEXT_ALIGN_RIGHT);
+    lv_obj_align(s_battery_label, LV_ALIGN_TOP_RIGHT, -37, 9);
     s_battery_icon = make_plain_obj(screen, 26, 13, lv_color_hex(0x000000), LV_OPA_TRANSP, 3);
     lv_obj_set_style_border_width(s_battery_icon, 1, 0);
     lv_obj_set_style_border_color(s_battery_icon, lv_color_hex(0xf3f4f6), 0);
-    lv_obj_align(s_battery_icon, LV_ALIGN_TOP_RIGHT, -7, 9);
+    lv_obj_align(s_battery_icon, LV_ALIGN_TOP_RIGHT, -8, 8);
     s_battery_fill = make_plain_obj(s_battery_icon, 1, 9, lv_color_hex(0xf3f4f6), LV_OPA_COVER, 2);
     lv_obj_align(s_battery_fill, LV_ALIGN_LEFT_MID, 2, 0);
     s_battery_bolt = lv_line_create(s_battery_icon);
@@ -677,49 +693,81 @@ static void create_ui(void)
     s_battery_cap = make_plain_obj(screen, 2, 7, lv_color_hex(0xf3f4f6), LV_OPA_COVER, 1);
     lv_obj_align_to(s_battery_cap, s_battery_icon, LV_ALIGN_OUT_RIGHT_MID, 1, 0);
 
+    s_focus_card = make_plain_obj(screen, LCD_H_RES - 16, 81, lv_color_hex(0x0c0f14), LV_OPA_COVER, 9);
+    lv_obj_set_style_border_width(s_focus_card, 1, 0);
+    lv_obj_set_style_border_color(s_focus_card, lv_color_hex(0x202631), 0);
+    lv_obj_align(s_focus_card, LV_ALIGN_TOP_MID, 0, 30);
+
     create_provider_icon(screen);
 
     s_status_dot = lv_obj_create(screen);
     lv_obj_remove_style_all(s_status_dot);
-    lv_obj_set_size(s_status_dot, 7, 7);
+    lv_obj_set_size(s_status_dot, 5, 5);
     lv_obj_set_style_radius(s_status_dot, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(s_status_dot, lv_color_hex(0xf3f4f6), 0);
     lv_obj_set_style_bg_opa(s_status_dot, LV_OPA_COVER, 0);
-    lv_obj_align(s_status_dot, LV_ALIGN_TOP_LEFT, 72, 80);
+    lv_obj_align(s_status_dot, LV_ALIGN_TOP_LEFT, 82, 63);
 
-    s_provider_label = make_label(screen, "Codex", &lv_font_montserrat_16, lv_color_hex(0xf3f4f6), 60, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(s_provider_label, LV_ALIGN_TOP_LEFT, 72, 51);
+    s_provider_label = make_label(screen, "CODEX", &lv_font_montserrat_10,
+                                  lv_color_hex(0x9fa8b6), 52, LV_TEXT_ALIGN_CENTER);
+    lv_obj_set_style_text_letter_space(s_provider_label, 1, 0);
+    lv_obj_align(s_provider_label, LV_ALIGN_TOP_LEFT, 78, 43);
 
-    s_status_label = make_label(screen, "待命", FONT_CN, lv_color_hex(0xf3f4f6), 52, LV_TEXT_ALIGN_LEFT);
-    lv_obj_align(s_status_label, LV_ALIGN_TOP_LEFT, 82, 73);
+    s_status_label = make_label(screen, "待命", FONT_CN, lv_color_hex(0xf3f4f6), 42, LV_TEXT_ALIGN_RIGHT);
+    lv_obj_set_style_text_letter_space(s_status_label, 1, 0);
+    lv_obj_align(s_status_label, LV_ALIGN_TOP_RIGHT, -16, 58);
 
-    lv_obj_t *quota_wrap = make_plain_obj(screen, LCD_H_RES - 16, 104, lv_color_hex(0x0e1014), LV_OPA_COVER, 8);
-    lv_obj_set_style_border_width(quota_wrap, 1, 0);
-    lv_obj_set_style_border_color(quota_wrap, lv_color_hex(0x22252b), 0);
-    lv_obj_align(quota_wrap, LV_ALIGN_TOP_MID, 0, 118);
+    s_project_dot = make_plain_obj(screen, 3, 3, lv_color_hex(0x0a84ff), LV_OPA_COVER, LV_RADIUS_CIRCLE);
+    s_project_label = make_label(screen, "VibeStick", &lv_font_montserrat_10,
+                                 lv_color_hex(0xaeb4bf), 88, LV_TEXT_ALIGN_CENTER);
+    lv_obj_align(s_project_dot, LV_ALIGN_TOP_MID, -22, 92);
+    lv_obj_align(s_project_label, LV_ALIGN_TOP_MID, 5, 87);
 
-    s_quota_divider = make_plain_obj(quota_wrap, 1, 72, lv_color_hex(0x242832), LV_OPA_COVER, 1);
-    lv_obj_align(s_quota_divider, LV_ALIGN_CENTER, 0, 10);
+    s_quota_card = make_plain_obj(screen, LCD_H_RES - 16, 88, lv_color_hex(0x0c0f14), LV_OPA_COVER, 9);
+    lv_obj_set_style_border_width(s_quota_card, 1, 0);
+    lv_obj_set_style_border_color(s_quota_card, lv_color_hex(0x202631), 0);
+    lv_obj_align(s_quota_card, LV_ALIGN_TOP_MID, 0, 116);
 
-    s_quota_5h_title_label = make_label(screen, "5H --%", &lv_font_montserrat_12,
+    s_quota_divider = make_plain_obj(s_quota_card, 1, 61, lv_color_hex(0x282e38), LV_OPA_COVER, 1);
+    lv_obj_align(s_quota_divider, LV_ALIGN_CENTER, 0, 1);
+
+    s_quota_5h_title_label = make_label(screen, "5H 剩余", FONT_UI,
                                         lv_color_hex(0x8a9099), 44, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(s_quota_5h_title_label, LV_ALIGN_TOP_LEFT, 17, 133);
+    lv_obj_align(s_quota_5h_title_label, LV_ALIGN_TOP_LEFT, 16, 124);
     s_quota_5h_label = make_label(screen, "--%", &lv_font_montserrat_20, lv_color_hex(0xf3f4f6), 54, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(s_quota_5h_label, LV_ALIGN_TOP_LEFT, 10, 153);
-    s_quota_5h_bar = make_bar(screen, 46);
-    lv_obj_align(s_quota_5h_bar, LV_ALIGN_TOP_LEFT, 16, 190);
+    lv_obj_align(s_quota_5h_label, LV_ALIGN_TOP_LEFT, 10, 148);
+    s_quota_5h_bar = make_bar(screen, 40);
+    lv_obj_align(s_quota_5h_bar, LV_ALIGN_TOP_LEFT, 18, 183);
 
-    s_quota_7d_title_label = make_label(screen, "7D --%", &lv_font_montserrat_12,
+    s_quota_7d_title_label = make_label(screen, "7D 剩余", FONT_UI,
                                         lv_color_hex(0x8a9099), 44, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(s_quota_7d_title_label, LV_ALIGN_TOP_RIGHT, -17, 133);
+    lv_obj_align(s_quota_7d_title_label, LV_ALIGN_TOP_RIGHT, -16, 124);
+    s_quota_single_remaining_label = make_label(screen, "LEFT", &lv_font_montserrat_12,
+                                                 lv_color_hex(0x8a9099), 36, LV_TEXT_ALIGN_RIGHT);
+    lv_obj_align(s_quota_single_remaining_label, LV_ALIGN_TOP_RIGHT, -17, 124);
+    lv_obj_add_flag(s_quota_single_remaining_label, LV_OBJ_FLAG_HIDDEN);
     s_quota_7d_label = make_label(screen, "--%", &lv_font_montserrat_20, lv_color_hex(0xf3f4f6), 54, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(s_quota_7d_label, LV_ALIGN_TOP_RIGHT, -10, 153);
-    s_quota_7d_bar = make_bar(screen, 46);
-    lv_obj_align(s_quota_7d_bar, LV_ALIGN_TOP_RIGHT, -16, 190);
+    lv_obj_align(s_quota_7d_label, LV_ALIGN_TOP_RIGHT, -10, 148);
+    s_quota_7d_bar = make_bar(screen, 40);
+    lv_obj_align(s_quota_7d_bar, LV_ALIGN_TOP_RIGHT, -18, 183);
     s_quota_status_label = make_label(screen, "WAIT", &lv_font_montserrat_10,
                                       lv_color_hex(0x686e78), 84, LV_TEXT_ALIGN_CENTER);
     lv_obj_align(s_quota_status_label, LV_ALIGN_TOP_MID, 0, 207);
     lv_obj_add_flag(s_quota_status_label, LV_OBJ_FLAG_HIDDEN);
+
+    s_footer_sync_dot = make_plain_obj(screen, 3, 3, lv_color_hex(0x32d583), LV_OPA_COVER, LV_RADIUS_CIRCLE);
+    lv_obj_align(s_footer_sync_dot, LV_ALIGN_TOP_LEFT, 9, 213);
+    s_footer_sync_label = make_label(screen, "SYNC", &lv_font_montserrat_10,
+                                     lv_color_hex(0x8c95a3), 42, LV_TEXT_ALIGN_LEFT);
+    lv_obj_align(s_footer_sync_label, LV_ALIGN_TOP_LEFT, 15, 208);
+    s_footer_action_label = make_label(screen, "2X REFRESH", &lv_font_montserrat_10,
+                                       lv_color_hex(0x8c95a3), 62, LV_TEXT_ALIGN_RIGHT);
+    lv_obj_align(s_footer_action_label, LV_ALIGN_TOP_RIGHT, -8, 208);
+    s_footer_divider = make_plain_obj(screen, 119, 1, lv_color_hex(0x191d24), LV_OPA_COVER, 1);
+    lv_obj_align(s_footer_divider, LV_ALIGN_TOP_MID, 0, 222);
+    s_footer_voice_label = make_label(screen, "HOLD TO SPEAK", &lv_font_montserrat_10,
+                                      lv_color_hex(0xb9c0ca), 119, LV_TEXT_ALIGN_CENTER);
+    lv_obj_align(s_footer_voice_label, LV_ALIGN_TOP_MID, 0, 226);
 
     s_recording_overlay = lv_obj_create(screen);
     lv_obj_set_size(s_recording_overlay, LCD_H_RES, LCD_V_RES);
@@ -765,15 +813,16 @@ static void set_quota_label(lv_obj_t *bar, lv_obj_t *label, int value, bool vali
     lv_label_set_text(label, text);
 }
 
-static void set_quota_title(lv_obj_t *label, const char *prefix, bool stale)
+static void set_quota_title(lv_obj_t *label, const char *prefix, bool stale, bool single_window)
 {
+    char text[24];
+    const char *suffix = single_window ? "" : " 剩余";
     if (stale) {
-        char text[20];
-        snprintf(text, sizeof(text), "%s*", prefix);
-        lv_label_set_text(label, text);
+        snprintf(text, sizeof(text), "%s%s*", prefix, suffix);
     } else {
-        lv_label_set_text(label, prefix);
+        snprintf(text, sizeof(text), "%s%s", prefix, suffix);
     }
+    lv_label_set_text(label, text);
 }
 
 static void set_status_color(const agent_provider_config_t *provider, const char *status)
@@ -807,21 +856,112 @@ static void layout_quota_windows(int count)
     }
     if (count == 1) {
         lv_obj_add_flag(s_quota_divider, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_set_width(s_quota_5h_title_label, 96);
+        lv_obj_clear_flag(s_quota_single_remaining_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_width(s_quota_5h_title_label, 101);
+        lv_obj_set_style_text_font(s_quota_5h_title_label, &lv_font_montserrat_14, 0);
         lv_obj_set_width(s_quota_5h_label, 96);
-        lv_obj_set_width(s_quota_5h_bar, 96);
-        lv_obj_align(s_quota_5h_title_label, LV_ALIGN_TOP_MID, 0, 133);
-        lv_obj_align(s_quota_5h_label, LV_ALIGN_TOP_MID, 0, 153);
-        lv_obj_align(s_quota_5h_bar, LV_ALIGN_TOP_MID, 0, 190);
+        lv_obj_set_width(s_quota_5h_bar, 101);
+        lv_obj_align(s_quota_5h_title_label, LV_ALIGN_TOP_LEFT, 17, 123);
+        lv_obj_set_style_text_align(s_quota_5h_title_label, LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(s_quota_5h_label, LV_ALIGN_TOP_MID, 0, 148);
+        lv_obj_align(s_quota_5h_bar, LV_ALIGN_TOP_MID, 0, 183);
     } else {
+        lv_obj_add_flag(s_quota_single_remaining_label, LV_OBJ_FLAG_HIDDEN);
         if (count > 1) lv_obj_clear_flag(s_quota_divider, LV_OBJ_FLAG_HIDDEN);
         else lv_obj_add_flag(s_quota_divider, LV_OBJ_FLAG_HIDDEN);
         lv_obj_set_width(s_quota_5h_title_label, 44);
+        lv_obj_set_style_text_font(s_quota_5h_title_label, FONT_UI, 0);
         lv_obj_set_width(s_quota_5h_label, 54);
-        lv_obj_set_width(s_quota_5h_bar, 46);
-        lv_obj_align(s_quota_5h_title_label, LV_ALIGN_TOP_LEFT, 17, 133);
-        lv_obj_align(s_quota_5h_label, LV_ALIGN_TOP_LEFT, 10, 153);
-        lv_obj_align(s_quota_5h_bar, LV_ALIGN_TOP_LEFT, 16, 190);
+        lv_obj_set_width(s_quota_5h_bar, 40);
+        lv_obj_set_style_text_align(s_quota_5h_title_label, LV_TEXT_ALIGN_CENTER, 0);
+        lv_obj_align(s_quota_5h_title_label, LV_ALIGN_TOP_LEFT, 16, 124);
+        lv_obj_align(s_quota_5h_label, LV_ALIGN_TOP_LEFT, 10, 148);
+        lv_obj_align(s_quota_5h_bar, LV_ALIGN_TOP_LEFT, 18, 183);
+    }
+}
+
+typedef struct {
+    int8_t provider_x;
+    int8_t status_y;
+} focus_status_optics_t;
+
+static focus_status_optics_t focus_status_optics(const char *status)
+{
+    // Keep the icon and centered project name fixed. These tiny corrections align
+    // CODEX to each status phrase's ink centroid and compensate only true glyph
+    // differences on the 135x240 display.
+    if (strcmp(status, "RUNNING") == 0) return (focus_status_optics_t){.provider_x = -2, .status_y = 0};
+    if (strcmp(status, "DONE") == 0) return (focus_status_optics_t){.provider_x = 1, .status_y = 0};
+    if (strcmp(status, "APPROVAL") == 0) return (focus_status_optics_t){.provider_x = -2, .status_y = -1};
+    if (strcmp(status, "ERROR") == 0) return (focus_status_optics_t){.provider_x = 1, .status_y = 1};
+    if (strcmp(status, "OFFLINE") == 0) return (focus_status_optics_t){.provider_x = -1, .status_y = 1};
+    if (strcmp(status, "IDLE") == 0 || strcmp(status, "UNKNOWN") == 0) {
+        return (focus_status_optics_t){.provider_x = -1, .status_y = 1};
+    }
+    return (focus_status_optics_t){.provider_x = -1, .status_y = 0};
+}
+
+static void layout_focus_card(const char *status, const char *status_text, const char *project)
+{
+    const vibe_device_config_t *config = vibe_device_config_get();
+    const char *project_text = config->project_name[0] != '\0' ? config->project_name : project;
+    const bool show_project = config->project_visible && project_text && project_text[0] != '\0';
+    const int32_t focus_group_x = show_project ? -3 : 0;
+    const int32_t status_letter_space = strlen(status_text) > 6 ? 0 : 1;
+    lv_point_t status_size = {0};
+    lv_text_get_size(&status_size, status_text, FONT_CN, status_letter_space, 0,
+                     LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    const int32_t status_right = (show_project ? 119 : 121) + focus_group_x;
+    const int32_t status_left = status_right - status_size.x;
+    const int32_t status_center = status_left + status_size.x / 2;
+
+    char provider_name[16];
+    strlcpy(provider_name, current_provider_config()->display_name, sizeof(provider_name));
+    for (size_t index = 0; provider_name[index] != '\0'; ++index) {
+        if (provider_name[index] >= 'a' && provider_name[index] <= 'z') {
+            provider_name[index] = (char)(provider_name[index] - ('a' - 'A'));
+        }
+    }
+    lv_label_set_text(s_provider_label, provider_name);
+    lv_label_set_text(s_status_label, status_text);
+    lv_obj_set_style_text_letter_space(s_status_label, status_letter_space, 0);
+    lv_obj_set_width(s_status_label, 56);
+
+    if (show_project) {
+        const focus_status_optics_t optics = focus_status_optics(status);
+        const int32_t group_y = 2;
+        lv_image_set_scale(s_provider_icon, LV_SCALE_NONE);
+        lv_obj_align(s_provider_icon, LV_ALIGN_TOP_LEFT, 17, 46);
+        lv_obj_set_width(s_provider_label, 52);
+        lv_obj_align(s_provider_label, LV_ALIGN_TOP_LEFT,
+                     status_center - 26 + optics.provider_x, 46 + group_y);
+        lv_obj_align(s_status_label, LV_ALIGN_TOP_RIGHT, -16 + focus_group_x,
+                     61 + group_y + optics.status_y);
+        lv_obj_align(s_status_dot, LV_ALIGN_TOP_LEFT, status_left - 7,
+                     66 + group_y + optics.status_y);
+
+        lv_point_t project_size = {0};
+        lv_text_get_size(&project_size, project_text, &lv_font_montserrat_10, 0, 0,
+                         94, LV_TEXT_FLAG_NONE);
+        int32_t project_width = project_size.x;
+        if (project_width < 1) project_width = 1;
+        if (project_width > 94) project_width = 94;
+        const int32_t project_start = (LCD_H_RES - project_width - 7) / 2;
+        lv_label_set_text(s_project_label, project_text);
+        lv_obj_set_width(s_project_label, project_width);
+        lv_obj_clear_flag(s_project_dot, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_clear_flag(s_project_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align(s_project_dot, LV_ALIGN_TOP_LEFT, project_start, 95);
+        lv_obj_align(s_project_label, LV_ALIGN_TOP_LEFT, project_start + 7, 90);
+    } else {
+        lv_image_set_scale(s_provider_icon, 287);
+        lv_obj_align(s_provider_icon, LV_ALIGN_TOP_LEFT, 13, 49);
+        lv_obj_set_width(s_provider_label, 54);
+        lv_obj_align(s_provider_label, LV_ALIGN_TOP_LEFT, status_center - 27, 51);
+        lv_obj_align(s_status_label, LV_ALIGN_TOP_RIGHT, -14, 67);
+        lv_obj_align(s_status_dot, LV_ALIGN_TOP_LEFT, status_left - 7, 72);
+        lv_obj_add_flag(s_project_dot, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_add_flag(s_project_label, LV_OBJ_FLAG_HIDDEN);
     }
 }
 
@@ -847,13 +987,32 @@ static void render_state(void)
     } else {
         lv_obj_add_flag(s_provider_icon, LV_OBJ_FLAG_HIDDEN);
     }
-    lv_label_set_text(s_provider_label, provider->display_name);
     lv_obj_set_style_text_color(s_provider_label, provider->implemented ? lv_color_hex(0xf3f4f6) : lv_color_hex(0xd7d9de), 0);
-    lv_label_set_text(s_status_label, implemented ? status_text_for(display_state->status) : "待命");
+    const char *status_text = implemented ? status_text_for(display_state->status) : "待命";
+    layout_focus_card(status_key, status_text, display_state->project);
     set_status_color(provider, status_key);
+    lv_obj_set_style_bg_color(s_bridge_dot,
+                              vibe_device_config_get()->paired && s_wifi_connected
+                                  ? lv_color_hex(0x32d583) : lv_color_hex(0x686e78),
+                              0);
+    const bool sync_healthy = vibe_device_config_get()->paired && s_wifi_connected && !quota_stale;
+    lv_obj_set_style_bg_color(s_footer_sync_dot,
+                              sync_healthy ? lv_color_hex(0x32d583) : lv_color_hex(0x686e78),
+                              0);
+    lv_label_set_text(s_footer_sync_label, "SYNC");
+    const char *footer_action = "2X REFRESH";
+    switch (vibe_device_config_get()->front_double) {
+    case VIBE_DOUBLE_SHOW_STATUS: footer_action = "2X STATUS"; break;
+    case VIBE_DOUBLE_HOME: footer_action = "2X HOME"; break;
+    case VIBE_DOUBLE_TOGGLE_MUTE: footer_action = "2X MUTE"; break;
+    case VIBE_DOUBLE_REFRESH_QUOTA: break;
+    }
+    lv_label_set_text(s_footer_action_label, footer_action);
     layout_quota_windows(display_state->quota_window_count);
-    set_quota_title(s_quota_5h_title_label, display_state->quota_5h_label, quota_stale);
-    set_quota_title(s_quota_7d_title_label, display_state->quota_7d_label, quota_stale);
+    set_quota_title(s_quota_5h_title_label, display_state->quota_5h_label, quota_stale,
+                    display_state->quota_window_count == 1);
+    set_quota_title(s_quota_7d_title_label, display_state->quota_7d_label, quota_stale,
+                    display_state->quota_window_count == 1);
     set_quota_label(s_quota_5h_bar, s_quota_5h_label, display_state->quota_5h,
                     q5_valid, provider->accent_color);
     set_quota_label(s_quota_7d_bar, s_quota_7d_label, display_state->quota_7d,

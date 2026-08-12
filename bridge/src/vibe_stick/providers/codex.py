@@ -44,6 +44,8 @@ def observation_from_local_codex(observation: LocalCodexObservation) -> Provider
         alert_message=alert_message,
         alert_event_id=alert_event_id,
         latest_event_timestamp=observation.latest_event_timestamp,
+        quota_source=quota.quota_source if quota is not None else "",
+        quota_observed_at_epoch=quota.quota_observed_at_epoch if quota is not None else 0.0,
     )
 
 
