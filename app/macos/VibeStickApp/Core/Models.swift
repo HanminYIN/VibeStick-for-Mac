@@ -205,6 +205,7 @@ struct BridgeHealthDTO: Decodable, Equatable, Sendable {
     let bridgeName: String
     let bridgeVersion: String
     let protocolVersion: Int?
+    let voiceInteractionVersion: Int?
     let bridgeID: String?
 
     enum CodingKeys: String, CodingKey {
@@ -212,6 +213,7 @@ struct BridgeHealthDTO: Decodable, Equatable, Sendable {
         case bridgeName = "bridge_name"
         case bridgeVersion = "bridge_version"
         case protocolVersion = "protocol_version"
+        case voiceInteractionVersion = "voice_interaction_version"
         case bridgeID = "bridge_id"
     }
 }
@@ -310,11 +312,246 @@ struct BridgeSnapshot: Equatable, Sendable {
     }
 }
 
+enum CodexFocusPreviewStatusTone: Equatable, Sendable {
+    case accent
+    case approval
+    case neutral
+    case dim
+}
+
+struct CodexFocusPreviewQuotaWindow: Equatable, Sendable {
+    let id: String
+    let label: String
+    let remainingPercent: Int?
+    let stale: Bool
+}
+
+struct CodexFocusPreviewModel: Equatable, Sendable {
+    let wifiConnected: Bool
+    let bridgeConnected: Bool
+    let batteryPercent: Int?
+    let statusKey: String
+    let statusText: String
+    let statusTone: CodexFocusPreviewStatusTone
+    let project: String?
+    let quotaWindows: [CodexFocusPreviewQuotaWindow]
+    let syncHealthy: Bool
+    let footerAction: String
+
+    var batteryText: String {
+        batteryPercent.map { "\($0)%" } ?? "--%"
+    }
+
+    static func make(
+        bridge: BridgeSnapshot,
+        devices: BridgeDevicesDTO?,
+        configuration: DeviceConfiguration
+    ) -> CodexFocusPreviewModel {
+        let device = devices?.devices.first(where: { !$0.revoked })
+        let deviceOnline = device?.online == true
+        let bridgeConnected = bridge.isHealthy && deviceOnline
+        let codex = bridge.state?.codexState
+        let statusKey = normalizedStatus(
+            bridgeConnected ? codex?.status : "OFFLINE"
+        )
+        let fixedProject = configuration.project.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let liveProject = codex?.project?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let selectedProject = fixedProject.isEmpty ? liveProject : fixedProject
+        let project = configuration.project.visible && !selectedProject.isEmpty ? selectedProject : nil
+        let quotaWindows = normalizedQuotaWindows(codex)
+        let quotaStale = quotaWindows.contains(where: \CodexFocusPreviewQuotaWindow.stale)
+            || codex?.quotaStale == true
+        let configurationSynced = device.map {
+            $0.lastConfigRevision == $0.targetConfigRevision
+        } ?? false
+
+        return CodexFocusPreviewModel(
+            wifiConnected: deviceOnline && bridge.state?.wifi == true,
+            bridgeConnected: bridgeConnected,
+            batteryPercent: normalizedPercent(bridge.state?.battery),
+            statusKey: statusKey,
+            statusText: statusText(for: statusKey),
+            statusTone: statusTone(for: statusKey),
+            project: project,
+            quotaWindows: quotaWindows,
+            syncHealthy: bridgeConnected && configurationSynced && !quotaStale,
+            footerAction: footerAction(for: configuration.buttons.frontDouble)
+        )
+    }
+
+    private static func normalizedStatus(_ value: String?) -> String {
+        let key = value?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased() ?? "UNKNOWN"
+        switch key {
+        case "RUNNING", "DONE", "APPROVAL", "ERROR", "OFFLINE", "IDLE", "UNKNOWN":
+            return key
+        default:
+            return "UNKNOWN"
+        }
+    }
+
+    private static func statusText(for key: String) -> String {
+        switch key {
+        case "RUNNING": "运行中"
+        case "DONE": "已完成"
+        case "APPROVAL": "待确认"
+        case "ERROR": "出错"
+        case "OFFLINE": "离线"
+        default: "待命"
+        }
+    }
+
+    private static func statusTone(for key: String) -> CodexFocusPreviewStatusTone {
+        switch key {
+        case "RUNNING", "DONE": .accent
+        case "APPROVAL": .approval
+        case "ERROR", "OFFLINE": .dim
+        default: .neutral
+        }
+    }
+
+    private static func normalizedQuotaWindows(_ codex: AgentStateDTO?) -> [CodexFocusPreviewQuotaWindow] {
+        if let windows = codex?.quotaWindows, !windows.isEmpty {
+            return windows.prefix(2).map {
+                CodexFocusPreviewQuotaWindow(
+                    id: $0.id,
+                    label: normalizedQuotaLabel($0.label, fallback: $0.id.uppercased()),
+                    remainingPercent: normalizedPercent($0.remainingPercent),
+                    stale: $0.stale || codex?.quotaStale == true
+                )
+            }
+        }
+
+        var windows: [CodexFocusPreviewQuotaWindow] = []
+        if let value = normalizedPercent(codex?.quota5HRemaining) {
+            windows.append(.init(id: "5h", label: "5H", remainingPercent: value, stale: codex?.quotaStale == true))
+        }
+        if let value = normalizedPercent(codex?.quota7DRemaining) {
+            windows.append(.init(id: "7d", label: "7D", remainingPercent: value, stale: codex?.quotaStale == true))
+        }
+        return windows
+    }
+
+    private static func normalizedQuotaLabel(_ value: String, fallback: String) -> String {
+        let label = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return String((label.isEmpty ? fallback : label).prefix(8))
+    }
+
+    private static func normalizedPercent(_ value: Double?) -> Int? {
+        guard let value, value.isFinite else { return nil }
+        return min(100, max(0, Int(value.rounded())))
+    }
+
+    private static func footerAction(for action: FrontDoublePressAction) -> String {
+        switch action {
+        case .refreshQuota: "2X REFRESH"
+        case .showStatus: "2X STATUS"
+        case .home: "2X HOME"
+        case .toggleMute: "2X MUTE"
+        }
+    }
+}
+
+enum VoiceSendMode: String, Equatable, Sendable {
+    case pasteOnly = "paste_only"
+    case confirm
+    case autoSend = "auto_send"
+
+    static func configured(explicit: String?, autoEnterEnabled: Bool) -> VoiceSendMode {
+        let value = explicit?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+            .replacingOccurrences(of: "-", with: "_")
+        return switch value {
+        case "paste", "paste_only": .pasteOnly
+        case "confirm", "blue_button": .confirm
+        case "auto", "auto_send": .autoSend
+        default: autoEnterEnabled ? .autoSend : .pasteOnly
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .pasteOnly: "仅粘贴"
+        case .confirm: "蓝键确认发送"
+        case .autoSend: "自动发送"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .pasteOnly: "转写后只粘贴文字，不按 Return"
+        case .confirm: "先粘贴；只有目标输入框仍匹配时，蓝键才发送"
+        case .autoSend: "一次操作内粘贴并按 Return；仅在明确启用时生效"
+        }
+    }
+}
+
+struct VoiceInteractionSummary: Equatable, Sendable {
+    let status: String
+    let pasted: Bool
+    let interactionVersion: Int
+    let sendMode: VoiceSendMode
+    let stoppedAt: String?
+
+    static let empty = VoiceInteractionSummary(
+        status: "idle",
+        pasted: false,
+        interactionVersion: 1,
+        sendMode: .pasteOnly,
+        stoppedAt: nil
+    )
+
+    var title: String {
+        switch status {
+        case "recording": "正在聆听"
+        case "transcribing": "正在识别"
+        case "pending_send": "等待蓝键确认"
+        case "sent": "已发送"
+        case "pasted": "已粘贴"
+        case "copied", "transcribed": "已识别，未发送"
+        case "audio_skipped", "transcript_rejected": "未听清"
+        case "transcription_failed": "识别失败"
+        case "confirmation_unavailable", "send_failed": "安全停止：未发送"
+        case "paste_failed": "文字输入失败"
+        case "start_failed", "stop_failed", "audio_failed": "语音操作未完成"
+        default: "尚无语音记录"
+        }
+    }
+
+    var detail: String {
+        switch status {
+        case "pending_send": "文字已粘贴；会话只接受当前目标输入框的一次确认"
+        case "sent": "Return 已发送到重新验证通过的原输入框"
+        case "pasted": "文字已粘贴，未自动按 Return"
+        case "copied", "transcribed": "文字保留在剪贴板或当前会话中，没有自动发送"
+        case "confirmation_unavailable", "send_failed":
+            pasted ? "文字已粘贴，但目标无法安全确认，因此没有按 Return" : "没有按 Return，也没有自动发送"
+        case "audio_skipped", "transcript_rejected": "没有把不清晰或不可信的识别结果输入到 Mac"
+        case "transcription_failed": "识别没有产生可用文字"
+        case "paste_failed": "识别可能成功，但文字没有可靠输入到当前目标"
+        case "recording", "transcribing": "设备语音会话正在进行"
+        default: "完成一次设备语音操作后，这里只显示脱敏结果摘要"
+        }
+    }
+
+    var tone: HealthTone {
+        switch status {
+        case "sent", "pasted", "copied", "transcribed": .healthy
+        case "recording", "transcribing", "pending_send": .neutral
+        case "audio_skipped", "transcript_rejected", "transcription_failed",
+             "confirmation_unavailable", "send_failed", "paste_failed",
+             "start_failed", "stop_failed", "audio_failed": .warning
+        default: .inactive
+        }
+    }
+}
+
 struct LegacyConfigurationSummary: Equatable, Sendable {
     let legacyFileExists: Bool
     let asrConfigurationDetected: Bool
     let asrProvider: String?
     let autoEnterEnabled: Bool
+    let voiceSendMode: VoiceSendMode
     let projectName: String?
     let containsLegacySecrets: Bool
     let legacyFileIsOverexposed: Bool
@@ -324,6 +561,7 @@ struct LegacyConfigurationSummary: Equatable, Sendable {
         asrConfigurationDetected: false,
         asrProvider: nil,
         autoEnterEnabled: false,
+        voiceSendMode: .pasteOnly,
         projectName: nil,
         containsLegacySecrets: false,
         legacyFileIsOverexposed: false
@@ -343,6 +581,183 @@ struct KeychainSummary: Equatable, Sendable {
 struct ConfigurationInspection: Equatable, Sendable {
     let legacy: LegacyConfigurationSummary
     let keychain: KeychainSummary
+    let voice: VoiceInteractionSummary
+}
+
+enum ASRProvider: String, CaseIterable, Codable, Identifiable, Sendable {
+    case siliconFlow = "siliconflow"
+    case groq
+    case openAICompatible = "openai-compatible"
+    case localCommand = "local-command"
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .siliconFlow: "硅基流动"
+        case .groq: "Groq"
+        case .openAICompatible: "OpenAI-compatible"
+        case .localCommand: "本地命令"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .siliconFlow: "SenseVoiceSmall · 中国区 API"
+        case .groq: "Whisper Large V3 Turbo"
+        case .openAICompatible: "OpenAI 预设，可编辑为兼容端点"
+        case .localCommand: "音频保留在 Mac，由自定义命令处理"
+        }
+    }
+
+    var isCloud: Bool { self != .localCommand }
+
+    static func fromLegacyID(_ value: String?) -> ASRProvider? {
+        switch value?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "siliconflow", "silicon-flow": .siliconFlow
+        case "groq": .groq
+        case "openai", "openai-compatible": .openAICompatible
+        case "command", "local-command": .localCommand
+        default: nil
+        }
+    }
+}
+
+struct ASRConfiguration: Codable, Equatable, Sendable {
+    var provider: ASRProvider
+    var baseURL: String
+    var model: String
+    var language: String
+    var localCommand: String
+
+    static let standard = preset(.groq)
+
+    static func preset(_ provider: ASRProvider) -> ASRConfiguration {
+        switch provider {
+        case .siliconFlow:
+            ASRConfiguration(
+                provider: provider,
+                baseURL: "https://api.siliconflow.cn/v1",
+                model: "FunAudioLLM/SenseVoiceSmall",
+                language: "zh",
+                localCommand: ""
+            )
+        case .groq:
+            ASRConfiguration(
+                provider: provider,
+                baseURL: "https://api.groq.com/openai/v1",
+                model: "whisper-large-v3-turbo",
+                language: "zh",
+                localCommand: ""
+            )
+        case .openAICompatible:
+            ASRConfiguration(
+                provider: provider,
+                baseURL: "https://api.openai.com/v1",
+                model: "gpt-4o-mini-transcribe",
+                language: "zh",
+                localCommand: ""
+            )
+        case .localCommand:
+            ASRConfiguration(
+                provider: provider,
+                baseURL: "",
+                model: "",
+                language: "zh",
+                localCommand: ""
+            )
+        }
+    }
+
+    var normalized: ASRConfiguration {
+        var value = self
+        value.baseURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        value.model = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        value.language = String(language.trimmingCharacters(in: .whitespacesAndNewlines).prefix(12))
+        value.localCommand = localCommand.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value
+    }
+
+    var transcriptionURL: URL? {
+        guard provider.isCloud else { return nil }
+        let cleaned = normalized.baseURL
+        guard var components = URLComponents(string: cleaned), components.host != nil else { return nil }
+        let path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        if !path.hasSuffix("audio/transcriptions") {
+            components.path = "/" + ([path, "audio/transcriptions"].filter { !$0.isEmpty }.joined(separator: "/"))
+        }
+        return components.url
+    }
+
+    var targetHost: String? { transcriptionURL?.host(percentEncoded: false) }
+
+    var requiresAPIKey: Bool {
+        guard provider.isCloud else { return false }
+        guard let host = targetHost?.lowercased() else { return true }
+        return !["localhost", "127.0.0.1", "::1"].contains(host)
+    }
+
+    func validated() throws -> ASRConfiguration {
+        let value = normalized
+        if value.provider == .localCommand {
+            guard !value.localCommand.isEmpty else { throw ASRConfigurationError.missingCommand }
+            return value
+        }
+        guard !value.model.isEmpty else { throw ASRConfigurationError.missingModel }
+        guard let url = value.transcriptionURL,
+              let scheme = url.scheme?.lowercased(),
+              let host = url.host(percentEncoded: false)?.lowercased() else {
+            throw ASRConfigurationError.invalidURL
+        }
+        let loopback = ["localhost", "127.0.0.1", "::1"].contains(host)
+        guard scheme == "https" || (scheme == "http" && loopback) else {
+            throw ASRConfigurationError.insecureURL
+        }
+        return value
+    }
+}
+
+enum ASRConfigurationError: LocalizedError, Equatable {
+    case invalidURL
+    case insecureURL
+    case missingModel
+    case missingCommand
+    case missingAPIKey
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL: "请输入有效的 Base URL 或完整转写地址"
+        case .insecureURL: "云端 ASR 必须使用 HTTPS；只有 localhost 可以使用 HTTP"
+        case .missingModel: "请输入转写模型名称"
+        case .missingCommand: "请输入本地转写命令"
+        case .missingAPIKey: "请输入 API Key，或先把已有 Key 保存到钥匙串"
+        }
+    }
+}
+
+enum ASRTestPhase: String, Equatable, Sendable {
+    case idle
+    case testing
+    case success
+    case failure
+}
+
+struct ASRTestFeedback: Equatable, Sendable {
+    let phase: ASRTestPhase
+    let title: String
+    let detail: String
+    let transcriptPreview: String?
+
+    static let idle = ASRTestFeedback(
+        phase: .idle,
+        title: "尚未测试",
+        detail: "点击后会生成固定测试音频并比对转写；不访问麦克风，不会复制、粘贴或按 Return。",
+        transcriptPreview: nil
+    )
+
+    static func failure(_ title: String, detail: String) -> ASRTestFeedback {
+        ASRTestFeedback(phase: .failure, title: title, detail: detail, transcriptPreview: nil)
+    }
 }
 
 struct AppConfiguration: Codable, Equatable, Sendable {
@@ -354,6 +769,7 @@ struct AppConfiguration: Codable, Equatable, Sendable {
     var showTechnicalDetails: Bool
     var refreshIntervalSeconds: Double
     var manualBridgeAddress: String?
+    var asr: ASRConfiguration?
 
     static let standard = AppConfiguration(
         schemaVersion: currentSchemaVersion,
@@ -361,7 +777,8 @@ struct AppConfiguration: Codable, Equatable, Sendable {
         launchAtLogin: false,
         showTechnicalDetails: false,
         refreshIntervalSeconds: 15,
-        manualBridgeAddress: nil
+        manualBridgeAddress: nil,
+        asr: nil
     )
 }
 

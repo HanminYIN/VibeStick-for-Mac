@@ -23,19 +23,23 @@ product shell and adds device discovery, secure USB pairing, per-device trust,
 Bonjour address recovery, and revision/ACK configuration sync. M3-A adds the
 real-device Codex Focus home screen, live Mac preview, project-name controls,
 dynamic quota-window layout, and a passive-by-default/manual-refresh quota path.
+M3-B adds the fail-closed voice/send interaction, and M3-C adds native ASR
+provider configuration, Keychain storage, and an injection-independent test.
 
-The current M3-A DMG is for a Mac that already has the VibeStick services and
-compatible firmware installed; it is not a firmware installer. M2 is sealed in
-the local `8ced6eb` checkpoint. The M3-A worktree has completed real-device
-visual acceptance, quota/project corrections, firmware build, App/DMG checks,
-and Bridge/HUD/Paste regression tests; it has not been committed or published.
-Voice/send interaction continues in M3-B, while clean-machine setup and
-one-click flashing remain M4 work.
+The current M3-C development DMG is for a Mac that already has VibeStick
+services and compatible firmware installed; it is not a firmware installer.
+M3-A is sealed in local checkpoint `e2113ba`. M3-B has completed success and
+fail-closed real-device acceptance, and M3-B plus M3-C are sealed together in a
+local checkpoint after automated App/Helper/DMG verification. The combined
+runtime changes have not been deployed or published.
+Clean-machine setup and one-click flashing remain M4 work.
 
 - [M1 achievements and validation evidence](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
 - [M2 achievements and upstream comparison](docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)
 - [M2 implementation and acceptance boundary](docs/VIBESTICK_FOR_MAC_M2_IMPLEMENTATION.md)
 - [M3-A achievements and upstream comparison](docs/VIBESTICK_FOR_MAC_M3A_ACHIEVEMENTS.md)
+- [M3-B voice/send achievements](docs/VIBESTICK_FOR_MAC_M3B_ACHIEVEMENTS.md)
+- [M3-C native ASR configuration achievements](docs/VIBESTICK_FOR_MAC_M3C_ACHIEVEMENTS.md)
 - [VibeStick for Mac roadmap](docs/VIBESTICK_FOR_MAC_ROADMAP.md)
 - [Native macOS build instructions](app/macos/README.md)
 
@@ -290,8 +294,8 @@ idf.py build
 
 ## Current limits
 
-- The M3-A DMG manages an existing compatible installation; it is not yet a clean-machine or firmware installer.
-- M3-A has passed its local automated and controlled real-device acceptance run; the worktree is still an unpublished development checkpoint.
+- The M3-C DMG manages an existing compatible installation; it is not yet a clean-machine or firmware installer.
+- M3-B has passed controlled real-device acceptance, and M3-C has passed an explicitly authorized SiliconFlow fixed-audio GUI test without using a Mac microphone. They are sealed in one unpublished local checkpoint whose combined runtime changes have not yet been deployed.
 - The firmware targets M5Stack StickS3 only.
 - The Mac app targets Apple Silicon and macOS 15 or newer; it is ad-hoc signed and not notarized.
 - Codex quota normally follows local session `rate_limits` events without starting an extra process. A manual refresh uses the version-bound local Codex app-server protocol once for a fresher account-wide reading; neither source is a public quota API.

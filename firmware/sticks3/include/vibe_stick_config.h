@@ -10,9 +10,16 @@
 #define VIBE_STICK_RECORDING_START_PATH "/recording/start"
 #define VIBE_STICK_RECORDING_AUDIO_PATH "/recording/audio"
 #define VIBE_STICK_RECORDING_STOP_PATH "/recording/stop"
+#define VIBE_STICK_RECORDING_CONFIRM_PATH "/recording/send/confirm"
+#define VIBE_STICK_HEALTH_PATH "/health"
 #define VIBE_STICK_DEVICE_CONFIG_PATH "/v1/device/config"
 #define VIBE_STICK_DEVICE_CONFIG_ACK_PATH "/v1/device/config/ack"
 #define VIBE_STICK_STATE_POLL_MS 2000
+#define VIBE_STICK_RECORDING_RESPONSE_CAPACITY 2048
+
+#ifndef VIBE_STICK_ENABLE_M3B_VOICE
+#define VIBE_STICK_ENABLE_M3B_VOICE 0
+#endif
 
 #if __has_include("vibe_stick_secrets.h")
 #include "vibe_stick_secrets.h"

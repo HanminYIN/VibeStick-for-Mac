@@ -111,6 +111,7 @@ fi
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$COMPONENTS_DIR"
 mkdir -p "$LAUNCH_AGENTS_DIR"
+chmod 700 "$CONFIG_DIR"
 
 RUNTIME_TEMP="$CONFIG_DIR/.runtime.installing"
 BRIDGE_APP_TEMP="$CONFIG_DIR/.VibeStick Bridge.app.installing"
@@ -279,6 +280,7 @@ fi
 
 if [ -f "$ENV_PATH" ]; then
   cp "$ENV_PATH" "$CONFIG_DIR/.env"
+  chmod 600 "$CONFIG_DIR/.env"
 fi
 
 cat > "$PLIST_PATH" <<PLIST

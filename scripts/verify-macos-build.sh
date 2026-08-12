@@ -6,7 +6,7 @@ PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M3-A.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M3-C.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -33,6 +33,19 @@ sign_and_verify_bundle() {
   /usr/bin/codesign --force --sign - "$bundle_path"
   /usr/bin/codesign --verify --deep --strict "$bundle_path"
   printf '%s\n' "PASS: $label ad-hoc signature verified"
+}
+
+detach_disk_image() {
+  detach_target="$1"
+  detach_attempt=0
+  while [ "$detach_attempt" -lt 10 ]; do
+    if /usr/bin/hdiutil detach "$detach_target" >/dev/null 2>&1; then
+      return 0
+    fi
+    /bin/sleep 0.2
+    detach_attempt=$((detach_attempt + 1))
+  done
+  /usr/bin/hdiutil detach -force "$detach_target" >/dev/null
 }
 
 assert_app_icon() {
@@ -160,7 +173,7 @@ assert_menu_bar_source_contract() {
   printf '%s\n' "PASS: source uses the branded VibeStick menu bar asset"
 }
 
-assert_m3a_interface_source_contract() {
+assert_m3b_interface_source_contract() {
   section_views="$ROOT_DIR/app/macos/VibeStickApp/Features/SectionViews.swift"
   infrastructure="$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift"
 
@@ -171,10 +184,18 @@ assert_m3a_interface_source_contract() {
     || ! /usr/bin/grep -F 'Toggle(' "$section_views" >/dev/null \
     || ! /usr/bin/grep -F '"在设备首页显示项目名称"' "$section_views" >/dev/null \
     || ! /usr/bin/grep -F 'Text("LEFT")' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'private var previewModel: CodexFocusPreviewModel' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'Image("CodexDeviceIcon")' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'batteryPercent.map { "\($0)%" } ?? "--%"' "$ROOT_DIR/app/macos/VibeStickApp/Core/Models.swift" >/dev/null \
+    || ! /usr/bin/grep -F '.minimumScaleFactor(0.75)' "$section_views" >/dev/null \
     || ! /usr/bin/grep -F 'make_label(screen, "LEFT", &lv_font_montserrat_12' "$ROOT_DIR/firmware/sticks3/src/main.c" >/dev/null \
     || ! /usr/bin/grep -F 'focus_status_optics' "$ROOT_DIR/firmware/sticks3/src/main.c" >/dev/null \
-    || ! /usr/bin/grep -F 'NSWorkspace.shared.open(SupportPaths.supportDirectory)' "$infrastructure" >/dev/null; then
-    printf '%s\n' "FAIL: the M3-A interface source contract is incomplete" >&2
+    || ! /usr/bin/grep -F 'NSWorkspace.shared.open(SupportPaths.supportDirectory)' "$infrastructure" >/dev/null \
+    || ! /usr/bin/grep -F 'title: "当前语音链路"' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'title: "最近一次设备语音"' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'voiceInteractionVersion' "$ROOT_DIR/app/macos/VibeStickApp/Core/Models.swift" >/dev/null \
+    || ! /usr/bin/grep -F 'to_persisted_jsonable' "$ROOT_DIR/bridge/src/vibe_stick/audio/recorder.py" >/dev/null; then
+    printf '%s\n' "FAIL: the M3-B interface source contract is incomplete" >&2
     exit 1
   fi
 
@@ -183,7 +204,45 @@ assert_m3a_interface_source_contract() {
     printf '%s\n' "FAIL: a misleading M1 preview or legacy Finder interaction remains" >&2
     exit 1
   fi
+  if /usr/bin/grep -F 'Text("96%")' "$section_views" >/dev/null \
+    || /usr/bin/grep -F 'Text("98%")' "$section_views" >/dev/null \
+    || /usr/bin/grep -F 'Image(systemName: "terminal.fill")' "$section_views" >/dev/null; then
+    printf '%s\n' "FAIL: the Codex Focus preview still contains synthetic telemetry or a substitute icon" >&2
+    exit 1
+  fi
   printf '%s\n' "PASS: source keeps diagnostics understandable and the device preview tracks M3 Codex Focus"
+}
+
+assert_m3c_asr_source_contract() {
+  m3c_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M3CInfrastructure.swift"
+  section_views="$ROOT_DIR/app/macos/VibeStickApp/Features/SectionViews.swift"
+  app_info="$ROOT_DIR/app/macos/VibeStickApp/Resources/Info.plist"
+  transcriber="$ROOT_DIR/bridge/src/vibe_stick/audio/transcriber.py"
+
+  if ! /usr/bin/grep -F 'actor ASRKeychainManager' "$m3c_source" >/dev/null \
+    || ! /usr/bin/grep -F 'case siliconFlow = "siliconflow"' "$ROOT_DIR/app/macos/VibeStickApp/Core/Models.swift" >/dev/null \
+    || ! /usr/bin/grep -F 'title: "独立供应方测试"' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'currentMilestone: "M3-C"' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F '不注入 · 不按 Return' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F 'actor ASRTestAudioGenerator' "$m3c_source" >/dev/null \
+    || ! /usr/bin/grep -F '"/usr/bin/say"' "$m3c_source" >/dev/null \
+    || ! /usr/bin/grep -F 'static let expectedTranscript = "语音测试成功"' "$m3c_source" >/dev/null \
+    || ! /usr/bin/grep -F 'ASRTestTranscriptComparator.matches' "$m3c_source" >/dev/null \
+    || ! /usr/bin/grep -F '.posixPermissions: 0o600' "$m3c_source" >/dev/null \
+    || ! /usr/bin/grep -F 'SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
+    || ! /usr/bin/grep -F 'find-generic-password' "$transcriber" >/dev/null \
+    || ! /usr/bin/grep -F 'config-v1.json' "$transcriber" >/dev/null; then
+    printf '%s\n' "FAIL: the M3-C native ASR source contract is incomplete" >&2
+    exit 1
+  fi
+
+  if /usr/bin/grep -E 'AVAudioRecorder|AVCaptureDevice|ASRMacAudioInputProbe|PasteInjector|NSPasteboard|confirm_return|recording/(start|audio|stop|send/confirm)' \
+    "$m3c_source" >/dev/null \
+    || /usr/bin/grep -F 'NSMicrophoneUsageDescription' "$app_info" >/dev/null; then
+    printf '%s\n' "FAIL: the independent M3-C ASR test is coupled to a Mac microphone, text injection, or M3-B recording endpoints" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: M3-C ASR configuration uses Keychain and a fixed injection-independent audio fixture"
 }
 
 assert_menu_bar_icon() {
@@ -540,7 +599,8 @@ assert_app_launch_smoke() {
 }
 
 assert_menu_bar_source_contract
-assert_m3a_interface_source_contract
+assert_m3b_interface_source_contract
+assert_m3c_asr_source_contract
 "$ROOT_DIR/scripts/build-macos-app.sh"
 assert_binary "$APP_BINARY" "VibeStick for Mac"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"
@@ -587,7 +647,7 @@ assert_no_forbidden_files "$APP_PATH" "built app"
 assert_app_launch_smoke "$APP_PATH" "built app"
 
 if [ -d "$APP_PATH/Contents/Helpers/VibeStick Paste.app" ]; then
-  printf '%s\n' "FAIL: M1 must not bundle or replace the installed Paste identity" >&2
+  printf '%s\n' "FAIL: VibeStick for Mac must not bundle or replace the installed Paste identity" >&2
   exit 1
 fi
 
@@ -624,7 +684,7 @@ assert_no_forbidden_files "$MOUNT_POINT" "mounted DMG"
 assert_app_launch_smoke "$MOUNTED_APP" "DMG app"
 
 "$LSREGISTER_PATH" -u "$MOUNTED_APP" >/dev/null 2>&1 || true
-/usr/bin/hdiutil detach "$MOUNT_POINT" >/dev/null
+detach_disk_image "$MOUNT_POINT"
 mounted=0
 /bin/rmdir "$MOUNT_POINT"
 MOUNT_POINT=""

@@ -207,6 +207,26 @@ The following M1 paths remain stable:
 - `POST /recording/audio?session_id=<id>`
 - `POST /recording/stop`
 
-They accept paired-device authentication or the legacy shared token. Loopback-only development remains allowed when the Bridge binds to loopback. Binding to a non-loopback address is refused unless at least one valid paired-device record or a non-placeholder legacy token exists.
+M3-B-capable Bridge source also exposes `POST /recording/send/confirm`. It is dormant for
+existing firmware: only a recording started with `interaction_version: 2` can enter
+`pending_send`, and the Bridge advertises this separately as `voice_interaction_version: 2`
+while keeping the transport protocol at version 2. A confirmation body contains only the
+recording `session_id`; it never contains transcript text. This endpoint requires paired-device
+authentication even when the Bridge is bound to loopback or a legacy shared token exists.
+An M3-B `POST /recording/stop` body must repeat the same `session_id`; a missing or mismatched
+identifier fails closed before transcription or paste. Legacy recording requests remain unchanged.
+
+Recording responses sent to clients that identify themselves with
+`X-Vibe-Stick-Firmware-Name` are deliberately compact and bounded. They contain only the
+interaction version plus the recording and send-session identifiers and phases consumed by the
+firmware. Full transcripts, audio paths, provider state, target fingerprints, and duplicated
+confirmation snapshots remain available to authorized local desktop clients, but are not echoed
+to the device. This prevents a successful confirmation from being misreported when variable-length
+desktop state exceeds the firmware response buffer.
+
+The M1 recording paths above accept paired-device authentication or the legacy shared token.
+Loopback-only development remains allowed when the Bridge binds to loopback. Binding to a
+non-loopback address is refused unless at least one valid paired-device record or a
+non-placeholder legacy token exists.
 
 The recording sequence and raw signed 16-bit, 16 kHz, mono PCM contract are unchanged. The default maximum upload is 2,000,000 bytes and remains bounded by `VIBE_STICK_MAX_RECORDING_AUDIO_BYTES`.

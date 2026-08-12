@@ -13,6 +13,7 @@ HUD_TEXT = {
     "transcribing": "正在识别",
     "unclear": "未听清",
     "failed": "识别失败",
+    "send_failed": "发送失败",
 }
 
 

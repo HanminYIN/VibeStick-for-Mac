@@ -133,3 +133,16 @@ struct ComingSoonBadge: View {
             .background(.quaternary, in: Capsule())
     }
 }
+
+struct CurrentMilestoneBadge: View {
+    let milestone: String
+
+    var body: some View {
+        Text("\(milestone) · 当前阶段")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.blue)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.blue.opacity(0.11), in: Capsule())
+    }
+}

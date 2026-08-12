@@ -19,7 +19,14 @@ from vibe_stick.claude.usage import fetch_usage as fetch_claude_usage
 from vibe_stick.claude.usage import to_quota_snapshot as claude_usage_to_quota
 from vibe_stick.codex.quota import QuotaSnapshot, load_quota, save_quota
 from vibe_stick.codex.rate_limits import fetch_account_quota as fetch_codex_account_quota
-from vibe_stick.config.paths import CLAUDE_QUOTA_PATH, QUOTA_PATH, RECORDING_PATH, STATE_PATH, ensure_app_support
+from vibe_stick.config.paths import (
+    CLAUDE_QUOTA_PATH,
+    PENDING_SEND_PATH,
+    QUOTA_PATH,
+    RECORDING_PATH,
+    STATE_PATH,
+    ensure_app_support,
+)
 from vibe_stick.desktop.hud import hide_hud
 from vibe_stick.protocol.state import (
     AlertState,
@@ -83,7 +90,10 @@ class BridgeStateStore:
         self._state.codex.quota_7d_remaining = self._codex_quota.quota_7d_remaining
         self._state.codex.quota_updated_at = self._codex_quota.quota_updated_at
         self._state.codex.quota_stale = self._codex_quota.quota_stale
-        self.recording = RecordingController(RECORDING_PATH)
+        self.recording = RecordingController(
+            RECORDING_PATH,
+            pending_send_path=PENDING_SEND_PATH,
+        )
         hide_hud()
 
     def note_device_request(self, device_id: str, headers: Any) -> None:
@@ -186,11 +196,18 @@ class BridgeStateStore:
                 message="",
             )
             self._save_state_locked()
-        return {"recording": session.to_jsonable(), "state": self.get_state().to_jsonable()}
+        return self._recording_response(session)
 
     def stop_recording(self, request: dict[str, Any] | None = None) -> dict[str, Any]:
         session = self.recording.stop(request)
-        return {"recording": session.to_jsonable(), "state": self.get_state().to_jsonable()}
+        return self._recording_response(session)
+
+    def confirm_recording_send(self, request: dict[str, Any] | None = None) -> dict[str, Any]:
+        request = request or {}
+        transition = self.recording.confirm_send(str(request.get("session_id") or ""))
+        response = self._recording_response(self.recording.session)
+        response["confirmation"] = transition.to_jsonable()
+        return response
 
     def upload_recording_audio(
         self,
@@ -208,7 +225,15 @@ class BridgeStateStore:
             channels=channels,
             bits_per_sample=bits_per_sample,
         )
-        return {"recording": session.to_jsonable(), "state": self.get_state().to_jsonable()}
+        return self._recording_response(session)
+
+    def _recording_response(self, session: Any) -> dict[str, Any]:
+        return {
+            "voice_interaction_version": 2,
+            "recording": session.to_jsonable(),
+            "send_session": self.recording.send_session_snapshot().to_jsonable(),
+            "state": self.get_state().to_jsonable(),
+        }
 
     def _refresh_providers_locked(self) -> None:
         codex_observation = observe_codex(self._project_root)
@@ -411,6 +436,7 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                         "bridge_name": BRIDGE_NAME,
                         "bridge_version": BRIDGE_VERSION,
                         "protocol_version": 2,
+                        "voice_interaction_version": 2,
                         "bridge_id": store.bridge_id,
                     }
                 )
@@ -431,7 +457,13 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
-            if parsed.path in _protected_paths() and not self._is_runtime_authorized():
+            if parsed.path == "/recording/send/confirm":
+                device_id = self._paired_device_id()
+                if device_id is None:
+                    self._send_error(HTTPStatus.UNAUTHORIZED, "Paired device required")
+                    return
+                store.note_device_request(device_id, self.headers)
+            elif parsed.path in _protected_paths() and not self._is_runtime_authorized():
                 self._send_error(HTTPStatus.UNAUTHORIZED, "Unauthorized")
                 return
 
@@ -443,7 +475,7 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                 self._send_json({"refreshed": True, "state": state.to_jsonable()})
             elif parsed.path == "/recording/start":
                 body = self._read_json_body()
-                self._send_json(store.start_recording(body))
+                self._send_recording_json(store.start_recording(body))
             elif parsed.path == "/recording/audio":
                 query = parse_qs(parsed.query)
                 content_length = self._content_length()
@@ -455,7 +487,7 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                     )
                     return
                 pcm = self._read_raw_body(content_length)
-                self._send_json(
+                self._send_recording_json(
                     store.upload_recording_audio(
                         pcm,
                         session_id=_first(query, "session_id"),
@@ -466,7 +498,10 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                 )
             elif parsed.path == "/recording/stop":
                 body = self._read_json_body()
-                self._send_json(store.stop_recording(body))
+                self._send_recording_json(store.stop_recording(body))
+            elif parsed.path == "/recording/send/confirm":
+                body = self._read_json_body()
+                self._send_recording_json(store.confirm_recording_send(body))
             elif parsed.path == "/v1/device/config/ack":
                 device_id = self._paired_device_id()
                 if device_id is None:
@@ -555,6 +590,11 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                 # failure and should not emit a server traceback.
                 return
 
+        def _send_recording_json(self, payload: dict[str, Any]) -> None:
+            if self.headers.get("X-Vibe-Stick-Firmware-Name", "").strip():
+                payload = _compact_firmware_recording_response(payload)
+            self._send_json(payload)
+
         def _send_error(self, status: HTTPStatus, message: str) -> None:
             self._send_json({"error": message}, status=status)
 
@@ -587,6 +627,7 @@ def _protected_paths() -> set[str]:
         "/recording/start",
         "/recording/audio",
         "/recording/stop",
+        "/recording/send/confirm",
     }
 
 
@@ -682,6 +723,30 @@ def _with_bridge_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     payload["bridge_name"] = BRIDGE_NAME
     payload["bridge_version"] = BRIDGE_VERSION
     return payload
+
+
+def _compact_firmware_recording_response(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return only the bounded recording fields consumed by StickS3 firmware.
+
+    Full transcripts, audio paths, provider state, target fingerprints, and the
+    duplicated confirmation snapshot remain available to local desktop clients
+    but must not make a device response larger than its fixed capture buffer.
+    """
+    recording = payload.get("recording")
+    send_session = payload.get("send_session")
+    compact_recording = recording if isinstance(recording, dict) else {}
+    compact_send_session = send_session if isinstance(send_session, dict) else {}
+    return {
+        "voice_interaction_version": payload.get("voice_interaction_version", 1),
+        "recording": {
+            "session_id": compact_recording.get("session_id", ""),
+            "status": compact_recording.get("status", ""),
+        },
+        "send_session": {
+            "session_id": compact_send_session.get("session_id", ""),
+            "phase": compact_send_session.get("phase", ""),
+        },
+    }
 
 
 def _configured_provider() -> str:

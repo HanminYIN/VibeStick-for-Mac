@@ -21,6 +21,7 @@ The license text is included at docs/SIL-OFL-1.1.txt.
 The generated glyph subsets are used only for the StickS3 Chinese UI fonts in:
 
   firmware/sticks3/generated/vibe_stick_cn_16.c
+  firmware/sticks3/generated/vibe_stick_ui_10.c
   firmware/sticks3/generated/vibe_stick_ui_12.c
 
 VibeStick for Mac does not intentionally vendor third-party brand assets or

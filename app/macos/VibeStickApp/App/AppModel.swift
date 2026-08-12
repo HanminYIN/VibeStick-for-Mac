@@ -25,13 +25,17 @@ final class AppModel: ObservableObject {
     @Published private(set) var runtimeSnapshot = RuntimeSnapshot.waiting
     @Published private(set) var configurationSummary = LegacyConfigurationSummary.empty
     @Published private(set) var keychainSummary = KeychainSummary.empty
+    @Published private(set) var voiceInteractionSummary = VoiceInteractionSummary.empty
     @Published private(set) var configuration = AppConfiguration.standard
+    @Published private(set) var asrDraft = ASRConfiguration.standard
+    @Published private(set) var asrTestFeedback = ASRTestFeedback.idle
     @Published private(set) var deviceConfiguration = DeviceConfiguration.standard
     @Published private(set) var bridgeDevices: BridgeDevicesDTO?
     @Published private(set) var pairingPhase: PairingPhase = .idle
     @Published private(set) var isRefreshing = false
     @Published private(set) var serviceActionInProgress = false
     @Published private(set) var deviceConfigurationSaveInProgress = false
+    @Published private(set) var asrSettingsSaveInProgress = false
     @Published var presentedMessage: AppMessage?
 
     private let bridgeClient: BridgeClient
@@ -42,12 +46,16 @@ final class AppModel: ObservableObject {
     private let deviceConfigurationStore: DeviceConfigurationStore
     private let usbDeviceDetector: USBDeviceDetector
     private let devicePairingManager: DevicePairingManager
+    private let asrSecretManager: any ASRSecretManaging
+    private let asrTestService: any ASRTesting
+    private let asrTestAudioProvider: any ASRTestAudioProviding
     private var refreshLoop: Task<Void, Never>?
     private var startupSmokeProbe: Task<Void, Never>?
     private var startupSmokeObservation: AnyCancellable?
     private let startupSmokeCounter = StartupSmokeCounter()
     private var startupSmokeWindowVisible = false
     private var hasStarted = false
+    private var hasEditedASRDraft = false
 
     init(
         bridgeClient: BridgeClient = BridgeClient(),
@@ -57,7 +65,10 @@ final class AppModel: ObservableObject {
         loginItemController: LoginItemController = LoginItemController(),
         deviceConfigurationStore: DeviceConfigurationStore = DeviceConfigurationStore(),
         usbDeviceDetector: USBDeviceDetector = USBDeviceDetector(),
-        devicePairingManager: DevicePairingManager = DevicePairingManager()
+        devicePairingManager: DevicePairingManager = DevicePairingManager(),
+        asrSecretManager: any ASRSecretManaging = ASRKeychainManager(),
+        asrTestService: any ASRTesting = ASRTestService(),
+        asrTestAudioProvider: any ASRTestAudioProviding = ASRTestAudioGenerator()
     ) {
         self.bridgeClient = bridgeClient
         self.runtimeManager = runtimeManager
@@ -67,11 +78,17 @@ final class AppModel: ObservableObject {
         self.deviceConfigurationStore = deviceConfigurationStore
         self.usbDeviceDetector = usbDeviceDetector
         self.devicePairingManager = devicePairingManager
+        self.asrSecretManager = asrSecretManager
+        self.asrTestService = asrTestService
+        self.asrTestAudioProvider = asrTestAudioProvider
     }
 
     var appVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             ?? "0.2.0-dev"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+            ?? "local"
+        return "\(version) (\(build)) · M3-C"
     }
 
     func start() {
@@ -83,6 +100,7 @@ final class AppModel: ObservableObject {
             async let loadedPreferences = preferencesStore.load()
             async let loadedDeviceConfiguration = deviceConfigurationStore.load()
             configuration = await loadedPreferences
+            asrDraft = configuration.asr ?? .standard
             deviceConfiguration = await loadedDeviceConfiguration
             synchronizeMenuBarPreference()
             configuration.launchAtLogin = await loginItemController.isEnabled()
@@ -124,6 +142,12 @@ final class AppModel: ObservableObject {
         runtimeSnapshot = runtime
         configurationSummary = fetchedConfiguration.legacy
         keychainSummary = fetchedConfiguration.keychain
+        voiceInteractionSummary = fetchedConfiguration.voice
+        if configuration.asr == nil,
+           !hasEditedASRDraft,
+           let provider = ASRProvider.fromLegacyID(fetchedConfiguration.legacy.asrProvider) {
+            asrDraft = .preset(provider)
+        }
         bridgeDevices = fetchedDevices
         if case .pairing = pairingPhase {
             // Preserve the in-flight phase until the USB transaction finishes.
@@ -227,6 +251,159 @@ final class AppModel: ObservableObject {
                 presentedMessage = AppMessage(title: "设备设置未保存", message: error.localizedDescription)
             }
         }
+    }
+
+    func selectASRProvider(_ provider: ASRProvider) {
+        asrDraft = .preset(provider)
+        noteASRDraftChanged()
+    }
+
+    func setASRBaseURL(_ value: String) {
+        asrDraft.baseURL = value
+        noteASRDraftChanged()
+    }
+
+    func setASRModel(_ value: String) {
+        asrDraft.model = value
+        noteASRDraftChanged()
+    }
+
+    func setASRLanguage(_ value: String) {
+        asrDraft.language = value
+        noteASRDraftChanged()
+    }
+
+    func setASRLocalCommand(_ value: String) {
+        asrDraft.localCommand = value
+        noteASRDraftChanged()
+    }
+
+    func saveASRConfiguration(apiKey: String) {
+        guard !asrSettingsSaveInProgress else { return }
+        asrSettingsSaveInProgress = true
+        let requested = asrDraft
+        let suppliedKey = requested.provider.isCloud
+            ? apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+            : ""
+
+        Task {
+            do {
+                let validated = try requested.validated()
+                let previousKey = validated.provider.isCloud
+                    ? try await asrSecretManager.storedAPIKey()
+                    : nil
+                if validated.requiresAPIKey && suppliedKey.isEmpty && previousKey == nil {
+                    throw ASRConfigurationError.missingAPIKey
+                }
+                if !suppliedKey.isEmpty {
+                    try await asrSecretManager.saveAPIKey(suppliedKey)
+                }
+
+                var value = configuration
+                value.asr = validated
+                do {
+                    try await preferencesStore.save(value)
+                } catch {
+                    if !suppliedKey.isEmpty {
+                        if let previousKey {
+                            try? await asrSecretManager.saveAPIKey(previousKey)
+                        } else {
+                            try? await asrSecretManager.deleteAPIKey()
+                        }
+                    }
+                    throw error
+                }
+
+                configuration = value
+                asrDraft = validated
+                hasEditedASRDraft = false
+                asrSettingsSaveInProgress = false
+                presentedMessage = AppMessage(
+                    title: "语音供应方已保存",
+                    message: validated.provider == .localCommand
+                        ? "命令配置已写入私有应用数据；保存过程没有执行命令，也没有触碰当前输入框。"
+                        : "非敏感配置已写入私有应用数据，API Key 只保存在 macOS 钥匙串。M3-C Bridge 会在下一次录音时读取配置；保存不会重启后台服务。"
+                )
+                await refresh()
+            } catch {
+                asrSettingsSaveInProgress = false
+                presentedMessage = AppMessage(title: "语音供应方未保存", message: error.localizedDescription)
+            }
+        }
+    }
+
+    func deleteASRAPIKey() {
+        guard !asrSettingsSaveInProgress else { return }
+        asrSettingsSaveInProgress = true
+        Task {
+            do {
+                try await asrSecretManager.deleteAPIKey()
+                asrSettingsSaveInProgress = false
+                presentedMessage = AppMessage(
+                    title: "语音 API Key 已移除",
+                    message: "钥匙串条目已删除；供应方和模型等非敏感设置仍保留。"
+                )
+                await refresh()
+            } catch {
+                asrSettingsSaveInProgress = false
+                presentedMessage = AppMessage(title: "API Key 未移除", message: error.localizedDescription)
+            }
+        }
+    }
+
+    func runASRProviderTest(apiKey: String) {
+        guard !isASRTestBusy else { return }
+        let configuration: ASRConfiguration
+        do {
+            configuration = try asrDraft.validated()
+        } catch {
+            asrTestFeedback = .failure("配置尚未就绪", detail: error.localizedDescription)
+            return
+        }
+        asrTestFeedback = ASRTestFeedback(
+            phase: .testing,
+            title: "正在测试 \(configuration.provider.title)",
+            detail: configuration.provider.isCloud
+                ? "正在生成固定样本“\(ASRTestAudioFixture.expectedTranscript)”并发送到 \(configuration.targetHost ?? "所选供应方")；不会访问麦克风或注入当前输入框。"
+                : "正在生成固定样本“\(ASRTestAudioFixture.expectedTranscript)”并交给本地命令；不会访问麦克风或注入当前输入框。",
+            transcriptPreview: nil
+        )
+
+        let suppliedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task {
+            do {
+                let fixture = try await asrTestAudioProvider.makeFixture()
+                defer { try? FileManager.default.removeItem(at: fixture.audioURL) }
+                let storedKey = configuration.requiresAPIKey && suppliedKey.isEmpty
+                    ? try await asrSecretManager.storedAPIKey()
+                    : nil
+                if configuration.requiresAPIKey && suppliedKey.isEmpty && storedKey == nil {
+                    throw ASRConfigurationError.missingAPIKey
+                }
+                asrTestFeedback = await asrTestService.test(
+                    audioURL: fixture.audioURL,
+                    expectedTranscript: fixture.expectedTranscript,
+                    configuration: configuration,
+                    apiKey: suppliedKey.isEmpty ? storedKey : suppliedKey
+                )
+            } catch {
+                asrTestFeedback = .failure("供应方测试失败", detail: error.localizedDescription)
+            }
+        }
+    }
+
+    var isASRTestBusy: Bool {
+        asrTestFeedback.phase == .testing
+    }
+
+    var hasConfiguredASR: Bool {
+        configuration.asr != nil || configurationSummary.asrConfigurationDetected
+    }
+
+    private func noteASRDraftChanged() {
+        hasEditedASRDraft = true
+        guard !isASRTestBusy else { return }
+        asrTestFeedback = .idle
     }
 
     func setManualBridgeAddress(_ value: String) {

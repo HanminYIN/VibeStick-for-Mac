@@ -6,6 +6,7 @@ import os
 import signal
 import struct
 import subprocess
+import tempfile
 import time
 import wave
 import uuid
@@ -15,6 +16,12 @@ from pathlib import Path
 from typing import Any
 
 from vibe_stick.audio.transcriber import TranscriptionAdapter
+from vibe_stick.audio.send_session import (
+    PendingSendCoordinator,
+    SendSessionPhase,
+    SendSessionSnapshot,
+    SendSessionTransition,
+)
 from vibe_stick.config.paths import RECORDINGS_DIR
 from vibe_stick.desktop.hud import hide_hud, show_hud
 from vibe_stick.paste.input_injector import MacPasteInjector
@@ -30,6 +37,11 @@ KNOWN_ASR_HALLUCINATIONS = (
     "\u8bf7\u4e0d\u541d\u70b9\u8d5e\u8ba2\u9605\u8f6c\u53d1\u6253\u8d4f\u652f\u6301\u660e\u955c\u4e0e\u70b9\u70b9\u680f\u76ee",
     "\u8bf7\u4f7f\u7528\u7b80\u4f53\u4e2d\u6587\u8f93\u51fa\u3002",
 )
+SUPPORTED_VOICE_INTERACTION_VERSION = 2
+SEND_MODE_PASTE_ONLY = "paste_only"
+SEND_MODE_CONFIRM = "confirm"
+SEND_MODE_AUTO_SEND = "auto_send"
+CONFIRM_TARGET_RETRY_DELAY_SECONDS = 0.12
 
 
 @dataclass
@@ -45,9 +57,27 @@ class RecordingSession:
     pasted: bool = False
     audio_file: str = ""
     audio_source: str = "none"
+    interaction_version: int = 1
+    send_mode: str = SEND_MODE_PASTE_ONLY
 
     def to_jsonable(self) -> dict[str, Any]:
         return asdict(self)
+
+    def to_persisted_jsonable(self) -> dict[str, Any]:
+        """Return restart metadata without transcript text or local file paths."""
+        return {
+            "schema_version": 2,
+            "session_id": self.session_id,
+            "active": self.active,
+            "started_at": self.started_at,
+            "stopped_at": self.stopped_at,
+            "status": self.status,
+            "transcript_source": self.transcript_source,
+            "pasted": self.pasted,
+            "audio_source": self.audio_source,
+            "interaction_version": self.interaction_version,
+            "send_mode": self.send_mode,
+        }
 
 
 @dataclass(frozen=True)
@@ -63,25 +93,41 @@ class AudioMetrics:
 class RecordingController:
     """project-owned push-to-talk session boundary."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, *, pending_send_path: Path | None = None) -> None:
         self.path = path
         self.transcriber = TranscriptionAdapter()
         self.paste_injector = MacPasteInjector()
         self.audio_recorder = MacMicRecorder()
+        self.pending_send = PendingSendCoordinator(
+            pending_send_path or path.with_name("pending-send-v1.json")
+        )
         self.session = self._load()
 
     def start(self, request: dict[str, Any] | None = None) -> RecordingSession:
         request = request or {}
         requested_source = str(request.get("audio_source") or request.get("source") or "")
         requested_session_id = _requested_session_id(request)
+        session_id = requested_session_id or uuid.uuid4().hex
+        interaction_version = _voice_interaction_version(request)
+        send_mode = _configured_send_mode(interaction_version)
+        recording_transition = self.pending_send.begin_recording(session_id=session_id)
         self.session = RecordingSession(
-            session_id=requested_session_id or uuid.uuid4().hex,
+            session_id=session_id,
             active=True,
             started_at=datetime.now().isoformat(timespec="seconds"),
             stopped_at="",
             status="recording",
             message="Recording session started",
+            interaction_version=interaction_version,
+            send_mode=send_mode,
         )
+        if not recording_transition.accepted:
+            self.session.active = False
+            self.session.stopped_at = datetime.now().isoformat(timespec="seconds")
+            self.session.status = "start_failed"
+            self.session.message = "A send confirmation is already in progress"
+            self._save()
+            return self.session
         use_mac_mic = "sticks3" not in requested_source.lower()
         if not use_mac_mic:
             self.session.audio_source = "sticks3_pcm"
@@ -152,7 +198,7 @@ class RecordingController:
             self._save()
             return self.session
 
-        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        _ensure_private_directory(RECORDINGS_DIR)
         sid = self.session.session_id or session_id or uuid.uuid4().hex
         audio_file = RECORDINGS_DIR / f"{sid}.wav"
         with wave.open(str(audio_file), "wb") as wav:
@@ -160,6 +206,7 @@ class RecordingController:
             wav.setsampwidth(bits_per_sample // 8)
             wav.setframerate(sample_rate)
             wav.writeframes(pcm)
+        audio_file.chmod(0o600)
 
         self.session.audio_file = str(audio_file)
         self.session.audio_source = "sticks3_pcm"
@@ -184,6 +231,17 @@ class RecordingController:
                 show_hud("failed", hold_seconds=1.8)
                 self._save_stop_result()
                 return self.session
+        requested_session_id = _requested_session_id(request)
+        if (
+            self.session.interaction_version >= SUPPORTED_VOICE_INTERACTION_VERSION
+            and requested_session_id != self.session.session_id
+        ):
+            self.session.pasted = False
+            self.session.status = "stop_failed"
+            self.session.message = "Recording stop session did not match the active M3-B session"
+            show_hud("failed", hold_seconds=1.8)
+            self._save_stop_result()
+            return self.session
         stop_hook_source = False
         stop_hook = _run_command_hook("VIBE_STICK_RECORDING_STOP_CMD", self.session.to_jsonable(), timeout=120)
         if stop_hook is not None:
@@ -198,7 +256,7 @@ class RecordingController:
                 self._save_stop_result()
                 return self.session
         should_paste = bool(request.get("paste", True))
-        press_enter = _env_bool("VIBE_STICK_AUTO_ENTER", default=False)
+        press_enter = self.session.send_mode == SEND_MODE_AUTO_SEND
         show_hud("transcribing")
 
         if not explicit_text:
@@ -207,7 +265,6 @@ class RecordingController:
                 print(
                     "recording audio metrics "
                     f"session={self.session.session_id} "
-                    f"file={self.session.audio_file} "
                     f"bytes={metrics.audio_bytes} "
                     f"duration={metrics.duration_seconds:.3f}s "
                     f"rms={metrics.rms:.1f} "
@@ -274,9 +331,44 @@ class RecordingController:
                 return self.session
             if should_paste:
                 paste = self.paste_injector.paste(transcript.text, press_enter=press_enter)
-                self.session.pasted = paste.success
-                self.session.status = "pasted" if paste.success else "paste_failed"
-                self.session.message = paste.message if paste.success else f"{transcript_message}; {paste.message}"
+                clipboard_only = paste.success and paste.delivery == "clipboard"
+                self.session.pasted = paste.success and not clipboard_only
+                if (
+                    clipboard_only
+                    and self.session.interaction_version >= SUPPORTED_VOICE_INTERACTION_VERSION
+                ):
+                    self.session.status = "copied"
+                    self.session.message = paste.message
+                elif (
+                    paste.success
+                    and self.session.interaction_version >= SUPPORTED_VOICE_INTERACTION_VERSION
+                    and self.session.send_mode == SEND_MODE_CONFIRM
+                ):
+                    if paste.target is None:
+                        self.session.status = "confirmation_unavailable"
+                        self.session.message = "Text was pasted, but the focused input could not be identified"
+                    else:
+                        armed = self.pending_send.arm(
+                            session_id=self.session.session_id,
+                            target=paste.target,
+                        )
+                        self.session.status = "pending_send" if armed.accepted else "confirmation_unavailable"
+                        self.session.message = (
+                            "Text pasted; waiting for blue-button confirmation"
+                            if armed.accepted else "Text was pasted, but confirmation could not be armed"
+                        )
+                elif (
+                    paste.success
+                    and self.session.interaction_version >= SUPPORTED_VOICE_INTERACTION_VERSION
+                    and self.session.send_mode == SEND_MODE_AUTO_SEND
+                ):
+                    self.session.status = "sent"
+                    self.session.message = paste.message
+                else:
+                    self.session.status = "pasted" if paste.success else "paste_failed"
+                    self.session.message = (
+                        paste.message if paste.success else f"{transcript_message}; {paste.message}"
+                    )
                 if paste.success:
                     hide_hud(delay_seconds=0.5)
                 else:
@@ -294,6 +386,74 @@ class RecordingController:
         self._save_stop_result()
         return self.session
 
+    def send_session_snapshot(self) -> SendSessionSnapshot:
+        return self.pending_send.snapshot()
+
+    def confirm_send(self, session_id: str) -> SendSessionTransition:
+        snapshot = self.pending_send.snapshot()
+        if snapshot.target is None or snapshot.phase != SendSessionPhase.PENDING:
+            current_target = snapshot.target
+            if current_target is None:
+                return SendSessionTransition(
+                    accepted=False,
+                    should_press_enter=False,
+                    reason=f"pending_send_{snapshot.phase.value}",
+                    snapshot=snapshot,
+                )
+            return self.pending_send.begin_confirmation(
+                session_id=session_id,
+                current_target=current_target,
+            )
+
+        inspection = self.paste_injector.inspect_target()
+        if not inspection.success or inspection.target is None:
+            time.sleep(CONFIRM_TARGET_RETRY_DELAY_SECONDS)
+            inspection = self.paste_injector.inspect_target()
+        if not inspection.success or inspection.target is None:
+            transition = self.pending_send.invalidate(
+                session_id=session_id,
+                reason="target_inspection_failed",
+            )
+            self._record_confirmation_result(transition, "Focused input could not be verified")
+            return transition
+
+        transition = self.pending_send.begin_confirmation(
+            session_id=session_id,
+            current_target=inspection.target,
+        )
+        if not transition.should_press_enter or transition.snapshot.target is None:
+            self._record_confirmation_result(transition, "Focused input changed; Return was not sent")
+            return transition
+
+        action = self.paste_injector.confirm_return(transition.snapshot.target)
+        finished = self.pending_send.finish_confirmation(
+            session_id=session_id,
+            success=action.success,
+        )
+        self._record_confirmation_result(finished, action.message)
+        return finished
+
+    def _record_confirmation_result(
+        self,
+        transition: SendSessionTransition,
+        message: str,
+    ) -> None:
+        if transition.snapshot.session_id != self.session.session_id:
+            return
+        if transition.snapshot.phase == SendSessionPhase.SENT:
+            self.session.status = "sent"
+            self.session.message = message
+            hide_hud(delay_seconds=0.5)
+        elif transition.snapshot.phase in {
+            SendSessionPhase.FAILED,
+            SendSessionPhase.INVALIDATED,
+            SendSessionPhase.EXPIRED,
+        }:
+            self.session.status = "send_failed"
+            self.session.message = message
+            show_hud("send_failed", hold_seconds=1.8)
+        self._save_stop_result()
+
     def _load(self) -> RecordingSession:
         try:
             data = json.loads(self.path.read_text())
@@ -305,17 +465,15 @@ class RecordingController:
             started_at=str(data.get("started_at") or ""),
             stopped_at=str(data.get("stopped_at") or ""),
             status=str(data.get("status") or "idle"),
-            message=str(data.get("message") or ""),
-            transcript=str(data.get("transcript") or ""),
             transcript_source=str(data.get("transcript_source") or "none"),
             pasted=bool(data.get("pasted", False)),
-            audio_file=str(data.get("audio_file") or ""),
             audio_source=str(data.get("audio_source") or "none"),
+            interaction_version=_bounded_interaction_version(data.get("interaction_version")),
+            send_mode=_clean_send_mode(data.get("send_mode")),
         )
 
     def _save(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.path.write_text(json.dumps(self.session.to_jsonable(), indent=2) + "\n")
+        _write_private_json(self.path, self.session.to_persisted_jsonable())
 
     def _save_stop_result(self) -> None:
         self._save()
@@ -326,8 +484,7 @@ class RecordingController:
             f"source={self.session.transcript_source} "
             f"audio_source={self.session.audio_source} "
             f"transcript_chars={len(self.session.transcript)} "
-            f"pasted={self.session.pasted} "
-            f"message={self.session.message}",
+            f"pasted={self.session.pasted}",
             flush=True,
         )
 
@@ -337,6 +494,72 @@ def _env_bool(name: str, default: bool) -> bool:
     if raw is None:
         return default
     return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _ensure_private_directory(path: Path) -> None:
+    path.mkdir(mode=0o700, parents=True, exist_ok=True)
+    path.chmod(0o700)
+
+
+def _write_private_json(path: Path, payload: dict[str, Any]) -> None:
+    _ensure_private_directory(path.parent)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        dir=path.parent,
+    )
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_name, path)
+        path.chmod(0o600)
+    except Exception:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        try:
+            os.unlink(temporary_name)
+        except OSError:
+            pass
+        raise
+
+
+def _voice_interaction_version(request: dict[str, Any]) -> int:
+    return _bounded_interaction_version(request.get("interaction_version"))
+
+
+def _bounded_interaction_version(raw: object) -> int:
+    if isinstance(raw, bool) or not isinstance(raw, int):
+        return 1
+    return max(1, min(SUPPORTED_VOICE_INTERACTION_VERSION, raw))
+
+
+def _configured_send_mode(interaction_version: int) -> str:
+    if interaction_version < SUPPORTED_VOICE_INTERACTION_VERSION:
+        return SEND_MODE_AUTO_SEND if _env_bool("VIBE_STICK_AUTO_ENTER", default=False) else SEND_MODE_PASTE_ONLY
+    configured = os.environ.get("VIBE_STICK_SEND_MODE", "").strip().lower().replace("-", "_")
+    aliases = {
+        "paste": SEND_MODE_PASTE_ONLY,
+        "paste_only": SEND_MODE_PASTE_ONLY,
+        "confirm": SEND_MODE_CONFIRM,
+        "blue_button": SEND_MODE_CONFIRM,
+        "auto": SEND_MODE_AUTO_SEND,
+        "auto_send": SEND_MODE_AUTO_SEND,
+    }
+    if configured in aliases:
+        return aliases[configured]
+    return SEND_MODE_AUTO_SEND if _env_bool("VIBE_STICK_AUTO_ENTER", default=False) else SEND_MODE_PASTE_ONLY
+
+
+def _clean_send_mode(raw: object) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {SEND_MODE_PASTE_ONLY, SEND_MODE_CONFIRM, SEND_MODE_AUTO_SEND}:
+        return value
+    return SEND_MODE_PASTE_ONLY
 
 
 def _wav_metrics(audio_file: str) -> AudioMetrics | None:
@@ -451,7 +674,7 @@ class MacMicRecorder:
         if self.process and self.process.poll() is None:
             return (False, self.audio_file, "A recording session is already active")
 
-        RECORDINGS_DIR.mkdir(parents=True, exist_ok=True)
+        _ensure_private_directory(RECORDINGS_DIR)
         self.audio_file = RECORDINGS_DIR / f"{session_id}.m4a"
         binary = self._ensure_helper_binary()
         if binary is None:
@@ -502,6 +725,7 @@ class MacMicRecorder:
             return (False, audio_file, message)
         if audio_file is None or not audio_file.exists() or audio_file.stat().st_size == 0:
             return (False, audio_file, "Mic recorder produced no audio")
+        audio_file.chmod(0o600)
         return (True, audio_file, "Recording stopped")
 
     def _ensure_helper_binary(self) -> Path | None:

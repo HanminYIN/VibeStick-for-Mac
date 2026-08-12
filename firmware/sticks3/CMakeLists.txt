@@ -1,4 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
+option(VIBE_STICK_ENABLE_M3B_VOICE "Compile the M3-B voice interaction path" ON)
+if(VIBE_STICK_ENABLE_M3B_VOICE)
+    add_compile_definitions(VIBE_STICK_ENABLE_M3B_VOICE=1)
+endif()
 set(EXTRA_COMPONENT_DIRS src)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(vibe_stick_sticks3)

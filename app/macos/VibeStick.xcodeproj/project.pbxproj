@@ -40,6 +40,7 @@
 		A1000000000000000000001F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* Assets.xcassets */; };
 		A10000000000000000000020 /* M2Infrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* M2Infrastructure.swift */; };
 		A10000000000000000000021 /* M2Infrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* M2Infrastructure.swift */; };
+		A10000000000000000000022 /* M3CInfrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* M3CInfrastructure.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -85,6 +86,7 @@
 		A2000000000000000000001E /* TestableLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestableLogic.swift; sourceTree = "<group>"; };
 		A2000000000000000000001F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20000000000000000000020 /* M2Infrastructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M2Infrastructure.swift; sourceTree = "<group>"; };
+		A20000000000000000000021 /* M3CInfrastructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M3CInfrastructure.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -176,6 +178,7 @@
 				A20000000000000000000006 /* RuntimeServiceManager.swift */,
 				A2000000000000000000001E /* TestableLogic.swift */,
 				A20000000000000000000020 /* M2Infrastructure.swift */,
+				A20000000000000000000021 /* M3CInfrastructure.swift */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -362,6 +365,7 @@
 				A1000000000000000000000A /* ConnectionAndRuntimeView.swift in Sources */,
 				A1000000000000000000000B /* SectionViews.swift in Sources */,
 				A10000000000000000000020 /* M2Infrastructure.swift in Sources */,
+				A10000000000000000000022 /* M3CInfrastructure.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -416,7 +420,7 @@
 			ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 			CODE_SIGN_IDENTITY = "-";
 			CODE_SIGN_STYLE = Manual;
-			CURRENT_PROJECT_VERSION = 1;
+			CURRENT_PROJECT_VERSION = 2;
 			ENABLE_APP_SANDBOX = NO;
 			GENERATE_INFOPLIST_FILE = NO;
 			INFOPLIST_FILE = VibeStickApp/Resources/Info.plist;
@@ -433,7 +437,7 @@
 			ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 			CODE_SIGN_IDENTITY = "-";
 			CODE_SIGN_STYLE = Manual;
-			CURRENT_PROJECT_VERSION = 1;
+			CURRENT_PROJECT_VERSION = 2;
 			ENABLE_APP_SANDBOX = NO;
 			GENERATE_INFOPLIST_FILE = NO;
 			INFOPLIST_FILE = VibeStickApp/Resources/Info.plist;

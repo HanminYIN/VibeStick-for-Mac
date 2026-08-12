@@ -1,13 +1,15 @@
 # VibeStick for Mac
 
-`VibeStick.xcodeproj` is the native SwiftUI control center introduced in M1, extended with the M2 pairing/configuration layer, and synchronized with the M3-A Codex Focus device interface. It targets Apple Silicon and macOS 15 or newer.
+`VibeStick.xcodeproj` is the native SwiftUI control center introduced in M1, extended with M2 pairing/configuration, the M3-A Codex Focus interface, M3-B voice/send diagnostics, and M3-C native ASR configuration. It targets Apple Silicon and macOS 15 or newer.
 
 See the [M1 achievements and validation evidence](../../docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
 and [M2 achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md),
 plus [M3-A achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M3A_ACHIEVEMENTS.md),
+[M3-B voice/send achievements](../../docs/VIBESTICK_FOR_MAC_M3B_ACHIEVEMENTS.md), and
+[M3-C native ASR configuration achievements](../../docs/VIBESTICK_FOR_MAC_M3C_ACHIEVEMENTS.md),
 for the upstream boundary, implemented scope, real-device acceptance, and deferred work.
 
-## M1 foundation, M2 trust layer, and M3-A interface
+## M1 foundation through M3-C native configuration
 
 The M1 app intentionally manages the existing stable installation instead of replacing it:
 
@@ -20,6 +22,8 @@ The M1 app intentionally manages the existing stable installation instead of rep
 - Provides M2 device configuration controls, local paired-device status, strict StickS3 USB detection, and explicit USB pair/re-pair actions.
 - Refuses to write a new pairing key unless the running Bridge reports protocol 2 and a valid Bridge ID, protecting the installed M1 runtime from a token mismatch.
 - Shows a live 135 × 240 Codex Focus preview whose project-name visibility and fixed name use the same normalized M2 configuration delivered to the device.
+- Configures SiliconFlow, Groq, OpenAI-compatible, or a local ASR command; API Keys are stored only in Keychain.
+- Generates a fixed temporary audio fixture and tests the selected provider without accessing a Mac microphone or invoking Paste, the clipboard, Return, or the M3-B send session.
 
 First launch does not run `scripts/install.sh`, rebuild helpers, modify `.env`, alter firmware, or re-sign the installed Paste app. Closing or quitting the control center does not stop background services.
 
@@ -51,7 +55,7 @@ Build the development DMG with:
 scripts/build-macos-dmg.sh
 ```
 
-The result is `.build/macos.noindex/VibeStick-for-Mac-M3-A.dmg`. This M3-A development DMG is for a Mac that already has compatible VibeStick services and firmware installed; it does not install or flash firmware. A self-contained clean-machine installer and on-demand flashing tool download belong to M4/R1.
+The result is `.build/macos.noindex/VibeStick-for-Mac-M3-C.dmg`. This M3-C development DMG is for a Mac that already has compatible VibeStick services and firmware installed; it does not install or flash firmware. A self-contained clean-machine installer and on-demand flashing tool download belong to M4/R1.
 
 Run the complete local acceptance chain with:
 

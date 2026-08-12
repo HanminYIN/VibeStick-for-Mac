@@ -9,6 +9,7 @@
 #include "vibe_discovery.h"
 #include "vibe_stick_config.h"
 #include "vibe_usb_pairing.h"
+#include "vibe_voice_interaction.h"
 #include "button_gpio.h"
 #include "cJSON.h"
 #include "driver/gpio.h"
@@ -46,6 +47,10 @@
 #define LCD_BACKLIGHT_DEFAULT 150
 #define LVGL_DRAW_BUF_LINES 24
 #define LVGL_TICK_PERIOD_MS 10
+#define LVGL_TASK_STACK_BYTES 8192
+#define LVGL_TASK_STACK_WARN_BYTES 1536
+#define VIBE_HTTP_HEADER_BUFFER_BYTES 2048
+#define VOICE_WAVE_BAR_COUNT 6
 #define BATTERY_FILL_MAX_WIDTH 20
 
 #define PIN_BUTTON_FRONT 11
@@ -138,6 +143,10 @@ static char s_last_alert_type[24];
 static bool s_alert_sound_baseline_ready;
 static bool s_alert_muted;
 static char s_recording_session_id[40];
+static char s_recording_response[VIBE_STICK_RECORDING_RESPONSE_CAPACITY];
+#if VIBE_STICK_ENABLE_M3B_VOICE
+static vibe_voice_interaction_t s_voice_interaction;
+#endif
 
 static lv_display_t *s_display;
 static lv_obj_t *s_wifi_label;
@@ -171,9 +180,25 @@ static lv_obj_t *s_footer_divider;
 static lv_obj_t *s_footer_voice_label;
 static lv_obj_t *s_recording_overlay;
 static lv_obj_t *s_recording_wave_group;
-static lv_obj_t *s_recording_wave_bars[5];
+static lv_obj_t *s_recording_wave_bars[VOICE_WAVE_BAR_COUNT];
 static lv_obj_t *s_recording_title;
 static lv_obj_t *s_recording_hint;
+static lv_obj_t *s_voice_secondary_hint;
+static lv_obj_t *s_voice_header_label;
+static lv_obj_t *s_voice_header_dot;
+static lv_obj_t *s_voice_footer_dot;
+static lv_obj_t *s_voice_footer_status;
+static lv_obj_t *s_voice_footer_divider;
+static lv_obj_t *s_voice_home_indicator;
+static lv_obj_t *s_voice_spinner;
+static lv_obj_t *s_voice_spinner_core;
+static lv_obj_t *s_voice_spinner_center;
+static lv_obj_t *s_voice_pending_group;
+static lv_obj_t *s_voice_pending_arrow;
+static lv_obj_t *s_voice_success_group;
+static lv_obj_t *s_voice_success_ring;
+static lv_obj_t *s_voice_failed_group;
+static lv_obj_t *s_voice_failed_ring;
 
 static agent_state_t s_state = {
     .time = "--:--",
@@ -225,8 +250,10 @@ static provider_display_state_t s_provider_states[PROVIDER_COUNT] = {
 };
 
 extern const lv_font_t vibe_stick_cn_16;
+extern const lv_font_t vibe_stick_ui_10;
 extern const lv_font_t vibe_stick_ui_12;
 #define FONT_CN (&vibe_stick_cn_16)
+#define FONT_UI_SMALL (&vibe_stick_ui_10)
 #define FONT_UI (&vibe_stick_ui_12)
 
 static const agent_provider_config_t s_provider_configs[] = {
@@ -260,6 +287,18 @@ static const lv_point_precise_t s_battery_bolt_points[] = {
     {2, 7},
     {6, 2},
     {4, 2},
+};
+
+static const lv_point_precise_t s_voice_arrow_points[] = {
+    {0, 4}, {8, 4}, {5, 1}, {8, 4}, {5, 7},
+};
+
+static const lv_point_precise_t s_voice_check_points[] = {
+    {0, 9}, {7, 16}, {21, 1},
+};
+
+static const lv_point_precise_t s_voice_exclamation_points[] = {
+    {1, 0}, {1, 13},
 };
 
 static void render_state(void);
@@ -387,10 +426,20 @@ static void lvgl_tick_cb(void *arg)
 static void lvgl_task(void *arg)
 {
     (void)arg;
+    UBaseType_t last_reported_stack_free = LVGL_TASK_STACK_BYTES;
     while (true) {
         lvgl_lock();
         uint32_t wait_ms = lv_timer_handler();
         lvgl_unlock();
+        UBaseType_t stack_free = uxTaskGetStackHighWaterMark(NULL);
+        if (stack_free < last_reported_stack_free) {
+            if (stack_free < LVGL_TASK_STACK_WARN_BYTES) {
+                ESP_LOGW(TAG, "lvgl stack low-water=%u bytes", (unsigned)stack_free);
+            } else {
+                ESP_LOGI(TAG, "lvgl stack low-water=%u bytes", (unsigned)stack_free);
+            }
+            last_reported_stack_free = stack_free;
+        }
         if (wait_ms < 5) {
             wait_ms = 5;
         }
@@ -513,7 +562,10 @@ static esp_err_t init_display(void)
     ESP_RETURN_ON_ERROR(esp_timer_create(&tick_args, &tick_timer), TAG, "tick timer");
     ESP_RETURN_ON_ERROR(esp_timer_start_periodic(tick_timer, LVGL_TICK_PERIOD_MS * 1000), TAG, "tick start");
 
-    xTaskCreate(lvgl_task, "lvgl", 4096, NULL, 3, NULL);
+    BaseType_t task_created = xTaskCreate(
+        lvgl_task, "lvgl", LVGL_TASK_STACK_BYTES, NULL, 3, NULL
+    );
+    ESP_RETURN_ON_FALSE(task_created == pdPASS, ESP_ERR_NO_MEM, TAG, "lvgl task");
     return ESP_OK;
 }
 
@@ -631,8 +683,8 @@ static void wave_bar_height_cb(void *obj, int32_t height)
 
 static void stop_recording_wave(void)
 {
-    static const int heights[5] = {14, 22, 32, 22, 14};
-    for (int i = 0; i < 5; ++i) {
+    static const int heights[VOICE_WAVE_BAR_COUNT] = {22, 38, 56, 42, 26, 12};
+    for (int i = 0; i < VOICE_WAVE_BAR_COUNT; ++i) {
         if (s_recording_wave_bars[i]) {
             lv_anim_delete(s_recording_wave_bars[i], NULL);
             lv_obj_set_height(s_recording_wave_bars[i], heights[i]);
@@ -642,10 +694,10 @@ static void stop_recording_wave(void)
 
 static void start_recording_wave(void)
 {
-    static const int min_heights[5] = {10, 14, 18, 14, 10};
-    static const int max_heights[5] = {24, 34, 48, 34, 24};
+    static const int min_heights[VOICE_WAVE_BAR_COUNT] = {12, 18, 24, 18, 12, 8};
+    static const int max_heights[VOICE_WAVE_BAR_COUNT] = {28, 44, 56, 48, 34, 24};
     stop_recording_wave();
-    for (int i = 0; i < 5; ++i) {
+    for (int i = 0; i < VOICE_WAVE_BAR_COUNT; ++i) {
         if (!s_recording_wave_bars[i]) {
             continue;
         }
@@ -659,6 +711,86 @@ static void start_recording_wave(void)
         lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
         lv_anim_set_exec_cb(&anim, wave_bar_height_cb);
         lv_anim_start(&anim);
+    }
+}
+
+static void voice_arc_rotation_cb(void *obj, int32_t rotation)
+{
+    lv_arc_set_rotation((lv_obj_t *)obj, rotation);
+}
+
+static void voice_opacity_cb(void *obj, int32_t opacity)
+{
+    lv_obj_set_style_opa((lv_obj_t *)obj, (lv_opa_t)opacity, 0);
+}
+
+static void stop_voice_visual_animations(void)
+{
+    if (s_voice_spinner) lv_anim_delete(s_voice_spinner, voice_arc_rotation_cb);
+    if (s_voice_pending_arrow) lv_anim_delete(s_voice_pending_arrow, voice_opacity_cb);
+    if (s_voice_success_ring) lv_anim_delete(s_voice_success_ring, voice_opacity_cb);
+    if (s_voice_failed_ring) lv_anim_delete(s_voice_failed_ring, voice_opacity_cb);
+    if (s_voice_pending_arrow) lv_obj_set_style_opa(s_voice_pending_arrow, LV_OPA_COVER, 0);
+    if (s_voice_success_ring) lv_obj_set_style_opa(s_voice_success_ring, LV_OPA_COVER, 0);
+    if (s_voice_failed_ring) lv_obj_set_style_opa(s_voice_failed_ring, LV_OPA_COVER, 0);
+}
+
+static void start_voice_spinner(void)
+{
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, s_voice_spinner);
+    lv_anim_set_values(&anim, 0, 360);
+    lv_anim_set_duration(&anim, 900);
+    lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_exec_cb(&anim, voice_arc_rotation_cb);
+    lv_anim_start(&anim);
+}
+
+static void start_voice_breathe(lv_obj_t *obj)
+{
+    lv_anim_t anim;
+    lv_anim_init(&anim);
+    lv_anim_set_var(&anim, obj);
+    lv_anim_set_values(&anim, LV_OPA_60, LV_OPA_COVER);
+    lv_anim_set_duration(&anim, 440);
+    lv_anim_set_playback_duration(&anim, 440);
+    lv_anim_set_repeat_count(&anim, LV_ANIM_REPEAT_INFINITE);
+    lv_anim_set_exec_cb(&anim, voice_opacity_cb);
+    lv_anim_start(&anim);
+}
+
+static void set_voice_object_visible(lv_obj_t *obj, bool visible)
+{
+    if (!obj) return;
+    if (visible) lv_obj_clear_flag(obj, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_add_flag(obj, LV_OBJ_FLAG_HIDDEN);
+}
+
+static void hide_voice_visuals(void)
+{
+    set_voice_object_visible(s_recording_wave_group, false);
+    set_voice_object_visible(s_voice_spinner, false);
+    set_voice_object_visible(s_voice_spinner_core, false);
+    set_voice_object_visible(s_voice_spinner_center, false);
+    set_voice_object_visible(s_voice_pending_group, false);
+    set_voice_object_visible(s_voice_success_group, false);
+    set_voice_object_visible(s_voice_failed_group, false);
+}
+
+static void set_m3b_voice_chrome_visible(bool visible)
+{
+    lv_obj_t *objects[] = {
+        s_voice_header_label,
+        s_voice_header_dot,
+        s_voice_footer_dot,
+        s_voice_footer_status,
+        s_voice_footer_divider,
+        s_voice_home_indicator,
+        s_voice_secondary_hint,
+    };
+    for (size_t i = 0; i < sizeof(objects) / sizeof(objects[0]); ++i) {
+        set_voice_object_visible(objects[i], visible);
     }
 }
 
@@ -776,27 +908,158 @@ static void create_ui(void)
     lv_obj_set_style_bg_color(s_recording_overlay, lv_color_hex(0x050608), 0);
     lv_obj_set_style_bg_opa(s_recording_overlay, LV_OPA_COVER, 0);
     lv_obj_set_style_border_width(s_recording_overlay, 0, 0);
+    lv_obj_set_style_pad_all(s_recording_overlay, 0, 0);
     lv_obj_add_flag(s_recording_overlay, LV_OBJ_FLAG_HIDDEN);
+
+    s_voice_header_label = make_label(s_recording_overlay, "VOICE", &lv_font_montserrat_8,
+                                      lv_color_hex(0x9fa8b6), 52, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_style_text_letter_space(s_voice_header_label, 1, 0);
+    lv_obj_align(s_voice_header_label, LV_ALIGN_TOP_LEFT, 9, 8);
+    s_voice_header_dot = make_plain_obj(s_recording_overlay, 6, 6,
+                                        lv_color_hex(0x0a84ff), LV_OPA_COVER,
+                                        LV_RADIUS_CIRCLE);
+    lv_obj_align(s_voice_header_dot, LV_ALIGN_TOP_RIGHT, -8, 10);
 
     s_recording_wave_group = lv_obj_create(s_recording_overlay);
     lv_obj_remove_style_all(s_recording_wave_group);
-    lv_obj_set_size(s_recording_wave_group, 82, 58);
+    lv_obj_set_size(s_recording_wave_group, 82, 60);
     lv_obj_set_flex_flow(s_recording_wave_group, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(s_recording_wave_group, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_set_style_pad_column(s_recording_wave_group, 6, 0);
-    lv_obj_align(s_recording_wave_group, LV_ALIGN_CENTER, 0, -34);
-    static const int initial_wave_heights[5] = {14, 22, 32, 22, 14};
-    for (int i = 0; i < 5; ++i) {
-        s_recording_wave_bars[i] = make_plain_obj(s_recording_wave_group, 6, initial_wave_heights[i],
+    lv_obj_align(s_recording_wave_group, LV_ALIGN_TOP_MID, 0, 50);
+    static const int initial_wave_heights[VOICE_WAVE_BAR_COUNT] = {22, 38, 56, 42, 26, 12};
+    for (int i = 0; i < VOICE_WAVE_BAR_COUNT; ++i) {
+        s_recording_wave_bars[i] = make_plain_obj(s_recording_wave_group, 5, initial_wave_heights[i],
                                                   lv_color_hex(0xf4f5f7), LV_OPA_COVER, 3);
     }
 
+    s_voice_spinner = lv_arc_create(s_recording_overlay);
+    lv_obj_set_size(s_voice_spinner, 62, 62);
+    lv_obj_align(s_voice_spinner, LV_ALIGN_TOP_MID, 0, 50);
+    lv_arc_set_bg_angles(s_voice_spinner, 0, 360);
+    lv_arc_set_angles(s_voice_spinner, 0, 95);
+    lv_obj_set_style_arc_width(s_voice_spinner, 5, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_voice_spinner, lv_color_hex(0x242a35), LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_voice_spinner, 5, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(s_voice_spinner, lv_color_hex(0x0a84ff), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_rounded(s_voice_spinner, true, LV_PART_MAIN | LV_PART_INDICATOR);
+    lv_obj_remove_style(s_voice_spinner, NULL, LV_PART_KNOB);
+    lv_obj_remove_flag(s_voice_spinner, LV_OBJ_FLAG_CLICKABLE);
+    s_voice_spinner_core = make_plain_obj(s_recording_overlay, 16, 16,
+                                          lv_color_hex(0xf4f5f7), LV_OPA_COVER,
+                                          LV_RADIUS_CIRCLE);
+    lv_obj_align(s_voice_spinner_core, LV_ALIGN_TOP_MID, 0, 73);
+    s_voice_spinner_center = make_plain_obj(s_recording_overlay, 6, 6,
+                                            lv_color_hex(0x0a84ff), LV_OPA_COVER,
+                                            LV_RADIUS_CIRCLE);
+    lv_obj_align(s_voice_spinner_center, LV_ALIGN_TOP_MID, 0, 78);
+
+    s_voice_pending_group = lv_obj_create(s_recording_overlay);
+    lv_obj_remove_style_all(s_voice_pending_group);
+    lv_obj_set_size(s_voice_pending_group, 76, 78);
+    lv_obj_align(s_voice_pending_group, LV_ALIGN_TOP_MID, 0, 51);
+    lv_obj_t *pending_box = make_plain_obj(s_voice_pending_group, 66, 58,
+                                           lv_color_hex(0x050608), LV_OPA_TRANSP, 12);
+    lv_obj_set_style_border_width(pending_box, 2, 0);
+    lv_obj_set_style_border_color(pending_box, lv_color_hex(0x0a84ff), 0);
+    lv_obj_align(pending_box, LV_ALIGN_TOP_MID, 0, 0);
+    static const int pending_line_widths[] = {39, 30, 35};
+    for (size_t i = 0; i < sizeof(pending_line_widths) / sizeof(pending_line_widths[0]); ++i) {
+        lv_obj_t *line = make_plain_obj(pending_box, pending_line_widths[i], 4,
+                                        lv_color_hex(0x667085), LV_OPA_COVER, 2);
+        lv_obj_align(line, LV_ALIGN_TOP_LEFT, 13, 15 + (int32_t)i * 11);
+    }
+    lv_obj_t *pending_cursor = make_plain_obj(pending_box, 2, 31,
+                                              lv_color_hex(0x0a84ff), LV_OPA_COVER, 1);
+    lv_obj_align(pending_cursor, LV_ALIGN_RIGHT_MID, -9, 1);
+    s_voice_pending_arrow = make_plain_obj(s_voice_pending_group, 22, 22,
+                                           lv_color_hex(0x0a84ff), LV_OPA_COVER,
+                                           LV_RADIUS_CIRCLE);
+    lv_obj_align(s_voice_pending_arrow, LV_ALIGN_TOP_MID, 0, 55);
+    lv_obj_t *arrow_line = lv_line_create(s_voice_pending_arrow);
+    lv_line_set_points(arrow_line, s_voice_arrow_points,
+                       sizeof(s_voice_arrow_points) / sizeof(s_voice_arrow_points[0]));
+    lv_obj_set_style_line_width(arrow_line, 2, 0);
+    lv_obj_set_style_line_color(arrow_line, lv_color_hex(0xffffff), 0);
+    lv_obj_set_style_line_rounded(arrow_line, true, 0);
+    lv_obj_align(arrow_line, LV_ALIGN_CENTER, 0, 0);
+
+    s_voice_success_group = lv_obj_create(s_recording_overlay);
+    lv_obj_remove_style_all(s_voice_success_group);
+    lv_obj_set_size(s_voice_success_group, 68, 68);
+    lv_obj_align(s_voice_success_group, LV_ALIGN_TOP_MID, 0, 47);
+    s_voice_success_ring = make_plain_obj(s_voice_success_group, 64, 64,
+                                          lv_color_hex(0x050608), LV_OPA_TRANSP,
+                                          LV_RADIUS_CIRCLE);
+    lv_obj_set_style_border_width(s_voice_success_ring, 2, 0);
+    lv_obj_set_style_border_color(s_voice_success_ring, lv_color_hex(0x147a57), 0);
+    lv_obj_align(s_voice_success_ring, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t *success_core = make_plain_obj(s_voice_success_group, 44, 44,
+                                            lv_color_hex(0x32d583), LV_OPA_COVER,
+                                            LV_RADIUS_CIRCLE);
+    lv_obj_align(success_core, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t *check_line = lv_line_create(success_core);
+    lv_line_set_points(check_line, s_voice_check_points,
+                       sizeof(s_voice_check_points) / sizeof(s_voice_check_points[0]));
+    lv_obj_set_style_line_width(check_line, 5, 0);
+    lv_obj_set_style_line_color(check_line, lv_color_hex(0x052e20), 0);
+    lv_obj_set_style_line_rounded(check_line, true, 0);
+    lv_obj_align(check_line, LV_ALIGN_CENTER, 0, 0);
+
+    s_voice_failed_group = lv_obj_create(s_recording_overlay);
+    lv_obj_remove_style_all(s_voice_failed_group);
+    lv_obj_set_size(s_voice_failed_group, 68, 68);
+    lv_obj_align(s_voice_failed_group, LV_ALIGN_TOP_MID, 0, 47);
+    s_voice_failed_ring = make_plain_obj(s_voice_failed_group, 64, 64,
+                                         lv_color_hex(0x050608), LV_OPA_TRANSP,
+                                         LV_RADIUS_CIRCLE);
+    lv_obj_set_style_border_width(s_voice_failed_ring, 2, 0);
+    lv_obj_set_style_border_color(s_voice_failed_ring, lv_color_hex(0x8f2d3a), 0);
+    lv_obj_align(s_voice_failed_ring, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t *failed_core = make_plain_obj(s_voice_failed_group, 44, 44,
+                                           lv_color_hex(0xff5a67), LV_OPA_COVER,
+                                           LV_RADIUS_CIRCLE);
+    lv_obj_align(failed_core, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_t *exclamation_line = lv_line_create(failed_core);
+    lv_line_set_points(exclamation_line, s_voice_exclamation_points,
+                       sizeof(s_voice_exclamation_points) / sizeof(s_voice_exclamation_points[0]));
+    lv_obj_set_style_line_width(exclamation_line, 5, 0);
+    lv_obj_set_style_line_color(exclamation_line, lv_color_hex(0x3b0710), 0);
+    lv_obj_set_style_line_rounded(exclamation_line, true, 0);
+    lv_obj_align(exclamation_line, LV_ALIGN_CENTER, 0, -4);
+    lv_obj_t *exclamation_dot = make_plain_obj(failed_core, 5, 5,
+                                               lv_color_hex(0x3b0710), LV_OPA_COVER,
+                                               LV_RADIUS_CIRCLE);
+    lv_obj_align(exclamation_dot, LV_ALIGN_CENTER, 0, 11);
+
     s_recording_title = make_label(s_recording_overlay, "正在聆听", FONT_CN,
                                    lv_color_hex(0xf4f5f7), 120, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(s_recording_title, LV_ALIGN_CENTER, 0, 22);
-    s_recording_hint = make_label(s_recording_overlay, "松开发送", FONT_CN,
+    lv_obj_align(s_recording_title, LV_ALIGN_TOP_MID, 0, 129);
+    s_recording_hint = make_label(s_recording_overlay, "松开蓝键完成", FONT_UI_SMALL,
                                   lv_color_hex(0x8b9098), 120, LV_TEXT_ALIGN_CENTER);
-    lv_obj_align(s_recording_hint, LV_ALIGN_BOTTOM_MID, 0, -22);
+    lv_obj_align(s_recording_hint, LV_ALIGN_TOP_MID, 0, 154);
+    s_voice_secondary_hint = make_label(s_recording_overlay, "长按开始新录音", FONT_UI_SMALL,
+                                        lv_color_hex(0x555c68), 120, LV_TEXT_ALIGN_CENTER);
+    lv_obj_align(s_voice_secondary_hint, LV_ALIGN_TOP_MID, 0, 174);
+
+    s_voice_footer_dot = make_plain_obj(s_recording_overlay, 4, 4,
+                                        lv_color_hex(0x0a84ff), LV_OPA_COVER,
+                                        LV_RADIUS_CIRCLE);
+    lv_obj_align(s_voice_footer_dot, LV_ALIGN_TOP_LEFT, 45, 203);
+    s_voice_footer_status = make_label(s_recording_overlay, "HOLDING",
+                                       &lv_font_montserrat_8,
+                                       lv_color_hex(0x8ec5ff), 78, LV_TEXT_ALIGN_LEFT);
+    lv_obj_set_style_text_letter_space(s_voice_footer_status, 1, 0);
+    lv_obj_align(s_voice_footer_status, LV_ALIGN_TOP_LEFT, 52, 199);
+    s_voice_footer_divider = make_plain_obj(s_recording_overlay, 119, 1,
+                                            lv_color_hex(0x202631), LV_OPA_COVER, 1);
+    lv_obj_align(s_voice_footer_divider, LV_ALIGN_TOP_MID, 0, 218);
+    s_voice_home_indicator = make_plain_obj(s_recording_overlay, 35, 4,
+                                            lv_color_hex(0x242a35), LV_OPA_COVER, 3);
+    lv_obj_align(s_voice_home_indicator, LV_ALIGN_TOP_MID, 0, 227);
+
+    hide_voice_visuals();
+    set_m3b_voice_chrome_visible(false);
 }
 
 static void set_quota_label(lv_obj_t *bar, lv_obj_t *label, int value, bool valid, lv_color_t accent_color)
@@ -1026,6 +1289,15 @@ static void show_recording_overlay(const char *title, const char *hint, bool vis
 {
     lvgl_lock();
     if (visible) {
+        stop_voice_visual_animations();
+        set_m3b_voice_chrome_visible(false);
+        hide_voice_visuals();
+        set_voice_object_visible(s_recording_wave_group, true);
+        lv_obj_align(s_recording_wave_group, LV_ALIGN_CENTER, 0, -34);
+        lv_obj_set_style_text_font(s_recording_title, FONT_CN, 0);
+        lv_obj_set_style_text_font(s_recording_hint, FONT_CN, 0);
+        lv_obj_align(s_recording_title, LV_ALIGN_CENTER, 0, 22);
+        lv_obj_align(s_recording_hint, LV_ALIGN_BOTTOM_MID, 0, -22);
         if (title) {
             lv_label_set_text(s_recording_title, title);
         }
@@ -1041,11 +1313,168 @@ static void show_recording_overlay(const char *title, const char *hint, bool vis
         start_recording_wave();
     } else {
         stop_recording_wave();
+        stop_voice_visual_animations();
         lv_obj_add_flag(s_recording_overlay, LV_OBJ_FLAG_HIDDEN);
     }
     s_recording_overlay_visible = visible;
     lvgl_unlock();
 }
+
+#if VIBE_STICK_ENABLE_M3B_VOICE
+static void show_m3b_voice_overlay(void)
+{
+    const char *title = "";
+    const char *hint = "";
+    const char *secondary_hint = "";
+    const char *footer_status = "";
+    int32_t title_top = 129;
+    int32_t hint_top = 154;
+    int32_t secondary_hint_top = 172;
+    lv_color_t accent = lv_color_hex(0x0a84ff);
+    enum {
+        VOICE_VISUAL_NONE,
+        VOICE_VISUAL_WAVE,
+        VOICE_VISUAL_SPINNER,
+        VOICE_VISUAL_PENDING,
+        VOICE_VISUAL_SUCCESS,
+        VOICE_VISUAL_FAILED,
+    } visual = VOICE_VISUAL_NONE;
+
+    switch (s_voice_interaction.phase) {
+    case VIBE_VOICE_IDLE:
+        show_recording_overlay(NULL, NULL, false);
+        return;
+    case VIBE_VOICE_RECORDING:
+        title = "正在聆听";
+        hint = "松开蓝键完成";
+        footer_status = "HOLDING";
+        visual = VOICE_VISUAL_WAVE;
+        break;
+    case VIBE_VOICE_TRANSCRIBING:
+        title = "正在识别";
+        hint = "请稍候";
+        footer_status = "WORKING";
+        visual = VOICE_VISUAL_SPINNER;
+        break;
+    case VIBE_VOICE_PENDING_SEND:
+        title = "待发送";
+        hint = "单击蓝键发送";
+        secondary_hint = "长按开始新录音";
+        footer_status = "PENDING";
+        accent = lv_color_hex(0xffbd4a);
+        visual = VOICE_VISUAL_PENDING;
+        title_top = 134;
+        hint_top = 159;
+        secondary_hint_top = 174;
+        break;
+    case VIBE_VOICE_SENDING:
+        title = "正在发送";
+        hint = "请稍候";
+        footer_status = "SENDING";
+        visual = VOICE_VISUAL_SPINNER;
+        break;
+    case VIBE_VOICE_PASTED:
+        title = "已完成";
+        hint = "即将返回首页";
+        footer_status = "DONE";
+        accent = lv_color_hex(0x32d583);
+        visual = VOICE_VISUAL_SUCCESS;
+        break;
+    case VIBE_VOICE_COPIED:
+        title = "已识别";
+        hint = "未发送";
+        footer_status = "NOT SENT";
+        accent = lv_color_hex(0x32d583);
+        visual = VOICE_VISUAL_SUCCESS;
+        break;
+    case VIBE_VOICE_SENT:
+        title = "已发送";
+        hint = "即将返回首页";
+        footer_status = "DONE";
+        accent = lv_color_hex(0x32d583);
+        visual = VOICE_VISUAL_SUCCESS;
+        break;
+    case VIBE_VOICE_FAILED:
+        if (s_voice_interaction.failure_reason == VIBE_VOICE_FAILURE_UNCLEAR) {
+            title = "未听清";
+            hint = "长按可重新录音";
+        } else if (s_voice_interaction.failure_reason == VIBE_VOICE_FAILURE_TRANSCRIPTION) {
+            title = "识别失败";
+            hint = "长按可重新录音";
+        } else {
+            title = "发送失败";
+            hint = "切回原输入框重试";
+            secondary_hint = "长按可重新录音";
+        }
+        footer_status = "NOT SENT";
+        accent = lv_color_hex(0xff5a67);
+        visual = VOICE_VISUAL_FAILED;
+        break;
+    case VIBE_VOICE_EXPIRED:
+        title = "未发送";
+        hint = "长按开始新录音";
+        footer_status = "NOT SENT";
+        accent = lv_color_hex(0xff5a67);
+        visual = VOICE_VISUAL_FAILED;
+        break;
+    }
+
+    lvgl_lock();
+    stop_recording_wave();
+    stop_voice_visual_animations();
+    hide_voice_visuals();
+    set_m3b_voice_chrome_visible(true);
+    lv_label_set_text(s_recording_title, title);
+    lv_label_set_text(s_recording_hint, hint);
+    lv_label_set_text(s_voice_secondary_hint, secondary_hint);
+    lv_label_set_text(s_voice_footer_status, footer_status);
+    lv_obj_set_style_text_font(s_recording_title, FONT_CN, 0);
+    lv_obj_set_style_text_font(s_recording_hint, FONT_UI_SMALL, 0);
+    lv_obj_set_style_text_font(s_voice_secondary_hint, FONT_UI_SMALL, 0);
+    lv_obj_align(s_recording_title, LV_ALIGN_TOP_MID, 0, title_top);
+    lv_obj_align(s_recording_hint, LV_ALIGN_TOP_MID, 0, hint_top);
+    lv_obj_align(s_voice_secondary_hint, LV_ALIGN_TOP_MID, 0, secondary_hint_top);
+    set_voice_object_visible(s_recording_hint, hint[0] != '\0');
+    set_voice_object_visible(s_voice_secondary_hint, secondary_hint[0] != '\0');
+    lv_obj_set_style_bg_color(s_voice_header_dot, accent, 0);
+    lv_obj_set_style_bg_color(s_voice_footer_dot, accent, 0);
+    lv_obj_set_style_text_color(s_voice_footer_status, accent, 0);
+
+    switch (visual) {
+    case VOICE_VISUAL_WAVE:
+        lv_obj_align(s_recording_wave_group, LV_ALIGN_TOP_MID, 0, 50);
+        set_voice_object_visible(s_recording_wave_group, true);
+        start_recording_wave();
+        break;
+    case VOICE_VISUAL_SPINNER:
+        set_voice_object_visible(s_voice_spinner, true);
+        set_voice_object_visible(s_voice_spinner_core, true);
+        set_voice_object_visible(s_voice_spinner_center, true);
+        start_voice_spinner();
+        break;
+    case VOICE_VISUAL_PENDING:
+        set_voice_object_visible(s_voice_pending_group, true);
+        start_voice_breathe(s_voice_pending_arrow);
+        break;
+    case VOICE_VISUAL_SUCCESS:
+        set_voice_object_visible(s_voice_success_group, true);
+        start_voice_breathe(s_voice_success_ring);
+        break;
+    case VOICE_VISUAL_FAILED:
+        set_voice_object_visible(s_voice_failed_group, true);
+        start_voice_breathe(s_voice_failed_ring);
+        break;
+    case VOICE_VISUAL_NONE:
+        break;
+    }
+    lv_obj_clear_flag(s_recording_overlay, LV_OBJ_FLAG_HIDDEN);
+    s_recording_overlay_visible = true;
+    lvgl_unlock();
+
+    ESP_LOGI(TAG, "voice overlay phase=%s",
+             vibe_voice_phase_name(s_voice_interaction.phase));
+}
+#endif
 
 static bool sound_for_alert_type(const char *type, agent_sound_t *sound)
 {
@@ -1184,6 +1613,8 @@ static esp_err_t http_request_timeout(const char *method, const char *path, cons
     esp_http_client_config_t config = {
         .url = url,
         .timeout_ms = timeout_ms,
+        .buffer_size = VIBE_HTTP_HEADER_BUFFER_BYTES,
+        .buffer_size_tx = VIBE_HTTP_HEADER_BUFFER_BYTES,
         .event_handler = http_event_handler,
         .user_data = &capture,
     };
@@ -1230,6 +1661,8 @@ static esp_err_t http_post_binary(const char *path, const uint8_t *body, size_t 
     esp_http_client_config_t config = {
         .url = url,
         .timeout_ms = 20000,
+        .buffer_size = VIBE_HTTP_HEADER_BUFFER_BYTES,
+        .buffer_size_tx = VIBE_HTTP_HEADER_BUFFER_BYTES,
         .event_handler = http_event_handler,
         .user_data = &capture,
     };
@@ -1578,6 +2011,8 @@ static bool is_recording_failure_status(const char *status)
            strcmp(status, "paste_failed") == 0 ||
            strcmp(status, "audio_failed") == 0 ||
            strcmp(status, "audio_skipped") == 0 ||
+           strcmp(status, "confirmation_unavailable") == 0 ||
+           strcmp(status, "send_failed") == 0 ||
            strcmp(status, "start_failed") == 0 ||
            strcmp(status, "stop_failed") == 0;
 }
@@ -1602,6 +2037,64 @@ static bool parse_recording_status(const char *json, char *status_text, size_t s
     cJSON_Delete(root);
     return ok;
 }
+
+#if VIBE_STICK_ENABLE_M3B_VOICE
+static int parse_voice_interaction_version(const char *json)
+{
+    cJSON *root = cJSON_Parse(json);
+    if (!root) {
+        return 1;
+    }
+    cJSON *version = cJSON_GetObjectItemCaseSensitive(root, "voice_interaction_version");
+    int parsed = cJSON_IsNumber(version) ? version->valueint : 1;
+    cJSON_Delete(root);
+    return parsed;
+}
+
+static bool parse_send_session(const char *json,
+                               char *session_id,
+                               size_t session_id_len,
+                               char *phase,
+                               size_t phase_len)
+{
+    if (session_id_len > 0) session_id[0] = '\0';
+    if (phase_len > 0) phase[0] = '\0';
+    cJSON *root = cJSON_Parse(json);
+    if (!root) {
+        return false;
+    }
+    cJSON *send_session = cJSON_GetObjectItemCaseSensitive(root, "send_session");
+    cJSON *sid = cJSON_IsObject(send_session) ?
+        cJSON_GetObjectItemCaseSensitive(send_session, "session_id") : NULL;
+    cJSON *phase_item = cJSON_IsObject(send_session) ?
+        cJSON_GetObjectItemCaseSensitive(send_session, "phase") : NULL;
+    bool ok = cJSON_IsString(sid) && sid->valuestring &&
+              cJSON_IsString(phase_item) && phase_item->valuestring;
+    if (ok) {
+        strlcpy(session_id, sid->valuestring, session_id_len);
+        strlcpy(phase, phase_item->valuestring, phase_len);
+    }
+    cJSON_Delete(root);
+    return ok;
+}
+
+static bool refresh_bridge_voice_capability(void)
+{
+    if (!vibe_device_config_get()->paired) {
+        vibe_voice_set_bridge_version(&s_voice_interaction, 1);
+        return false;
+    }
+    char response[384] = {0};
+    esp_err_t err = http_request("GET", VIBE_STICK_HEALTH_PATH, NULL,
+                                 response, sizeof(response));
+    int version = err == ESP_OK && response[0] != '\0' ?
+        parse_voice_interaction_version(response) : 1;
+    vibe_voice_set_bridge_version(&s_voice_interaction, version);
+    ESP_LOGI(TAG, "bridge voice interaction version=%d enabled=%d",
+             version, vibe_voice_is_enabled(&s_voice_interaction));
+    return vibe_voice_is_enabled(&s_voice_interaction);
+}
+#endif
 
 static void generate_recording_session_id(char *session_id, size_t session_id_len)
 {
@@ -1630,13 +2123,15 @@ static void upload_recording_audio(void)
     }
     char path[96];
     snprintf(path, sizeof(path), "%s?session_id=%s", VIBE_STICK_RECORDING_AUDIO_PATH, s_recording_session_id);
-    char response[768] = {0};
-    esp_err_t err = http_post_binary(path, audio, audio_len, response, sizeof(response));
+    esp_err_t err = http_post_binary(
+        path, audio, audio_len,
+        s_recording_response, sizeof(s_recording_response)
+    );
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "audio upload failed: %s", esp_err_to_name(err));
         return;
     }
-    if (response[0] != '\0' && parse_state_json(response)) {
+    if (s_recording_response[0] != '\0' && parse_state_json(s_recording_response)) {
         render_state();
     }
 }
@@ -1649,40 +2144,117 @@ static void handle_recording_start(void)
         return;
     }
 
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    bool use_m3b = refresh_bridge_voice_capability();
+    if (use_m3b &&
+        !vibe_voice_begin_recording(&s_voice_interaction, s_recording_session_id)) {
+        ESP_LOGI(TAG, "recording start ignored in voice phase=%s",
+                 vibe_voice_phase_name(s_voice_interaction.phase));
+        s_recording_session_id[0] = '\0';
+        return;
+    }
+#endif
+
     esp_err_t audio_err = vibe_audio_start();
     if (audio_err != ESP_OK) {
         ESP_LOGW(TAG, "hardware recording start failed: %s", esp_err_to_name(audio_err));
         s_recording_session_id[0] = '\0';
+#if VIBE_STICK_ENABLE_M3B_VOICE
+        if (use_m3b) {
+            vibe_voice_fail(&s_voice_interaction, esp_timer_get_time() / 1000);
+            show_m3b_voice_overlay();
+        }
+#endif
         return;
     }
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    if (use_m3b) show_m3b_voice_overlay();
+    else show_recording_overlay("正在聆听", "松开发送", true);
+#else
     show_recording_overlay("正在聆听", "松开发送", true);
+#endif
 
-    char body[192];
+    char body[224];
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    if (use_m3b) {
+        snprintf(body, sizeof(body),
+                 "{\"event\":\"button_long_start\",\"source\":\"sticks3\","
+                 "\"audio_source\":\"sticks3_pcm\",\"interaction_version\":%d,"
+                 "\"session_id\":\"%s\"}",
+                 VIBE_VOICE_INTERACTION_VERSION, s_recording_session_id);
+    } else {
+#endif
     snprintf(body, sizeof(body),
              "{\"event\":\"button_long_start\",\"source\":\"sticks3\","
              "\"audio_source\":\"sticks3_pcm\",\"session_id\":\"%s\"}",
              s_recording_session_id);
-    char response[1024] = {0};
-    esp_err_t err = http_request("POST", VIBE_STICK_RECORDING_START_PATH, body, response, sizeof(response));
-    if (err == ESP_OK && response[0] != '\0') {
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    }
+#endif
+    esp_err_t err = http_request(
+        "POST", VIBE_STICK_RECORDING_START_PATH, body,
+        s_recording_response, sizeof(s_recording_response)
+    );
+    if (err == ESP_OK && s_recording_response[0] != '\0') {
         char response_session_id[40] = {0};
-        parse_recording_session_id(response, response_session_id, sizeof(response_session_id));
+        parse_recording_session_id(
+            s_recording_response, response_session_id, sizeof(response_session_id)
+        );
         if (response_session_id[0] != '\0' &&
             strcmp(response_session_id, s_recording_session_id) != 0) {
             ESP_LOGW(TAG, "bridge returned a different recording session id");
+#if VIBE_STICK_ENABLE_M3B_VOICE
+            if (use_m3b) {
+                (void)vibe_audio_stop();
+                vibe_audio_clear();
+                vibe_voice_fail(&s_voice_interaction, esp_timer_get_time() / 1000);
+                s_recording_session_id[0] = '\0';
+                show_m3b_voice_overlay();
+                return;
+            }
+#endif
         }
-        if (parse_state_json(response)) {
+#if VIBE_STICK_ENABLE_M3B_VOICE
+        if (use_m3b &&
+            parse_voice_interaction_version(s_recording_response) <
+                VIBE_VOICE_INTERACTION_VERSION) {
+            ESP_LOGW(TAG, "bridge did not confirm M3-B voice capability; using legacy flow");
+            vibe_voice_set_bridge_version(&s_voice_interaction, 1);
+            use_m3b = false;
+        }
+#endif
+        if (parse_state_json(s_recording_response)) {
             render_state();
         }
     } else {
         ESP_LOGW(TAG, "recording start bridge request failed: %s", esp_err_to_name(err));
+#if VIBE_STICK_ENABLE_M3B_VOICE
+        if (use_m3b) {
+            vibe_voice_set_bridge_version(&s_voice_interaction, 1);
+        }
+#endif
     }
 
 }
 
 static void handle_recording_stop(void)
 {
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    bool use_m3b = vibe_voice_is_enabled(&s_voice_interaction) &&
+                   s_voice_interaction.phase == VIBE_VOICE_RECORDING &&
+                   strcmp(s_voice_interaction.session_id, s_recording_session_id) == 0;
+    if (use_m3b) {
+        if (!vibe_voice_begin_transcribing(&s_voice_interaction,
+                                           s_recording_session_id)) {
+            vibe_voice_fail(&s_voice_interaction, esp_timer_get_time() / 1000);
+        }
+        show_m3b_voice_overlay();
+    } else {
+        show_recording_overlay("正在发送", "", true);
+    }
+#else
     show_recording_overlay("正在发送", "", true);
+#endif
     if (s_recording_session_id[0] == '\0') {
         (void)vibe_audio_stop();
         vibe_audio_clear();
@@ -1699,23 +2271,82 @@ static void handle_recording_stop(void)
     upload_recording_audio();
     vibe_audio_clear();
 
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    if (!use_m3b) {
+        show_recording_overlay("正在识别", "", true);
+    }
+#else
     show_recording_overlay("正在识别", "", true);
-    const char *body = "{\"event\":\"button_long_stop\",\"source\":\"sticks3\",\"paste\":true}";
-    char response[1024] = {0};
-    esp_err_t err = http_request_timeout("POST", VIBE_STICK_RECORDING_STOP_PATH, body, response, sizeof(response), 30000);
+#endif
+    char body[160];
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    if (use_m3b) {
+        snprintf(body, sizeof(body),
+                 "{\"event\":\"button_long_stop\",\"source\":\"sticks3\","
+                 "\"paste\":true,\"session_id\":\"%s\"}",
+                 s_recording_session_id);
+    } else {
+#endif
+        strlcpy(body,
+                "{\"event\":\"button_long_stop\",\"source\":\"sticks3\",\"paste\":true}",
+                sizeof(body));
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    }
+#endif
+    esp_err_t err = http_request_timeout(
+        "POST", VIBE_STICK_RECORDING_STOP_PATH, body,
+        s_recording_response, sizeof(s_recording_response), 30000
+    );
     bool recording_failed = false;
     char recording_status[32] = {0};
-    if (err == ESP_OK && response[0] != '\0') {
-        if (parse_recording_status(response, recording_status, sizeof(recording_status))) {
+    if (err == ESP_OK && s_recording_response[0] != '\0') {
+        if (parse_recording_status(
+                s_recording_response, recording_status, sizeof(recording_status))) {
             recording_failed = is_recording_failure_status(recording_status);
             if (recording_failed) {
                 ESP_LOGW(TAG, "recording failed status=%s", recording_status);
             }
         }
-        if (parse_state_json(response)) {
+#if VIBE_STICK_ENABLE_M3B_VOICE
+        if (use_m3b) {
+            char response_session_id[40] = {0};
+            bool session_ok = parse_recording_session_id(
+                s_recording_response, response_session_id, sizeof(response_session_id)
+            ) && strcmp(response_session_id, s_recording_session_id) == 0;
+            bool version_ok =
+                parse_voice_interaction_version(s_recording_response) >=
+                VIBE_VOICE_INTERACTION_VERSION;
+            if (!version_ok) {
+                ESP_LOGW(TAG, "bridge dropped M3-B voice capability; using legacy result");
+                vibe_voice_set_bridge_version(&s_voice_interaction, 1);
+                use_m3b = false;
+            } else if (!session_ok || recording_status[0] == '\0' ||
+                       !vibe_voice_apply_recording_status(
+                           &s_voice_interaction,
+                           s_recording_session_id,
+                           recording_status,
+                           esp_timer_get_time() / 1000
+                       )) {
+                recording_failed = true;
+                vibe_voice_fail(&s_voice_interaction, esp_timer_get_time() / 1000);
+            }
+        }
+#endif
+        if (parse_state_json(s_recording_response)) {
             render_state();
         }
     }
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    if (use_m3b) {
+        if (err != ESP_OK || recording_failed) {
+            ESP_LOGW(TAG, "M3-B recording result failed err=%s status=%s",
+                     esp_err_to_name(err), recording_status);
+            vibe_voice_fail(&s_voice_interaction, esp_timer_get_time() / 1000);
+        }
+        show_m3b_voice_overlay();
+        return;
+    }
+#endif
     if (err != ESP_OK || recording_failed) {
         ESP_LOGW(TAG, "recording stop bridge request failed: %s", esp_err_to_name(err));
         const char *title = (strcmp(recording_status, "audio_skipped") == 0 ||
@@ -1728,6 +2359,51 @@ static void handle_recording_stop(void)
     poll_state();
     show_recording_overlay(NULL, NULL, false);
 }
+
+#if VIBE_STICK_ENABLE_M3B_VOICE
+static void handle_send_confirmation(void)
+{
+    int64_t now_ms = esp_timer_get_time() / 1000;
+    char session_id[VIBE_VOICE_SESSION_ID_CAPACITY];
+    strlcpy(session_id, s_voice_interaction.session_id, sizeof(session_id));
+    if (!vibe_voice_begin_confirmation(&s_voice_interaction, now_ms)) {
+        show_m3b_voice_overlay();
+        return;
+    }
+    show_m3b_voice_overlay();
+
+    char body[96];
+    snprintf(body, sizeof(body), "{\"session_id\":\"%s\"}", session_id);
+    esp_err_t err = http_request_timeout(
+        "POST", VIBE_STICK_RECORDING_CONFIRM_PATH, body,
+        s_recording_response, sizeof(s_recording_response), 5000
+    );
+    char response_session_id[VIBE_VOICE_SESSION_ID_CAPACITY] = {0};
+    char phase[24] = {0};
+    bool sent = err == ESP_OK && s_recording_response[0] != '\0' &&
+                parse_send_session(
+                    s_recording_response,
+                    response_session_id,
+                    sizeof(response_session_id),
+                    phase,
+                    sizeof(phase)
+                ) &&
+                strcmp(response_session_id, session_id) == 0 &&
+                strcmp(phase, "sent") == 0;
+    vibe_voice_finish_confirmation(
+        &s_voice_interaction, sent, esp_timer_get_time() / 1000
+    );
+    if (!sent) {
+        ESP_LOGW(TAG, "send confirmation rejected err=%s phase=%s",
+                 esp_err_to_name(err), phase);
+    }
+    if (s_recording_response[0] != '\0' &&
+        parse_state_json(s_recording_response)) {
+        render_state();
+    }
+    show_m3b_voice_overlay();
+}
+#endif
 
 static void wifi_event_handler(void *arg, esp_event_base_t event_base,
                                int32_t event_id, void *event_data)
@@ -1854,6 +2530,14 @@ static void app_task(void *arg)
     int64_t last_config_sync = 0;
     while (true) {
         int64_t now_ms = esp_timer_get_time() / 1000;
+#if VIBE_STICK_ENABLE_M3B_VOICE
+        if (vibe_voice_tick(&s_voice_interaction, now_ms)) {
+            if (s_voice_interaction.phase == VIBE_VOICE_IDLE) {
+                s_recording_session_id[0] = '\0';
+            }
+            show_m3b_voice_overlay();
+        }
+#endif
         if (s_wifi_connected && now_ms - last_poll >= VIBE_STICK_STATE_POLL_MS) {
             last_poll = now_ms;
             poll_state();
@@ -1871,9 +2555,35 @@ static void app_task(void *arg)
             poll_state();
             break;
         case VIBE_STICK_EVENT_SHORT_PRESS:
+#if VIBE_STICK_ENABLE_M3B_VOICE
+            if (vibe_voice_overlay_active(&s_voice_interaction)) {
+                if (s_voice_interaction.phase == VIBE_VOICE_PENDING_SEND) {
+                    handle_send_confirmation();
+                } else if (s_voice_interaction.phase == VIBE_VOICE_PASTED ||
+                           s_voice_interaction.phase == VIBE_VOICE_COPIED ||
+                           s_voice_interaction.phase == VIBE_VOICE_SENT ||
+                           s_voice_interaction.phase == VIBE_VOICE_FAILED ||
+                           s_voice_interaction.phase == VIBE_VOICE_EXPIRED) {
+                    vibe_voice_dismiss(&s_voice_interaction);
+                    s_recording_session_id[0] = '\0';
+                    show_m3b_voice_overlay();
+                } else {
+                    ESP_LOGI(TAG, "front click ignored in voice phase=%s",
+                             vibe_voice_phase_name(s_voice_interaction.phase));
+                }
+                break;
+            }
+#endif
             post_simple_event("button_short", NULL);
             break;
         case VIBE_STICK_EVENT_DOUBLE_CLICK:
+#if VIBE_STICK_ENABLE_M3B_VOICE
+            if (vibe_voice_overlay_active(&s_voice_interaction)) {
+                ESP_LOGI(TAG, "front double click ignored in voice phase=%s",
+                         vibe_voice_phase_name(s_voice_interaction.phase));
+                break;
+            }
+#endif
             switch (vibe_device_config_get()->front_double) {
             case VIBE_DOUBLE_REFRESH_QUOTA:
                 post_simple_event("button_double", VIBE_STICK_QUOTA_REFRESH_PATH);
@@ -1890,12 +2600,36 @@ static void app_task(void *arg)
             poll_state();
             break;
         case VIBE_STICK_EVENT_LONG_START:
+#if VIBE_STICK_ENABLE_M3B_VOICE
+            if (s_voice_interaction.phase == VIBE_VOICE_RECORDING ||
+                s_voice_interaction.phase == VIBE_VOICE_TRANSCRIBING ||
+                s_voice_interaction.phase == VIBE_VOICE_SENDING) {
+                ESP_LOGI(TAG, "long press ignored in voice phase=%s",
+                         vibe_voice_phase_name(s_voice_interaction.phase));
+                break;
+            }
+#endif
             handle_recording_start();
             break;
         case VIBE_STICK_EVENT_LONG_STOP:
+#if VIBE_STICK_ENABLE_M3B_VOICE
+            if (vibe_voice_is_enabled(&s_voice_interaction) &&
+                s_voice_interaction.phase != VIBE_VOICE_RECORDING) {
+                ESP_LOGI(TAG, "button up ignored in voice phase=%s",
+                         vibe_voice_phase_name(s_voice_interaction.phase));
+                break;
+            }
+#endif
             handle_recording_stop();
             break;
         case VIBE_STICK_EVENT_PROVIDER_NEXT:
+#if VIBE_STICK_ENABLE_M3B_VOICE
+            if (vibe_voice_overlay_active(&s_voice_interaction)) {
+                ESP_LOGI(TAG, "side click ignored in voice phase=%s",
+                         vibe_voice_phase_name(s_voice_interaction.phase));
+                break;
+            }
+#endif
             switch_provider();
             break;
         }
@@ -1915,6 +2649,9 @@ void app_main(void)
     }
 
     ESP_ERROR_CHECK(vibe_device_config_init());
+#if VIBE_STICK_ENABLE_M3B_VOICE
+    vibe_voice_interaction_init(&s_voice_interaction);
+#endif
 
     ESP_ERROR_CHECK_WITHOUT_ABORT(vibe_board_init_power());
     s_event_queue = xQueueCreate(10, sizeof(agent_event_t));

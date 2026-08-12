@@ -6,8 +6,10 @@ import platform
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
+
+from vibe_stick.audio.send_session import SendTarget
 
 
 _LSREGISTER_PATH = Path(
@@ -20,6 +22,8 @@ _LSREGISTER_PATH = Path(
 class PasteResult:
     success: bool
     message: str
+    target: SendTarget | None = None
+    delivery: str = ""
 
 
 class MacPasteInjector:
@@ -61,7 +65,41 @@ class MacPasteInjector:
             return PasteResult(False, message)
         return PasteResult(True, "Pasted into the focused app")
 
+    def inspect_target(self) -> PasteResult:
+        helper = os.environ.get("VIBE_STICK_PASTE_HELPER", "").strip()
+        if not helper:
+            return PasteResult(False, "Focused-target inspection requires VibeStick Paste")
+        result = self._invoke_helper(helper, {"operation": "inspect_target"})
+        if result.success and result.target is None:
+            return PasteResult(False, "VibeStick Paste returned no focused target")
+        return result
+
+    def confirm_return(self, expected_target: SendTarget) -> PasteResult:
+        helper = os.environ.get("VIBE_STICK_PASTE_HELPER", "").strip()
+        if not helper:
+            return PasteResult(False, "Confirmed Return requires VibeStick Paste")
+        result = self._invoke_helper(
+            helper,
+            {
+                "operation": "confirm_return",
+                "expected_target": asdict(expected_target),
+            },
+        )
+        if result.success and result.target != expected_target:
+            return PasteResult(False, "VibeStick Paste confirmed a different target", result.target)
+        return result
+
     def _paste_with_helper(self, helper: str, text: str, press_enter: bool) -> PasteResult:
+        return self._invoke_helper(
+            helper,
+            {
+                "operation": "paste",
+                "text": text,
+                "press_enter": press_enter,
+            },
+        )
+
+    def _invoke_helper(self, helper: str, request: dict[str, object]) -> PasteResult:
         helper_path = Path(helper).expanduser()
         if not helper_path.is_dir():
             return PasteResult(False, f"VibeStick Paste helper not found: {helper_path}")
@@ -70,7 +108,7 @@ class MacPasteInjector:
             request_path = Path(tmp) / "request.json"
             response_path = Path(tmp) / "response.json"
             request_path.write_text(
-                json.dumps({"text": text, "press_enter": press_enter}),
+                json.dumps(request),
                 encoding="utf-8",
             )
             os.chmod(request_path, 0o600)
@@ -107,7 +145,9 @@ class MacPasteInjector:
                 return PasteResult(False, f"VibeStick Paste helper returned no result: {exc}")
             success = bool(response.get("success"))
             message = str(response.get("message") or "VibeStick Paste helper failed")
-            return PasteResult(success, message)
+            target = _target_from_response(response.get("target"))
+            delivery = _delivery_from_response(response.get("delivery"), success=success, target=target)
+            return PasteResult(success, message, target, delivery)
 
     @staticmethod
     def _unregister_helper(helper_path: Path) -> None:
@@ -153,3 +193,27 @@ class MacPasteInjector:
             message = (result.stderr or "Clipboard write failed").strip()
             return PasteResult(False, message)
         return PasteResult(True, "Clipboard updated")
+
+
+def _target_from_response(raw: object) -> SendTarget | None:
+    if not isinstance(raw, dict):
+        return None
+    return SendTarget.normalized(
+        bundle_id=str(raw.get("bundle_id") or ""),
+        process_id=raw.get("process_id"),
+        focus_fingerprint=str(raw.get("focus_fingerprint") or ""),
+    )
+
+
+def _delivery_from_response(
+    raw: object,
+    *,
+    success: bool,
+    target: SendTarget | None,
+) -> str:
+    value = str(raw or "").strip().lower()
+    if value in {"pasted", "clipboard"}:
+        return value
+    if success:
+        return "pasted" if target is not None else ""
+    return ""

@@ -34,6 +34,26 @@ struct VibeStickAppTests {
     }
 
     @Test
+    func decodesM3BVoiceCapabilityFromBridgeHealth() throws {
+        let data = Data(
+            """
+            {
+              "ok": true,
+              "bridge_name": "vibestick-bridge",
+              "bridge_version": "0.2.0-dev",
+              "protocol_version": 2,
+              "voice_interaction_version": 2,
+              "bridge_id": "90d71007-7734-44f7-8987-b2980437e6c6"
+            }
+            """.utf8
+        )
+
+        let health = try JSONDecoder().decode(BridgeHealthDTO.self, from: data)
+        #expect(health.protocolVersion == 2)
+        #expect(health.voiceInteractionVersion == 2)
+    }
+
+    @Test
     func keepsCodexCardIndependentFromActiveProvider() throws {
         let data = Data(
             """
@@ -73,12 +93,213 @@ struct VibeStickAppTests {
     }
 
     @Test
+    func codexFocusPreviewUsesLiveStateAndDeviceConfiguration() throws {
+        let state = try JSONDecoder().decode(
+            BridgeStateDTO.self,
+            from: Data(
+                """
+                {
+                  "time": "23:08",
+                  "wifi": true,
+                  "battery": null,
+                  "active_provider": "codex",
+                  "provider": {
+                    "id": "codex",
+                    "display_name": "Codex",
+                    "status": "RUNNING",
+                    "project": "M5StickS3",
+                    "quota_5h_remaining": null,
+                    "quota_7d_remaining": 91,
+                    "quota_updated_at": "23:08",
+                    "quota_stale": false,
+                    "quota_windows": [
+                      {
+                        "id": "7d",
+                        "label": "7D",
+                        "remaining_percent": 91,
+                        "updated_at": "23:08",
+                        "stale": false
+                      }
+                    ]
+                  }
+                }
+                """.utf8
+            )
+        )
+        let bridge = BridgeSnapshot(
+            health: BridgeHealthDTO(
+                ok: true,
+                bridgeName: "vibestick-bridge",
+                bridgeVersion: "0.2.0-dev",
+                protocolVersion: 2,
+                voiceInteractionVersion: 2,
+                bridgeID: "11111111-2222-4333-8444-555555555555"
+            ),
+            state: state,
+            healthEndpointResponded: true,
+            errorMessage: nil,
+            checkedAt: Date()
+        )
+        let devices = BridgeDevicesDTO(
+            bridgeID: "11111111-2222-4333-8444-555555555555",
+            protocolVersion: 2,
+            devices: [
+                PairedDeviceStatusDTO(
+                    deviceID: "vs-001122334455",
+                    name: "StickS3",
+                    pairedAt: "2026-08-12T12:00:00+08:00",
+                    firmwareVersion: "0.2.0-dev",
+                    online: true,
+                    lastSeenEpoch: 1_000,
+                    lastConfigRevision: 1,
+                    targetConfigRevision: 1,
+                    revoked: false
+                )
+            ]
+        )
+        var configuration = DeviceConfiguration.standard
+        configuration.buttons.frontDouble = .toggleMute
+
+        let preview = CodexFocusPreviewModel.make(
+            bridge: bridge,
+            devices: devices,
+            configuration: configuration
+        )
+
+        #expect(preview.wifiConnected)
+        #expect(preview.bridgeConnected)
+        #expect(preview.batteryText == "--%")
+        #expect(preview.statusKey == "RUNNING")
+        #expect(preview.statusText == "运行中")
+        #expect(preview.statusTone == .accent)
+        #expect(preview.project == "M5StickS3")
+        #expect(preview.quotaWindows == [
+            CodexFocusPreviewQuotaWindow(id: "7d", label: "7D", remainingPercent: 91, stale: false)
+        ])
+        #expect(preview.syncHealthy)
+        #expect(preview.footerAction == "2X MUTE")
+    }
+
+    @Test
+    func codexFocusPreviewFailsClosedWhenDeviceIsOffline() {
+        let devices = BridgeDevicesDTO(
+            bridgeID: "11111111-2222-4333-8444-555555555555",
+            protocolVersion: 2,
+            devices: [
+                PairedDeviceStatusDTO(
+                    deviceID: "vs-001122334455",
+                    name: "StickS3",
+                    pairedAt: "2026-08-12T12:00:00+08:00",
+                    firmwareVersion: "0.2.0-dev",
+                    online: false,
+                    lastSeenEpoch: 1_000,
+                    lastConfigRevision: 1,
+                    targetConfigRevision: 1,
+                    revoked: false
+                )
+            ]
+        )
+        var configuration = DeviceConfiguration.standard
+        configuration.project.name = "Fixed Project"
+        configuration.project.visible = false
+
+        let preview = CodexFocusPreviewModel.make(
+            bridge: .empty,
+            devices: devices,
+            configuration: configuration
+        )
+
+        #expect(!preview.wifiConnected)
+        #expect(!preview.bridgeConnected)
+        #expect(preview.statusKey == "OFFLINE")
+        #expect(preview.statusText == "离线")
+        #expect(preview.statusTone == .dim)
+        #expect(preview.project == nil)
+        #expect(!preview.syncHealthy)
+    }
+
+    @Test
     func persistedPreferencesContainNoSecretFields() throws {
-        let data = try JSONEncoder().encode(AppConfiguration.standard)
+        var configuration = AppConfiguration.standard
+        configuration.asr = .preset(.siliconFlow)
+        let data = try JSONEncoder().encode(configuration)
         let json = String(decoding: data, as: UTF8.self).lowercased()
         #expect(!json.contains("token"))
         #expect(!json.contains("api_key"))
         #expect(!json.contains("password"))
+        #expect(json.contains("sensevoicesmall"))
+    }
+
+    @Test
+    func nativeASRPresetsResolveOfficialTranscriptionEndpoints() throws {
+        let siliconFlow = try ASRConfiguration.preset(.siliconFlow).validated()
+        let groq = try ASRConfiguration.preset(.groq).validated()
+        let openAI = try ASRConfiguration.preset(.openAICompatible).validated()
+
+        #expect(siliconFlow.transcriptionURL?.absoluteString == "https://api.siliconflow.cn/v1/audio/transcriptions")
+        #expect(siliconFlow.model == "FunAudioLLM/SenseVoiceSmall")
+        #expect(groq.transcriptionURL?.absoluteString == "https://api.groq.com/openai/v1/audio/transcriptions")
+        #expect(groq.model == "whisper-large-v3-turbo")
+        #expect(openAI.transcriptionURL?.absoluteString == "https://api.openai.com/v1/audio/transcriptions")
+        #expect(openAI.model == "gpt-4o-mini-transcribe")
+    }
+
+    @Test
+    func ASRCustomURLAllowsOnlyHTTPSOrLoopbackHTTP() throws {
+        var remote = ASRConfiguration.preset(.openAICompatible)
+        remote.baseURL = "http://asr.example.test/v1"
+        var observed: ASRConfigurationError?
+        do {
+            _ = try remote.validated()
+        } catch {
+            observed = error as? ASRConfigurationError
+        }
+
+        var local = remote
+        local.baseURL = "http://127.0.0.1:8080/v1"
+        let validatedLocal = try local.validated()
+
+        #expect(observed == .insecureURL)
+        #expect(validatedLocal.transcriptionURL?.absoluteString == "http://127.0.0.1:8080/v1/audio/transcriptions")
+        #expect(!validatedLocal.requiresAPIKey)
+    }
+
+    @Test
+    func olderPreferencesDecodeWithoutNativeASRConfiguration() throws {
+        let data = Data(
+            """
+            {
+              "schemaVersion": 1,
+              "showMenuBarItem": true,
+              "launchAtLogin": false,
+              "showTechnicalDetails": false,
+              "refreshIntervalSeconds": 15
+            }
+            """.utf8
+        )
+        let decoded = try JSONDecoder().decode(AppConfiguration.self, from: data)
+        #expect(decoded.asr == nil)
+    }
+
+    @Test
+    func independentASRTestAcceptsEquivalentFixedTranscript() {
+        #expect(ASRTestTranscriptComparator.matches(
+            expected: "语音测试成功",
+            actual: "语音测试成功。"
+        ))
+        #expect(ASRTestTranscriptComparator.matches(
+            expected: "Vibe Stick test",
+            actual: "VIBE-STICK TEST!"
+        ))
+    }
+
+    @Test
+    func independentASRTestRejectsMismatchedFixedTranscript() {
+        #expect(!ASRTestTranscriptComparator.matches(
+            expected: "语音测试成功",
+            actual: "语音配置失败"
+        ))
+        #expect(!ASRTestTranscriptComparator.matches(expected: "", actual: "anything"))
     }
 
     @Test
@@ -217,6 +438,7 @@ struct VibeStickAppTests {
                 bridgeName: "vibestick-bridge",
                 bridgeVersion: "0.1.4",
                 protocolVersion: nil,
+                voiceInteractionVersion: nil,
                 bridgeID: nil
             ),
             state: nil,
@@ -230,6 +452,7 @@ struct VibeStickAppTests {
                 bridgeName: "vibestick-bridge",
                 bridgeVersion: "0.2.0-dev",
                 protocolVersion: 2,
+                voiceInteractionVersion: 2,
                 bridgeID: "90d71007-7734-44f7-8987-b2980437e6c6"
             ),
             state: nil,
@@ -288,8 +511,22 @@ struct VibeStickAppTests {
             VIBE_STICK_ASR_PROVIDER=groq
             VIBE_STICK_ASR_API_KEY=placeholder-not-a-real-key
             VIBE_STICK_AUTO_ENTER=0
+            VIBE_STICK_SEND_MODE=confirm
             """.utf8
         ).write(to: file)
+        try Data(
+            """
+            {
+              "schema_version": 2,
+              "status": "send_failed",
+              "pasted": true,
+              "interaction_version": 2,
+              "send_mode": "confirm",
+              "stopped_at": "2026-08-13T03:09:36",
+              "transcript": "must not enter the Swift summary"
+            }
+            """.utf8
+        ).write(to: directory.appendingPathComponent("recording.json"))
         try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: file.path)
         let inspector = ConfigurationInspector(
             environmentFile: file,
@@ -299,10 +536,17 @@ struct VibeStickAppTests {
         let result = await inspector.inspect()
         #expect(result.legacy.asrConfigurationDetected)
         #expect(result.legacy.asrProvider == "groq")
+        #expect(result.legacy.voiceSendMode == .confirm)
         #expect(result.legacy.containsLegacySecrets)
         #expect(result.legacy.legacyFileIsOverexposed)
         #expect(result.keychain.bridgeTokenStored)
         #expect(!result.keychain.asrKeyStored)
+        #expect(result.voice.status == "send_failed")
+        #expect(result.voice.pasted)
+        #expect(result.voice.interactionVersion == 2)
+        #expect(result.voice.sendMode == .confirm)
+        #expect(result.voice.title == "安全停止：未发送")
+        #expect(result.voice.detail.contains("没有按 Return"))
     }
 
     @Test

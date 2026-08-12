@@ -8,8 +8,8 @@ struct DeviceInterfaceView: View {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "设备界面",
-                    subtitle: "M3 将已确认的 Codex Focus 布局接入真实设备配置。",
-                    milestone: "M3"
+                    subtitle: "Codex Focus 预览已接入当前 Bridge 状态与 M2 设备配置。",
+                    milestone: nil
                 )
 
                 StatusCard(
@@ -65,7 +65,7 @@ struct DeviceInterfaceView: View {
 
                 StatusCard(
                     title: "Codex Focus 实时预览",
-                    subtitle: "项目名开关会同步改变预览与设备首页布局",
+                    subtitle: "状态、项目、额度、同步和按键设置来自当前 Bridge 与设备配置",
                     systemImage: "display",
                     tone: .healthy
                 ) {
@@ -75,14 +75,19 @@ struct DeviceInterfaceView: View {
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(VibeStickStyle.accent)
                             deviceMockup
+                            Text(previewTelemetryLabel)
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .multilineTextAlignment(.center)
+                                .frame(width: 180)
                         }
                         VStack(alignment: .leading, spacing: 16) {
-                            Label("Codex 固定为首页", systemImage: "house.fill")
-                            Label("额度显示是基础能力", systemImage: "chart.bar.fill")
-                            Label("单额度与 5H + 7D 双窗口自动重排", systemImage: "arrow.triangle.2.circlepath")
-                            Label("有无项目名时分别平衡视觉重心", systemImage: "rectangle.3.group")
+                            Label("使用固件当前 135 × 240 坐标和卡片几何", systemImage: "ruler")
+                            Label("状态、项目和额度跟随 Bridge 实时刷新", systemImage: "arrow.triangle.2.circlepath")
+                            Label("单额度、双额度和陈旧标记自动重排", systemImage: "chart.bar.fill")
+                            Label("Codex 图标与设备固件使用同一资源", systemImage: "checkmark.seal.fill")
                             Label("录音、识别、待发送时临时全屏覆盖", systemImage: "rectangle.inset.filled")
-                            Label("关闭的模块不会留下空白页面", systemImage: "rectangle.stack.badge.minus")
+                            Label("设备尚未上报电量时明确显示 --%", systemImage: "battery.0percent")
                         }
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -138,144 +143,476 @@ struct DeviceInterfaceView: View {
     }
 
     private var deviceMockup: some View {
-        VStack(spacing: 6) {
-            HStack(spacing: 5) {
-                Text("WiFi")
-                    .offset(y: 1)
-                Circle().fill(.green).frame(width: 5, height: 5)
-                Spacer()
-                Text("96%")
-            }
-            .font(.system(size: 10, weight: .medium))
-
-            VStack(spacing: 7) {
-                HStack(spacing: 10) {
-                    Image(systemName: "terminal.fill")
-                        .font(.system(size: 28, weight: .semibold))
-                        .frame(width: 52, height: 52)
-                        .foregroundStyle(.white)
-                        .background(VibeStickStyle.accent, in: RoundedRectangle(cornerRadius: 15))
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text("CODEX")
-                            .font(.system(size: 9, weight: .medium))
-                            .foregroundStyle(.secondary)
-                            .tracking(1)
-                        HStack(spacing: 5) {
-                            Circle().fill(.gray).frame(width: 7, height: 7)
-                            Text("待命").font(.title2.weight(.semibold))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .offset(
-                        x: model.deviceConfiguration.project.visible ? -3 : 0,
-                        y: model.deviceConfiguration.project.visible ? 3 : 0
-                    )
-                }
-                if model.deviceConfiguration.project.visible {
-                    Label(previewProjectName, systemImage: "circle.fill")
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .labelStyle(.titleAndIcon)
-                }
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity)
-            .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-
-            VStack(spacing: 7) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("7D")
-                        .font(.system(size: 13, weight: .medium))
-                    Spacer()
-                    Text("LEFT")
-                        .font(.system(size: 11, weight: .medium))
-                }
-                .foregroundStyle(.secondary)
-                Text("98%")
-                    .font(.system(size: 30, weight: .semibold, design: .rounded))
-                ProgressView(value: 0.98).tint(VibeStickStyle.accent)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(Color.white.opacity(0.035), in: RoundedRectangle(cornerRadius: 12))
-
-            HStack(spacing: 4) {
-                Circle().fill(.green).frame(width: 4, height: 4)
-                Text("SYNC")
-                Spacer()
-                Text("2X REFRESH")
-            }
-            .font(.system(size: 8, weight: .medium))
-            .foregroundStyle(.secondary)
-
-            Text("HOLD TO SPEAK")
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.secondary)
-        }
-        .foregroundStyle(.white)
-        .padding(12)
-        .frame(width: 180, height: 320, alignment: .top)
-        .background(Color.black, in: RoundedRectangle(cornerRadius: 22))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22)
-                .stroke(Color.white.opacity(0.16), lineWidth: 1)
-        }
-        .shadow(color: .black.opacity(0.18), radius: 18, y: 8)
+        CodexFocusDevicePreview(preview: previewModel)
     }
 
-    private var previewProjectName: String {
-        let fixedName = model.deviceConfiguration.project.name.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !fixedName.isEmpty { return fixedName }
-        let liveName = model.bridgeSnapshot.state?.codexState?.project?.trimmingCharacters(in: .whitespacesAndNewlines)
-        return liveName?.isEmpty == false ? liveName! : "VibeStick"
+    private var previewModel: CodexFocusPreviewModel {
+        .make(
+            bridge: model.bridgeSnapshot,
+            devices: model.bridgeDevices,
+            configuration: model.deviceConfiguration
+        )
+    }
+
+    private var previewTelemetryLabel: String {
+        if previewModel.batteryPercent == nil {
+            return "实时状态与额度 · 设备电量遥测尚未开放"
+        }
+        return "实时状态、额度与设备电量"
     }
 
 }
 
+private enum CodexFocusPreviewPalette {
+    static let background = Color(red: 0.020, green: 0.024, blue: 0.031)
+    static let card = Color(red: 0.047, green: 0.059, blue: 0.078)
+    static let border = Color(red: 0.125, green: 0.149, blue: 0.192)
+    static let text = Color(red: 0.953, green: 0.957, blue: 0.965)
+    static let secondary = Color(red: 0.545, green: 0.565, blue: 0.600)
+    static let project = Color(red: 0.682, green: 0.706, blue: 0.749)
+    static let accent = Color(red: 0.039, green: 0.518, blue: 1.000)
+    static let healthy = Color(red: 0.196, green: 0.835, blue: 0.514)
+    static let approval = Color(red: 0.812, green: 0.827, blue: 0.855)
+    static let neutral = Color(red: 0.604, green: 0.627, blue: 0.667)
+    static let dim = Color(red: 0.408, green: 0.431, blue: 0.471)
+    static let barTrack = Color(red: 0.165, green: 0.176, blue: 0.200)
+    static let divider = Color(red: 0.098, green: 0.114, blue: 0.141)
+}
+
+private struct CodexFocusDevicePreview: View {
+    let preview: CodexFocusPreviewModel
+
+    var body: some View {
+        screen
+            .frame(width: 135, height: 240)
+            .scaleEffect(4.0 / 3.0, anchor: .topLeading)
+            .frame(width: 180, height: 320, alignment: .topLeading)
+            .shadow(color: .black.opacity(0.20), radius: 18, y: 8)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(accessibilitySummary)
+    }
+
+    private var screen: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 9)
+                .fill(CodexFocusPreviewPalette.background)
+            RoundedRectangle(cornerRadius: 9)
+                .stroke(CodexFocusPreviewPalette.border.opacity(0.75), lineWidth: 1)
+            topBar
+            focusCard
+            quotaCard
+            footer
+        }
+        .clipped()
+    }
+
+    private var topBar: some View {
+        ZStack(alignment: .topLeading) {
+            Text(preview.wifiConnected ? "WiFi" : "OFF")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(preview.wifiConnected ? CodexFocusPreviewPalette.text : CodexFocusPreviewPalette.dim)
+                .frame(width: 22, alignment: .leading)
+                .offset(x: 8, y: 8)
+
+            Circle()
+                .fill(preview.bridgeConnected ? CodexFocusPreviewPalette.healthy : CodexFocusPreviewPalette.dim)
+                .frame(width: 5, height: 5)
+                .offset(x: 35, y: 11)
+
+            Text(preview.batteryText)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(CodexFocusPreviewPalette.text)
+                .frame(width: 26, alignment: .trailing)
+                .offset(x: 72, y: 8)
+
+            batteryIcon
+                .offset(x: 101, y: 8)
+        }
+    }
+
+    private var batteryIcon: some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 3)
+                .stroke(CodexFocusPreviewPalette.text, lineWidth: 1)
+                .frame(width: 26, height: 13)
+            if let batteryPercent = preview.batteryPercent {
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(CodexFocusPreviewPalette.text)
+                    .frame(width: max(1, 20 * CGFloat(batteryPercent) / 100), height: 9)
+                    .offset(x: 2)
+            }
+            RoundedRectangle(cornerRadius: 1)
+                .fill(CodexFocusPreviewPalette.text)
+                .frame(width: 2, height: 7)
+                .offset(x: 28)
+        }
+        .frame(width: 31, height: 13, alignment: .leading)
+    }
+
+    private var focusCard: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 9)
+                .fill(CodexFocusPreviewPalette.card)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9)
+                        .stroke(CodexFocusPreviewPalette.border, lineWidth: 1)
+                }
+                .frame(width: 119, height: 81)
+                .offset(x: 8, y: 30)
+
+            Image("CodexDeviceIcon")
+                .resizable()
+                .interpolation(.none)
+                .frame(width: preview.project == nil ? 36 : 32, height: preview.project == nil ? 36 : 32)
+                .offset(x: preview.project == nil ? 13 : 17, y: preview.project == nil ? 49 : 46)
+
+            VStack(spacing: 1) {
+                Text("CODEX")
+                    .font(.system(size: 10, weight: .medium))
+                    .tracking(1)
+                    .foregroundStyle(CodexFocusPreviewPalette.project)
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 5, height: 5)
+                    Text(preview.statusText)
+                        .font(.system(size: 16, weight: .semibold))
+                        .tracking(preview.statusText.utf8.count > 6 ? 0 : 1)
+                        .foregroundStyle(CodexFocusPreviewPalette.text)
+                }
+            }
+            .fixedSize()
+            .frame(width: 70, alignment: .trailing)
+            .offset(x: 49, y: preview.project == nil ? 51 : 46)
+
+            if let project = preview.project {
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(CodexFocusPreviewPalette.accent)
+                        .frame(width: 3, height: 3)
+                    Text(project)
+                        .font(.system(size: 10, weight: .medium))
+                        .lineLimit(1)
+                        .foregroundStyle(CodexFocusPreviewPalette.project)
+                }
+                .frame(maxWidth: 94)
+                .fixedSize()
+                .frame(width: 119)
+                .offset(x: 8, y: 88)
+            }
+        }
+    }
+
+    private var quotaCard: some View {
+        ZStack(alignment: .topLeading) {
+            RoundedRectangle(cornerRadius: 9)
+                .fill(CodexFocusPreviewPalette.card)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9)
+                        .stroke(CodexFocusPreviewPalette.border, lineWidth: 1)
+                }
+                .frame(width: 119, height: 88)
+                .offset(x: 8, y: 116)
+
+            switch preview.quotaWindows.count {
+            case 0:
+                Text("WAIT")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundStyle(CodexFocusPreviewPalette.dim)
+                    .frame(width: 84)
+                    .offset(x: 25, y: 158)
+            case 1:
+                singleQuota(preview.quotaWindows[0])
+            default:
+                Rectangle()
+                    .fill(CodexFocusPreviewPalette.border)
+                    .frame(width: 1, height: 61)
+                    .offset(x: 67, y: 130)
+                dualQuota(preview.quotaWindows[0], left: true)
+                dualQuota(preview.quotaWindows[1], left: false)
+            }
+        }
+    }
+
+    private func singleQuota(_ window: CodexFocusPreviewQuotaWindow) -> some View {
+        ZStack(alignment: .topLeading) {
+            Text(quotaTitle(window, single: true))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(CodexFocusPreviewPalette.secondary)
+                .frame(width: 101, alignment: .leading)
+                .offset(x: 17, y: 122)
+            Text("LEFT")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(CodexFocusPreviewPalette.secondary)
+                .frame(width: 36, alignment: .trailing)
+                .offset(x: 82, y: 123)
+            Text(quotaValue(window))
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundStyle(CodexFocusPreviewPalette.text)
+                .frame(width: 96)
+                .offset(x: 20, y: 145)
+            quotaBar(window, width: 101)
+                .offset(x: 17, y: 183)
+        }
+    }
+
+    private func dualQuota(_ window: CodexFocusPreviewQuotaWindow, left: Bool) -> some View {
+        let titleX: CGFloat = left ? 16 : 75
+        let valueX: CGFloat = left ? 10 : 71
+        let barX: CGFloat = left ? 18 : 77
+        return ZStack(alignment: .topLeading) {
+            Text(quotaTitle(window, single: false))
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(CodexFocusPreviewPalette.secondary)
+                .frame(width: 44)
+                .offset(x: titleX, y: 123)
+            Text(quotaValue(window))
+                .font(.system(size: 20, weight: .semibold, design: .rounded))
+                .foregroundStyle(CodexFocusPreviewPalette.text)
+                .frame(width: 54)
+                .offset(x: valueX, y: 145)
+            quotaBar(window, width: 40)
+                .offset(x: barX, y: 183)
+        }
+    }
+
+    private func quotaBar(_ window: CodexFocusPreviewQuotaWindow, width: CGFloat) -> some View {
+        ZStack(alignment: .leading) {
+            RoundedRectangle(cornerRadius: 3)
+                .fill(CodexFocusPreviewPalette.barTrack)
+            if let value = window.remainingPercent {
+                RoundedRectangle(cornerRadius: 3)
+                    .fill(CodexFocusPreviewPalette.accent)
+                    .frame(width: width * CGFloat(value) / 100)
+            }
+        }
+        .frame(width: width, height: 5)
+    }
+
+    private var footer: some View {
+        ZStack(alignment: .topLeading) {
+            Circle()
+                .fill(preview.syncHealthy ? CodexFocusPreviewPalette.healthy : CodexFocusPreviewPalette.dim)
+                .frame(width: 3, height: 3)
+                .offset(x: 9, y: 213)
+            Text("SYNC")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(CodexFocusPreviewPalette.secondary)
+                .frame(width: 42, alignment: .leading)
+                .offset(x: 15, y: 207)
+            Text(preview.footerAction)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(CodexFocusPreviewPalette.secondary)
+                .frame(width: 62, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .allowsTightening(true)
+                .offset(x: 65, y: 207)
+            Rectangle()
+                .fill(CodexFocusPreviewPalette.divider)
+                .frame(width: 119, height: 1)
+                .offset(x: 8, y: 222)
+            Text("HOLD TO SPEAK")
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(CodexFocusPreviewPalette.project)
+                .frame(width: 119)
+                .offset(x: 8, y: 225)
+        }
+    }
+
+    private var statusColor: Color {
+        switch preview.statusTone {
+        case .accent: CodexFocusPreviewPalette.accent
+        case .approval: CodexFocusPreviewPalette.approval
+        case .neutral: CodexFocusPreviewPalette.neutral
+        case .dim: CodexFocusPreviewPalette.dim
+        }
+    }
+
+    private func quotaTitle(_ window: CodexFocusPreviewQuotaWindow, single: Bool) -> String {
+        window.label + (single ? "" : " 剩余") + (window.stale ? "*" : "")
+    }
+
+    private func quotaValue(_ window: CodexFocusPreviewQuotaWindow) -> String {
+        window.remainingPercent.map { "\($0)%" } ?? "--%"
+    }
+
+    private var accessibilitySummary: String {
+        let quota = preview.quotaWindows.map { "\($0.label) \(quotaValue($0))" }.joined(separator: "，")
+        return "Codex Focus，\(preview.statusText)，项目 \(preview.project ?? "隐藏")，\(quota.isEmpty ? "额度不可用" : quota)，电量 \(preview.batteryText)"
+    }
+}
+
 struct VoiceAndSendView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var apiKey = ""
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "语音与发送",
-                    subtitle: "语音输入和额度显示属于基础能力，不会被模块化关闭。",
-                    milestone: "M3"
+                    subtitle: "原生配置 ASR；测试结果只留在本页，不进入当前输入框。",
+                    milestone: nil,
+                    currentMilestone: "M3-C"
                 )
 
                 StatusCard(
-                    title: "现有语音配置",
-                    subtitle: "M1 只识别是否已经配置，不读取或显示密钥",
+                    title: "当前语音链路",
+                    subtitle: "只读取脱敏摘要，不读取或显示 API Key",
                     systemImage: "waveform.circle.fill",
-                    tone: model.configurationSummary.asrConfigurationDetected ? .neutral : .warning
+                    tone: model.hasConfiguredASR ? .neutral : .warning
                 ) {
                     LabeledContent(
                         "配置状态",
-                        value: model.configurationSummary.asrConfigurationDetected ? "已发现（尚未验证）" : "未发现"
+                        value: model.hasConfiguredASR ? "已发现本地配置" : "未发现"
                     )
-                    LabeledContent("识别供应方", value: model.configurationSummary.asrProvider ?? "尚未选择")
-                    LabeledContent(
-                        "识别后的发送方式",
-                        value: model.configurationSummary.autoEnterEnabled
-                            ? "自动按下 Return"
-                            : "仅粘贴；蓝键确认将在 M3 实现"
-                    )
+                    LabeledContent("识别供应方", value: providerLabel)
+                    LabeledContent("识别后的发送方式", value: model.configurationSummary.voiceSendMode.title)
+                    LabeledContent("Bridge 语音协议", value: bridgeVoiceProtocolLabel)
+                    LabeledContent("文字输入服务", value: model.runtimeSnapshot.paste.phase.label)
+                    Text(model.configurationSummary.voiceSendMode.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
 
                 StatusCard(
-                    title: "M3 的简化流程",
-                    subtitle: "只需填写 API Key，再选择供应方",
-                    systemImage: "wand.and.stars",
-                    tone: .inactive
+                    title: "原生供应方配置",
+                    subtitle: "非敏感设置写入 0600 应用数据，API Key 只进入 macOS 钥匙串",
+                    systemImage: "key.horizontal.fill",
+                    tone: model.hasConfiguredASR ? .neutral : .warning
                 ) {
-                    HStack(spacing: 10) {
-                        providerChip("OpenAI 兼容")
-                        providerChip("Groq")
-                        providerChip("硅基流动")
-                        providerChip("自定义 URL")
+                    Picker("供应方", selection: providerBinding) {
+                        ForEach(ASRProvider.allCases) { provider in
+                            Text(provider.title).tag(provider)
+                        }
                     }
-                    Text("自定义供应方会要求 API Key、接口地址和模型名，并在保存前做连通性测试。")
+                    .pickerStyle(.segmented)
+
+                    Text(model.asrDraft.provider.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if model.asrDraft.provider == .localCommand {
+                        TextField("本地转写命令", text: localCommandBinding)
+                            .textFieldStyle(.roundedBorder)
+                        Text("命令从 stdin 接收含 audio_file 与 test_only 的 JSON；测试时也会提供 VIBE_STICK_TEST_AUDIO。最终转写写到 stdout。")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else {
+                        TextField("Base URL 或完整 /audio/transcriptions 地址", text: baseURLBinding)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("模型", text: modelBinding)
+                            .textFieldStyle(.roundedBorder)
+                        TextField("语言（可选，例如 zh）", text: languageBinding)
+                            .textFieldStyle(.roundedBorder)
+                        SecureField(
+                            model.keychainSummary.asrKeyStored ? "输入新 Key 可替换钥匙串中的现有 Key" : "API Key",
+                            text: $apiKey
+                        )
+                        .textFieldStyle(.roundedBorder)
+
+                        HStack {
+                            Label(
+                                model.keychainSummary.asrKeyStored ? "钥匙串中已有语音 Key" : "钥匙串中尚无语音 Key",
+                                systemImage: model.keychainSummary.asrKeyStored ? "checkmark.shield.fill" : "key.slash"
+                            )
+                            .foregroundStyle(model.keychainSummary.asrKeyStored ? .green : .secondary)
+                            Spacer()
+                            if model.keychainSummary.asrKeyStored {
+                                Button("移除 Key", role: .destructive) {
+                                    model.deleteASRAPIKey()
+                                }
+                                .disabled(model.asrSettingsSaveInProgress)
+                            }
+                        }
+                        .font(.caption)
+                    }
+
+                    Divider()
+
+                    HStack {
+                        Button {
+                            model.saveASRConfiguration(apiKey: apiKey)
+                            apiKey = ""
+                        } label: {
+                            if model.asrSettingsSaveInProgress {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("保存供应方配置", systemImage: "square.and.arrow.down")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.asrSettingsSaveInProgress || model.isASRTestBusy)
+                        Spacer()
+                        Text(model.asrDraft.provider.isCloud ? cloudDisclosure : "音频不会离开这台 Mac")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                StatusCard(
+                    title: "独立供应方测试",
+                    subtitle: "固定音频回环；不访问麦克风、Paste Helper、剪贴板或 Return",
+                    systemImage: testSystemImage,
+                    tone: testTone
+                ) {
+                    LabeledContent("测试状态", value: model.asrTestFeedback.title)
+                    LabeledContent("期望文字", value: ASRTestAudioFixture.expectedTranscript)
+                    if model.asrDraft.provider.isCloud {
+                        LabeledContent("音频目标", value: model.asrDraft.targetHost ?? "请先填写有效地址")
+                    } else {
+                        LabeledContent("音频目标", value: "本机命令")
+                    }
+                    Text(model.asrTestFeedback.detail)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if let transcript = model.asrTestFeedback.transcriptPreview {
+                        Text("测试识别结果")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(transcript)
+                            .textSelection(.enabled)
+                            .padding(12)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.quaternary, in: RoundedRectangle(cornerRadius: 10))
+                        Text("结果只存在于当前 App 会话内存，不写入配置或录音状态。")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    HStack {
+                        Button {
+                            model.runASRProviderTest(apiKey: apiKey)
+                        } label: {
+                            if model.asrTestFeedback.phase == .testing {
+                                ProgressView().controlSize(.small)
+                            } else {
+                                Label("提交固定音频测试", systemImage: "waveform.badge.magnifyingglass")
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .disabled(model.asrTestFeedback.phase == .testing)
+                        Spacer()
+                        Text("不注入 · 不按 Return")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.green)
+                    }
+                }
+
+                StatusCard(
+                    title: "最近一次设备语音",
+                    subtitle: "M3-B 只读摘要；不显示转写正文、窗口标题或目标指纹",
+                    systemImage: voiceStatusSystemImage,
+                    tone: model.voiceInteractionSummary.tone
+                ) {
+                    LabeledContent("结果", value: model.voiceInteractionSummary.title)
+                    LabeledContent("会话模式", value: model.voiceInteractionSummary.sendMode.title)
+                    if let stoppedAt = model.voiceInteractionSummary.stoppedAt {
+                        LabeledContent("完成时间", value: stoppedAt)
+                    }
+                    Text(model.voiceInteractionSummary.detail)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -286,12 +623,78 @@ struct VoiceAndSendView: View {
         .navigationTitle("语音与发送")
     }
 
-    private func providerChip(_ title: String) -> some View {
-        Text(title)
-            .font(.caption.weight(.medium))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(.quaternary, in: Capsule())
+    private var providerBinding: Binding<ASRProvider> {
+        Binding(
+            get: { model.asrDraft.provider },
+            set: { value in model.selectASRProvider(value) }
+        )
+    }
+
+    private var baseURLBinding: Binding<String> {
+        Binding(get: { model.asrDraft.baseURL }, set: { value in model.setASRBaseURL(value) })
+    }
+
+    private var modelBinding: Binding<String> {
+        Binding(get: { model.asrDraft.model }, set: { value in model.setASRModel(value) })
+    }
+
+    private var languageBinding: Binding<String> {
+        Binding(get: { model.asrDraft.language }, set: { value in model.setASRLanguage(value) })
+    }
+
+    private var localCommandBinding: Binding<String> {
+        Binding(get: { model.asrDraft.localCommand }, set: { value in model.setASRLocalCommand(value) })
+    }
+
+    private var providerLabel: String {
+        if let native = model.configuration.asr { return native.provider.title }
+        return switch model.configurationSummary.asrProvider?.lowercased() {
+        case "groq": "Groq"
+        case "siliconflow", "silicon-flow": "硅基流动"
+        case "openai-compatible": "OpenAI-compatible"
+        case let value?: value
+        case nil: "尚未选择"
+        }
+    }
+
+    private var cloudDisclosure: String {
+        guard let host = model.asrDraft.targetHost else { return "保存前请检查音频目标" }
+        return "测试音频将发送到 \(host)"
+    }
+
+    private var testTone: HealthTone {
+        switch model.asrTestFeedback.phase {
+        case .success: .healthy
+        case .failure: .warning
+        case .testing: .neutral
+        case .idle: .inactive
+        }
+    }
+
+    private var testSystemImage: String {
+        switch model.asrTestFeedback.phase {
+        case .success: "checkmark.circle.fill"
+        case .failure: "exclamationmark.triangle.fill"
+        case .testing: "waveform.badge.magnifyingglass"
+        case .idle: "waveform"
+        }
+    }
+
+    private var bridgeVoiceProtocolLabel: String {
+        guard model.bridgeSnapshot.isHealthy else { return "Bridge 当前不可用" }
+        guard let version = model.bridgeSnapshot.health?.voiceInteractionVersion else {
+            return "兼容模式 v1"
+        }
+        return version >= 2 ? "v\(version) · 蓝键确认已就绪" : "兼容模式 v\(version)"
+    }
+
+    private var voiceStatusSystemImage: String {
+        switch model.voiceInteractionSummary.tone {
+        case .healthy: "checkmark.circle.fill"
+        case .warning: "exclamationmark.triangle.fill"
+        case .neutral: "waveform.circle.fill"
+        case .inactive: "minus.circle.fill"
+        }
     }
 }
 
@@ -471,7 +874,7 @@ struct AdvancedSettingsView: View {
                     systemImage: "hammer.fill",
                     tone: .inactive
                 ) {
-                    Text("这是 M1 控制中心开发版，用于管理已经稳定安装的 Bridge、HUD 与 Paste。干净 Mac 的完整安装、固件下载与烧录将在后续里程碑实现。")
+                    Text("这是 M3-C 本地开发版：在已验收的 Codex Focus 与语音发送覆盖层之外，增加原生 ASR 配置、钥匙串保存和不注入输入框的独立测试。当前稳定安装的 Bridge、HUD、Paste 与真机固件不会被自动替换。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -627,7 +1030,12 @@ struct MenuBarContentView: View {
     }
 }
 
-private func pageHeader(title: String, subtitle: String, milestone: String?) -> some View {
+private func pageHeader(
+    title: String,
+    subtitle: String,
+    milestone: String?,
+    currentMilestone: String? = nil
+) -> some View {
     HStack(alignment: .top) {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
@@ -636,7 +1044,9 @@ private func pageHeader(title: String, subtitle: String, milestone: String?) -> 
                 .foregroundStyle(.secondary)
         }
         Spacer()
-        if let milestone {
+        if let currentMilestone {
+            CurrentMilestoneBadge(milestone: currentMilestone)
+        } else if let milestone {
             ComingSoonBadge(milestone: milestone)
         }
     }

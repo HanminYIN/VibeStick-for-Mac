@@ -131,11 +131,9 @@ struct KeychainStore: SecretStoring, Sendable {
     private let service = "io.github.hanminyin.vibestick"
 
     func contains(_ key: KeychainSecret) -> Bool {
-        do {
-            return try read(key) != nil
-        } catch {
-            return false
-        }
+        var query = baseQuery(account: key.rawValue)
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        return SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess
     }
 
     func read(_ key: KeychainSecret) throws -> Data? {
@@ -214,15 +212,19 @@ struct KeychainError: LocalizedError {
 actor ConfigurationInspector {
     private let fileManager: FileManager
     private let environmentFile: URL
+    private let recordingFile: URL
     private let keychainStore: any SecretStoring
 
     init(
         fileManager: FileManager = .default,
         environmentFile: URL = SupportPaths.legacyEnvironmentFile,
+        recordingFile: URL? = nil,
         keychainStore: any SecretStoring = KeychainStore()
     ) {
         self.fileManager = fileManager
         self.environmentFile = environmentFile
+        self.recordingFile = recordingFile
+            ?? environmentFile.deletingLastPathComponent().appendingPathComponent("recording.json")
         self.keychainStore = keychainStore
     }
 
@@ -248,11 +250,17 @@ actor ConfigurationInspector {
             || nonEmpty(values["VIBE_STICK_ASR_API_KEY"]) != nil
             || nonEmpty(values["VIBE_STICK_GROQ_API_KEY"]) != nil
 
+        let autoEnterEnabled = booleanValue(values["VIBE_STICK_AUTO_ENTER"])
+        let voiceSendMode = VoiceSendMode.configured(
+            explicit: values["VIBE_STICK_SEND_MODE"],
+            autoEnterEnabled: autoEnterEnabled
+        )
         let legacy = LegacyConfigurationSummary(
             legacyFileExists: exists,
             asrConfigurationDetected: asrConfigurationDetected,
             asrProvider: provider,
-            autoEnterEnabled: booleanValue(values["VIBE_STICK_AUTO_ENTER"]),
+            autoEnterEnabled: autoEnterEnabled,
+            voiceSendMode: voiceSendMode,
             projectName: nonEmpty(values["VIBE_STICK_PROJECT_NAME"]),
             containsLegacySecrets: hasSecrets,
             legacyFileIsOverexposed: isOverexposed
@@ -261,7 +269,35 @@ actor ConfigurationInspector {
             bridgeTokenStored: keychainStore.contains(.bridgeToken),
             asrKeyStored: keychainStore.contains(.asrAPIKey)
         )
-        return ConfigurationInspection(legacy: legacy, keychain: keychain)
+        return ConfigurationInspection(
+            legacy: legacy,
+            keychain: keychain,
+            voice: inspectVoiceInteraction(fallbackSendMode: voiceSendMode)
+        )
+    }
+
+    private func inspectVoiceInteraction(fallbackSendMode: VoiceSendMode) -> VoiceInteractionSummary {
+        guard let data = try? Data(contentsOf: recordingFile),
+              let object = try? JSONSerialization.jsonObject(with: data),
+              let payload = object as? [String: Any] else {
+            return VoiceInteractionSummary(
+                status: "idle",
+                pasted: false,
+                interactionVersion: 1,
+                sendMode: fallbackSendMode,
+                stoppedAt: nil
+            )
+        }
+        return VoiceInteractionSummary(
+            status: payload["status"] as? String ?? "idle",
+            pasted: payload["pasted"] as? Bool == true,
+            interactionVersion: payload["interaction_version"] as? Int ?? 1,
+            sendMode: VoiceSendMode.configured(
+                explicit: payload["send_mode"] as? String,
+                autoEnterEnabled: fallbackSendMode == .autoSend
+            ),
+            stoppedAt: nonEmpty(payload["stopped_at"] as? String)
+        )
     }
 
     private func nonEmpty(_ value: String?) -> String? {

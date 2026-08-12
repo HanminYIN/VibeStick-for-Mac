@@ -102,11 +102,11 @@ struct DashboardView: View {
             title: "语音输入",
             subtitle: "基础能力，始终保留",
             systemImage: "waveform",
-            tone: model.configurationSummary.asrConfigurationDetected ? .neutral : .warning
+            tone: model.hasConfiguredASR ? .neutral : .warning
         ) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 5) {
-                    Text(model.configurationSummary.asrConfigurationDetected ? "发现现有配置" : "尚未发现配置")
+                    Text(model.hasConfiguredASR ? "语音供应方已配置" : "尚未发现配置")
                         .font(.title3.weight(.semibold))
                     Text(asrDescription)
                         .font(.caption)
@@ -204,12 +204,15 @@ struct DashboardView: View {
     }
 
     private var asrDescription: String {
+        if let native = model.configuration.asr {
+            return "当前供应方：\(native.provider.title)"
+        }
         if let provider = model.configurationSummary.asrProvider {
             return "当前供应方：\(provider)"
         }
         return model.configurationSummary.asrConfigurationDetected
             ? "已读取摘要，尚未在控制中心验证可用性"
-            : "M3 将提供简化配置流程"
+            : "可在“语音与发送”中完成原生配置"
     }
 
     private var greeting: String {

@@ -1,5 +1,23 @@
 import Foundation
 
+enum ASRTestTranscriptComparator {
+    static func normalized(_ value: String) -> String {
+        value
+            .folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
+            .unicodeScalars
+            .filter { CharacterSet.alphanumerics.contains($0) }
+            .map(String.init)
+            .joined()
+            .lowercased()
+    }
+
+    static func matches(expected: String, actual: String) -> Bool {
+        let expected = normalized(expected)
+        let actual = normalized(actual)
+        return !expected.isEmpty && (actual == expected || actual.contains(expected))
+    }
+}
+
 enum LegacyEnvironmentParser {
     static func parse(_ contents: String) -> [String: String] {
         var values: [String: String] = [:]
