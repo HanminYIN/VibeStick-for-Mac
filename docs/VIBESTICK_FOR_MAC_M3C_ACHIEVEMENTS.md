@@ -1,12 +1,14 @@
 # VibeStick for Mac：M3-C 原生 ASR 配置阶段成果
 
-> 状态：已与 M3-B 封存为本地联合检查点 `45e7dd2`；验收后钥匙串兼容修复已部署并通过连续 SiliconFlow 真人真机复核，当前仍未暂存或提交，未 push、tag 或发布
+> 状态：已与 M3-B 封存为本地联合检查点 `45e7dd2`；验收后钥匙串兼容修复已部署、通过连续 SiliconFlow 真人真机复核并封存为本地功能检查点 `13083f6`，未 push、tag 或发布
 >
 > 日期：2026-08-13
 >
 > M3-A 基线：`e2113ba04a5c4d0f75389ace470392e203ffa452`
 >
 > M3-B + M3-C 联合检查点：`45e7dd254c54fc207281997192e2242317d47e29`
+>
+> M3-B + M3-C 验收后功能检查点：`13083f68276a0f15104a9b51f4135b2b8cf11501`
 
 ## 1. 阶段结论
 
@@ -66,10 +68,10 @@ M3-C 已把 SiliconFlow、Groq、OpenAI-compatible 和本地命令 ASR 放进 Ma
 - 独立供应方测试只向明确显示的 `api.siliconflow.cn` 发送固定测试音频，不进入 M3-B 录音/发送状态或改变当前输入框；正式语音验收另由 StickS3 自带麦克风进入既有 M3-B 链路。
 - M3-C 钥匙串修复没有要求刷机；本阶段发生的固件写入只用于使用者另行授权的 M3-B UI 光学校正。配对、Codex Focus、语音协议和配置 revision `1/1` 保持原状。
 - 最终正常 GUI Doctor 为 `16 PASS / 0 WARN / 0 FAIL`；Bridge 协议 v2、语音 v2，StickS3 在线且未撤销。
-- 联合检查点后的候选仍未暂存或提交；没有 push、tag、Release、remote 或 Fork 关系变更。
+- 联合检查点后的候选已封存为本地功能检查点 `13083f6`；没有 push、tag、Release、remote 或 Fork 关系变更。
 
 ## 5. 下一阶段
 
-M3-C 供应方测试已收敛为“本地固定音频 -> SiliconFlow -> 转写比对 -> 页面反馈”，与 Mac 录音设备完全解耦；正式语音链的 Keychain 读取也已完成旧条目迁移和全新条目验证。下一步是在使用者单独授权后形成新的本地检查点，再进入 M4 的 DMG 首次安装、后台组件安装/修复和回退，不在 M3-C 继续扩张录音设备或发送状态机。
+M3-C 供应方测试已收敛为“本地固定音频 -> SiliconFlow -> 转写比对 -> 页面反馈”，与 Mac 录音设备完全解耦；正式语音链的 Keychain 读取也已完成旧条目迁移和全新条目验证。验收后候选已完成本地封存，下一步进入 M4 的 DMG 首次安装、后台组件安装/修复和回退，不在 M3-C 继续扩张录音设备或发送状态机。
 
 详细契约见 `design/m3c/M3C_ASR_CONFIGURATION_CONTRACT.md`。
