@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 
 struct VibeStickAppTests {
@@ -228,6 +229,17 @@ struct VibeStickAppTests {
         #expect(!json.contains("api_key"))
         #expect(!json.contains("password"))
         #expect(json.contains("sensevoicesmall"))
+    }
+
+    @Test
+    func ASRKeychainAccessAddsOnlyTheAppleSecurityTool() {
+        #expect(
+            KeychainAccessPolicy.asrAdditionalTrustedApplicationPaths
+                == ["/usr/bin/security"]
+        )
+        let updateAttributes = KeychainAccessPolicy.existingItemUpdateAttributes(data: Data())
+        #expect(Set(updateAttributes.keys) == Set([kSecValueData as String]))
+        #expect(updateAttributes[kSecAttrAccess as String] == nil)
     }
 
     @Test

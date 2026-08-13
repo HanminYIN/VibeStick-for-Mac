@@ -32,18 +32,50 @@ def show_hud(status: str, *, hold_seconds: float | None = None) -> None:
 
 
 def hide_hud(*, delay_seconds: float = 0.0) -> None:
+    now = time.time()
     if delay_seconds > 0:
-        show_hud("transcribing", hold_seconds=delay_seconds)
-        return
+        current = _read_hud_state()
+        if current is not None and _is_active_and_unexpired(current, now=now):
+            _write_hud_state(
+                {
+                    "active": True,
+                    "status": current["status"],
+                    "text": current["text"],
+                    "updated_at_epoch": now,
+                    "expires_at_epoch": now + delay_seconds,
+                }
+            )
+            return
     _write_hud_state(
         {
             "active": False,
             "status": "idle",
             "text": "",
-            "updated_at_epoch": time.time(),
+            "updated_at_epoch": now,
             "expires_at_epoch": None,
         }
     )
+
+
+def _read_hud_state() -> dict[str, Any] | None:
+    try:
+        payload = json.loads(HUD_STATE_PATH.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
+def _is_active_and_unexpired(payload: dict[str, Any], *, now: float) -> bool:
+    if payload.get("active") is not True:
+        return False
+    if not isinstance(payload.get("status"), str) or not isinstance(payload.get("text"), str):
+        return False
+    expires_at = payload.get("expires_at_epoch")
+    if expires_at is None:
+        return True
+    if isinstance(expires_at, bool) or not isinstance(expires_at, (int, float)):
+        return False
+    return expires_at > now
 
 
 def _write_hud_state(payload: dict[str, Any]) -> None:

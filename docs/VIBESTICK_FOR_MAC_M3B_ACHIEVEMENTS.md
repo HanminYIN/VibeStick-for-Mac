@@ -1,10 +1,12 @@
 # VibeStick for Mac：M3-B 语音与安全发送阶段成果
 
-> 状态：成功与安全失败主流程及收尾源码验证完成；已与 M3-C 封存为本地联合检查点，未 push、tag 或发布
+> 状态：已与 M3-C 封存为本地联合检查点 `45e7dd2`；验收后 UI/HUD 修复已部署并通过真人真机复核，当前仍未暂存或提交，未 push、tag 或发布
 >
 > 日期：2026-08-13
 >
 > M3-A 基线：`e2113ba04a5c4d0f75389ace470392e203ffa452`
+>
+> M3-B + M3-C 联合检查点：`45e7dd254c54fc207281997192e2242317d47e29`
 
 ## 1. 阶段结论
 
@@ -34,47 +36,50 @@ M3-B 把原有“长按录音、转写并粘贴”扩展为显式且可验证的
 - 覆盖层期间由语音状态机持有按键优先级，不触发页面切换、额度刷新或并发录音。
 - 失败原因进一步区分“未听清”“识别失败”“发送失败”和过期“未发送”，并给出重新录音或切回原输入框的动作提示。
 - 原有 Codex Focus 首页、提示音、配对同步与配置 ACK 不因覆盖层改动而重写。
+- 底部状态圆点与 `HOLDING / WORKING / PENDING / SENDING / DONE / NOT SENT` 使用实际字宽作为一个整体居中，不再依赖单一单词的固定坐标。
+- 识别、待发送、成功和失败圆形保持正方形逻辑尺寸，再对真实 LCD 使用 `270/256` 的独立 Y 轴光学校正；识别白/蓝核心严格共圆心，成功勾和失败感叹号不参与圆形缩放。
+- 失败感叹号改为同宽对象，竖线与圆点使用同一 X 中心，消除 LVGL 线条边界造成的错位。
 
 ### 2.4 Mac 语音状态页
 
 - 显示当前 ASR 供应方、实际发送模式、Bridge voice interaction 协议和 Paste 状态。
 - 只展示最近一次设备语音的脱敏状态、模式、版本和时间，不读取或显示 transcript。
 - 将供应方 API Key 原生配置与测试拆到 M3-C，避免扩大本次已验收状态机的回归面。
+- 成功确认发送后立即隐藏 HUD，不再在电脑屏幕短暂重现“正在识别”；延迟隐藏只延长仍在显示且未过期的当前 HUD，过期或无效状态保持隐藏。
 
 ### 2.5 本地隐私收尾
 
 - `recording.json` 升级为 schema v2，只持久化状态、时间、来源、是否粘贴、交互版本和发送模式。
 - transcript、message 和录音路径只保留在进程内存，不写入状态文件；旧状态读取时也不会重新暴露这些字段。
 - 状态文件采用同目录原子替换并设置 0600；支持目录与录音目录设置 0700，生成音频设置 0600。
-- 安装脚本对 `.env` 设置 0600，但本轮没有运行安装脚本或替换现有运行时。
+- 安装脚本对 `.env` 设置 0600；联合检查点形成时尚未部署，验收后已在使用者授权下安装到日常运行态，最终只读复核确认应用支持目录为 0700、`.env` 与 `recording.json` 为 0600。
 - 日志只记录状态、来源、字符数和布尔结果，不记录转写文本或录音路径。
 
-## 3. 完整验证证据
+## 3. 最终验证证据
 
-- 147 项 Python `unittest` 全量通过，新增状态持久化脱敏与私有权限回归。
-- 27 项 hostless Swift 测试通过，覆盖 voice capability 解码、真实发送模式和脱敏最近状态。
+- 159 项 Python `unittest` 全量通过，包含状态持久化脱敏、私有权限、HUD 延迟隐藏、成功发送立即隐藏与固件几何契约回归。
+- 33 项 hostless Swift 测试通过，覆盖 voice capability、真实发送模式、脱敏最近状态和 ASR 钥匙串访问边界。
 - Shell 安装、诊断、卸载与构建脚本语法检查通过。
-- ESP-IDF 5.5 完整构建通过；固件镜像 `0x15a270`，3 MiB app 分区剩余 `0x1a5d90`（55%）。
+- ESP-IDF 5.5.1 完整构建通过；固件镜像 `0x15a340`，3 MiB app 分区剩余 `0x1a5cc0`（55%）。
 - Release 主 App、Bridge/HUD/Paste Helper、ad-hoc 签名、thin arm64 和 macOS 15.0 minimum 检查通过。
 - 正常 GUI 会话中的构建 App 与 DMG App 启动 smoke 均通过，并确认没有改变现有 Bridge/HUD 进程。
 - AppIcon、菜单栏图标、DMG 根目录、Applications 链接、磁盘映像校验和禁止文件扫描均通过。
-- 产物统一为 `.build/macos.noindex/VibeStick-for-Mac-M3-B.dmg`，仅作为本地验证产物，未发布。
+- 联合候选产物为 `.build/macos.noindex/VibeStick-for-Mac-M3-C.dmg`，SHA-256 为 `daae42135b5d786b232574ec15f32dac8bd943c4b76bdf105514924802c2127f`，仅作为本地验证产物，未发布。
 - `git diff --check` 与 Shell 语法检查通过。
 
 ## 4. 当前运行边界
 
-- 这轮收尾没有运行 `scripts/install.sh`，没有替换或重启已安装 Bridge/HUD/Paste。
-- 这轮收尾没有执行 `idf.py flash`、串口写入或设备重启。
-- 已安装的受控 M3-B 主流程继续服务当前真实设备；本轮新增的隐私、Mac UI 与失败原因文案只存在于本地联合检查点和 `.build` 验证产物。
+- 使用者已逐次授权安装/重启日常运行态；已安装 recorder、transcriber 与 HUD 与当前候选源码逐字一致，Bridge/HUD/Paste 正常服务真实设备。
+- 设备 UI 精修已在使用者逐次授权下刷入；使用者在真实 135 × 240 LCD 上确认状态文字居中、圆形观感、核心共圆心和感叹号对齐均符合预期。最终收口只执行 `idf.py build`，没有再次 flash。
+- 真人确认成功发送后，电脑屏幕不再短暂出现“正在识别”覆盖层；最新 SiliconFlow 会话完成 `pending_send -> sent`，文字已粘贴并安全确认。
 - 固件、配对关系、Codex Focus、语音输入、Bridge/HUD/Paste 继续作为稳定边界。
-- 最终只读复核显示 Bridge 健康、transport protocol v2、voice interaction v2；StickS3 在线，固件 `0.2.0-dev`，配置 revision `1/1` 且未撤销。
-- USB 串口仍可见；已安装 runtime 的 recorder 与本地封存版本不同，证明本轮隐私收尾没有被隐式复制进日常运行环境。
+- 最终正常 GUI Doctor 为 `16 PASS / 0 WARN / 0 FAIL`；Bridge 健康、transport protocol v2、voice interaction v2；StickS3 在线，固件 `0.2.0-dev`，配置 revision `1/1` 且未撤销。
 
-## 5. 尚未执行
+## 5. 仍未执行
 
-- 已由使用者授权形成 M3-B + M3-C 本地联合检查点；未 push、tag 或创建 Release。
+- 联合检查点之后的 19 文件验收后修复与记录收口仍未 `git add` 或 commit；是否形成新的本地检查点继续需要单独授权。
+- 未 push、tag、创建 Release 或分享 DMG。
 - 未修改 origin/upstream 或 GitHub Fork 关系。
-- 未把当前候选安装到日常运行环境，也未再次刷写真机。
-- 本文封口时 M3-C 尚未开始；当前后续进展见 `VIBESTICK_FOR_MAC_M3C_ACHIEVEMENTS.md`。
+- 最终收口阶段没有再次安装、重启运行时或刷机。
 
-M3-B 本地检查点已经形成；是否部署本轮收尾以及是否分享 DMG，继续由使用者分别授权。
+M3-B 的验收后候选已经稳定；下一步是经使用者单独授权形成新的本地检查点，然后进入 M4 安装、更新与恢复。

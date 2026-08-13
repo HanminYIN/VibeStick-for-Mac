@@ -230,9 +230,18 @@ assert_m3c_asr_source_contract() {
     || ! /usr/bin/grep -F 'ASRTestTranscriptComparator.matches' "$m3c_source" >/dev/null \
     || ! /usr/bin/grep -F '.posixPermissions: 0o600' "$m3c_source" >/dev/null \
     || ! /usr/bin/grep -F 'SecItemCopyMatching(query as CFDictionary, nil) == errSecSuccess' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
+    || ! /usr/bin/grep -F 'SecTrustedApplicationCreateFromPath' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
+    || ! /usr/bin/grep -F 'kSecAttrAccess as String' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
+    || ! /usr/bin/grep -F 'asrAdditionalTrustedApplicationPaths = ["/usr/bin/security"]' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
+    || ! /usr/bin/grep -F 'existingItemUpdateAttributes(data: data)' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
+    || ! /usr/bin/grep -F 'await asrSecretManager.containsAPIKey()' "$ROOT_DIR/app/macos/VibeStickApp/App/AppModel.swift" >/dev/null \
     || ! /usr/bin/grep -F 'find-generic-password' "$transcriber" >/dev/null \
     || ! /usr/bin/grep -F 'config-v1.json' "$transcriber" >/dev/null; then
     printf '%s\n' "FAIL: the M3-C native ASR source contract is incomplete" >&2
+    exit 1
+  fi
+  if /usr/bin/grep -F 'prepareAPIKeyAccess' "$ROOT_DIR/app/macos/VibeStickApp/App/AppModel.swift" "$m3c_source" >/dev/null; then
+    printf '%s\n' "FAIL: routine ASR saves must not rewrite an existing keychain ACL" >&2
     exit 1
   fi
 

@@ -205,6 +205,40 @@ class TranscriberConfigTests(unittest.TestCase):
         self.assertEqual(config["model"], "FunAudioLLM/SenseVoiceSmall")
         self.assertEqual(config["api_key"], "keychain-key")
 
+    def test_keychain_reader_allows_time_for_interactive_authorization(self) -> None:
+        completed = transcriber.subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="fixture-key\n",
+            stderr="",
+        )
+        with mock.patch.object(
+            transcriber.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            value = transcriber._keychain_asr_api_key()
+
+        self.assertEqual(value, "fixture-key")
+        self.assertEqual(
+            run.call_args.kwargs["timeout"],
+            transcriber.KEYCHAIN_AUTHORIZATION_TIMEOUT_SECONDS,
+        )
+        self.assertGreaterEqual(run.call_args.kwargs["timeout"], 60)
+
+    def test_keychain_reader_fails_closed_after_authorization_timeout(self) -> None:
+        with mock.patch.object(
+            transcriber.subprocess,
+            "run",
+            side_effect=transcriber.subprocess.TimeoutExpired(
+                cmd=["/usr/bin/security"],
+                timeout=60,
+            ),
+        ):
+            value = transcriber._keychain_asr_api_key()
+
+        self.assertEqual(value, "")
+
     def test_openai_compatible_url_joins_trailing_slash(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             audio = Path(tmp) / "sample.wav"

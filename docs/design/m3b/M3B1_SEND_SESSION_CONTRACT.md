@@ -1,6 +1,6 @@
 # M3-B1：待发送会话安全内核
 
-> 状态：安全内核已完成受控部署和真人真机主流程验收；当前收尾源码尚未重新部署
+> 状态：安全内核已完成受控部署和真人真机主流程验收；联合检查点后的 HUD 与运行时收尾已另行授权部署并完成复核
 >
 > 前置：M3-B0 视觉和交互规格、Mac 实时预览校准
 
@@ -66,5 +66,6 @@ Bridge 重试或重复 HTTP 请求都不能再次产生 Return。
 - 隔离源码门曾以 133 项 Python 全量回归、Paste Helper Release arm64/macOS 构建和固件纯 C 状态机主机测试通过。
 - 受控部署后，Bridge 健康响应报告 transport protocol v2 与 voice interaction v2；成功发送和焦点变化后的拒绝发送均由真人真机确认。
 - 当前设备 config revision/ACK 保持 `1/1`，配对关系、Codex Focus、语音输入、HUD 与 Paste 保持可用。
-- 本地联合检查点增加状态持久化脱敏、0600/0700 权限和 Mac 脱敏状态页；完整验证期间没有重新部署这些收尾改动。
+- 本地联合检查点增加状态持久化脱敏、0600/0700 权限和 Mac 脱敏状态页；检查点形成时的完整验证没有重新部署这些收尾改动。
 - 本地封存版本已通过 147 项 Python、27 项 Swift、Release App/Helper、正常 GUI 启动与 DMG 完整验证；验证脚本确认未改变 Bridge/HUD 进程。
+- 检查点后的最终候选进一步通过 159 项 Python、33 项 Swift、Release App/Helper、正常 GUI、DMG、ESP-IDF 5.5.1 和 Doctor `16/16`；已安装 recorder、transcriber 与 HUD 已逐字匹配候选源码。当前结论以 `VIBESTICK_FOR_MAC_M3B_ACHIEVEMENTS.md` 为准。

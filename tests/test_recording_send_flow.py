@@ -136,7 +136,7 @@ class RecordingSendFlowTests(unittest.TestCase):
             self._stop()
             with (
                 mock.patch("vibe_stick.audio.recorder.show_hud"),
-                mock.patch("vibe_stick.audio.recorder.hide_hud"),
+                mock.patch("vibe_stick.audio.recorder.hide_hud") as hide_hud,
             ):
                 first = self.controller.confirm_send(self.session_id)
                 duplicate = self.controller.confirm_send(self.session_id)
@@ -148,6 +148,7 @@ class RecordingSendFlowTests(unittest.TestCase):
         self.assertEqual(self.controller.session.status, "sent")
         self.controller.paste_injector.inspect_target.assert_called_once_with()
         self.controller.paste_injector.confirm_return.assert_called_once_with(_target())
+        hide_hud.assert_called_once_with()
 
     def test_changed_target_never_calls_confirm_return(self) -> None:
         self.controller.paste_injector.paste.return_value = PasteResult(

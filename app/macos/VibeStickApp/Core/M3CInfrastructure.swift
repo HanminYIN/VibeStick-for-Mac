@@ -1,6 +1,7 @@
 import Foundation
 
 protocol ASRSecretManaging: Sendable {
+    func containsAPIKey() async -> Bool
     func storedAPIKey() async throws -> String?
     func saveAPIKey(_ value: String) async throws
     func deleteAPIKey() async throws
@@ -11,6 +12,10 @@ actor ASRKeychainManager: ASRSecretManaging {
 
     init(store: KeychainStore = KeychainStore()) {
         self.store = store
+    }
+
+    func containsAPIKey() -> Bool {
+        store.contains(.asrAPIKey)
     }
 
     func storedAPIKey() throws -> String? {

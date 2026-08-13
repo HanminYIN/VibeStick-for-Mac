@@ -127,6 +127,46 @@ protocol SecretStoring: Sendable {
     func contains(_ key: KeychainSecret) -> Bool
 }
 
+enum KeychainAccessPolicy {
+    static let asrAdditionalTrustedApplicationPaths = ["/usr/bin/security"]
+
+    static func existingItemUpdateAttributes(data: Data) -> [String: Any] {
+        [kSecValueData as String: data]
+    }
+
+    static func makeASRAccess() throws -> SecAccess {
+        var trustedApplications: [SecTrustedApplication] = []
+        var currentApplication: SecTrustedApplication?
+        var status = SecTrustedApplicationCreateFromPath(nil, &currentApplication)
+        guard status == errSecSuccess, let currentApplication else {
+            throw KeychainError(status: status)
+        }
+        trustedApplications.append(currentApplication)
+
+        for path in asrAdditionalTrustedApplicationPaths {
+            var trustedApplication: SecTrustedApplication?
+            status = path.withCString {
+                SecTrustedApplicationCreateFromPath($0, &trustedApplication)
+            }
+            guard status == errSecSuccess, let trustedApplication else {
+                throw KeychainError(status: status)
+            }
+            trustedApplications.append(trustedApplication)
+        }
+
+        var access: SecAccess?
+        status = SecAccessCreate(
+            "VibeStick ASR API Key" as CFString,
+            trustedApplications as CFArray,
+            &access
+        )
+        guard status == errSecSuccess, let access else {
+            throw KeychainError(status: status)
+        }
+        return access
+    }
+}
+
 struct KeychainStore: SecretStoring, Sendable {
     private let service = "io.github.hanminyin.vibestick"
 
@@ -155,20 +195,30 @@ struct KeychainStore: SecretStoring, Sendable {
     }
 
     func write(_ data: Data, for key: KeychainSecret) throws {
-        try write(data, account: key.rawValue)
+        let access = key == .asrAPIKey
+            ? try KeychainAccessPolicy.makeASRAccess()
+            : nil
+        try write(data, account: key.rawValue, access: access)
     }
 
     func write(_ data: Data, account: String) throws {
+        try write(data, account: account, access: nil)
+    }
+
+    private func write(_ data: Data, account: String, access: SecAccess?) throws {
         let query = baseQuery(account: account)
-        let attributes: [String: Any] = [
+        var attributes: [String: Any] = [
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]
+        if let access {
+            attributes[kSecAttrAccess as String] = access
+        }
         let status = SecItemAdd(query.merging(attributes) { _, new in new } as CFDictionary, nil)
         if status == errSecDuplicateItem {
             let updateStatus = SecItemUpdate(
                 query as CFDictionary,
-                [kSecValueData as String: data] as CFDictionary
+                KeychainAccessPolicy.existingItemUpdateAttributes(data: data) as CFDictionary
             )
             guard updateStatus == errSecSuccess else {
                 throw KeychainError(status: updateStatus)

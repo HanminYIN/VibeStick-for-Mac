@@ -22,6 +22,7 @@ DEFAULT_ASR_MODEL = "whisper-large-v3-turbo"
 DEFAULT_ASR_LANGUAGE = "zh"
 KEYCHAIN_SERVICE = "io.github.hanminyin.vibestick"
 KEYCHAIN_ASR_ACCOUNT = "asr-api-key"
+KEYCHAIN_AUTHORIZATION_TIMEOUT_SECONDS = 60.0
 
 
 @dataclass
@@ -348,7 +349,7 @@ def _keychain_asr_api_key() -> str:
             check=False,
             capture_output=True,
             text=True,
-            timeout=3,
+            timeout=KEYCHAIN_AUTHORIZATION_TIMEOUT_SECONDS,
         )
     except (OSError, subprocess.TimeoutExpired):
         return ""

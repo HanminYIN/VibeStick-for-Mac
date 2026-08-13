@@ -70,6 +70,80 @@ class FirmwareVoiceInteractionTests(unittest.TestCase):
             self.assertIn(".bitmap_format = 0", font_source)
             self.assertNotIn(".bitmap_format = 1", font_source)
 
+    def test_voice_footer_dot_and_status_are_centered_as_one_measured_group(self) -> None:
+        main_source = (ROOT / "firmware/sticks3/src/main.c").read_text()
+        for required in (
+            "static void center_voice_footer_status(void)",
+            "lv_obj_update_layout(s_voice_footer_status);",
+            "lv_obj_get_width(s_voice_footer_status)",
+            "(LCD_H_RES - group_width + 1) / 2",
+            "group_left + VOICE_FOOTER_DOT_SIZE + VOICE_FOOTER_GAP",
+            "LV_SIZE_CONTENT, LV_TEXT_ALIGN_LEFT",
+        ):
+            self.assertIn(required, main_source)
+        self.assertGreaterEqual(main_source.count("center_voice_footer_status();"), 2)
+        self.assertNotIn(
+            "lv_obj_align(s_voice_footer_dot, LV_ALIGN_TOP_LEFT, 45, 203);",
+            main_source,
+        )
+        self.assertNotIn(
+            "lv_obj_align(s_voice_footer_status, LV_ALIGN_TOP_LEFT, 52, 199);",
+            main_source,
+        )
+
+    def test_voice_circles_apply_real_lcd_vertical_optical_compensation(self) -> None:
+        main_source = (ROOT / "firmware/sticks3/src/main.c").read_text()
+        scale_match = re.search(
+            r"^#define VOICE_CIRCLE_OPTICAL_SCALE_Y (\d+)$",
+            main_source,
+            re.MULTILINE,
+        )
+        self.assertIsNotNone(scale_match)
+        self.assertEqual(int(scale_match.group(1)), 270)
+        for required in (
+            "static void apply_voice_circle_optical_scale(lv_obj_t *obj, int32_t size)",
+            "lv_obj_set_style_transform_pivot_x(obj, size / 2, 0);",
+            "lv_obj_set_style_transform_pivot_y(obj, size / 2, 0);",
+            "lv_obj_set_style_transform_scale_y(obj, VOICE_CIRCLE_OPTICAL_SCALE_Y, 0);",
+            "lv_obj_set_size(s_voice_spinner, VOICE_SPINNER_SIZE, VOICE_SPINNER_SIZE);",
+            "VOICE_SPINNER_CORE_SIZE,\n                                          VOICE_SPINNER_CORE_SIZE,",
+            "VOICE_SPINNER_CENTER_SIZE,\n                                            VOICE_SPINNER_CENTER_SIZE,",
+            "VOICE_PENDING_ARROW_SIZE,\n                                                    VOICE_PENDING_ARROW_SIZE,",
+            "lv_obj_align_to(s_voice_spinner_core, s_voice_spinner,",
+            "lv_obj_align_to(s_voice_spinner_center, s_voice_spinner_core,",
+            "VOICE_RESULT_RING_SIZE,\n                                          VOICE_RESULT_RING_SIZE,",
+            "VOICE_RESULT_CORE_SIZE,\n                                            VOICE_RESULT_CORE_SIZE,",
+            "lv_line_create(s_voice_success_group)",
+        ):
+            self.assertIn(required, main_source)
+
+        self.assertIn(
+            "lv_obj_align_to(s_voice_spinner_core, s_voice_spinner,\n"
+            "                    LV_ALIGN_CENTER, 0, 0);",
+            main_source,
+        )
+        self.assertIn(
+            "lv_obj_align_to(s_voice_spinner_center, s_voice_spinner_core,\n"
+            "                    LV_ALIGN_CENTER, 0, 0);",
+            main_source,
+        )
+        self.assertNotIn("VOICE_SPINNER_HEIGHT", main_source)
+        self.assertNotIn("VOICE_RESULT_RING_HEIGHT", main_source)
+        self.assertNotIn("s_voice_exclamation_points", main_source)
+        self.assertNotIn("lv_line_create(s_voice_failed_group)", main_source)
+        self.assertIn(
+            "make_plain_obj(s_voice_failed_group, 5, 16,",
+            main_source,
+        )
+        self.assertIn(
+            "lv_obj_align(exclamation_line, LV_ALIGN_CENTER, 0, -4);",
+            main_source,
+        )
+        self.assertIn(
+            "lv_obj_align(exclamation_dot, LV_ALIGN_CENTER, 0, 11);",
+            main_source,
+        )
+
     def test_m3b_is_the_default_firmware_and_http_headers_have_room(self) -> None:
         project_cmake = (ROOT / "firmware/sticks3/CMakeLists.txt").read_text()
         self.assertIn(

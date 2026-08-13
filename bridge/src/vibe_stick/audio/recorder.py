@@ -443,7 +443,7 @@ class RecordingController:
         if transition.snapshot.phase == SendSessionPhase.SENT:
             self.session.status = "sent"
             self.session.message = message
-            hide_hud(delay_seconds=0.5)
+            hide_hud()
         elif transition.snapshot.phase in {
             SendSessionPhase.FAILED,
             SendSessionPhase.INVALIDATED,

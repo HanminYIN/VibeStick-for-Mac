@@ -51,6 +51,23 @@
 #define LVGL_TASK_STACK_WARN_BYTES 1536
 #define VIBE_HTTP_HEADER_BUFFER_BYTES 2048
 #define VOICE_WAVE_BAR_COUNT 6
+#define VOICE_FOOTER_DOT_SIZE 4
+#define VOICE_FOOTER_GAP 3
+#define VOICE_FOOTER_STATUS_TOP 199
+#define VOICE_FOOTER_DOT_TOP 203
+#define VOICE_CIRCLE_OPTICAL_SCALE_Y 270
+#define VOICE_SPINNER_SIZE 62
+#define VOICE_SPINNER_TOP 50
+#define VOICE_SPINNER_CORE_SIZE 16
+#define VOICE_SPINNER_CENTER_SIZE 6
+#define VOICE_PENDING_ARROW_SIZE 22
+#define VOICE_PENDING_ARROW_GROUP_SIZE 26
+#define VOICE_PENDING_ARROW_TOP 53
+#define VOICE_RESULT_GROUP_WIDTH 68
+#define VOICE_RESULT_GROUP_HEIGHT 74
+#define VOICE_RESULT_GROUP_TOP 44
+#define VOICE_RESULT_RING_SIZE 64
+#define VOICE_RESULT_CORE_SIZE 44
 #define BATTERY_FILL_MAX_WIDTH 20
 
 #define PIN_BUTTON_FRONT 11
@@ -295,10 +312,6 @@ static const lv_point_precise_t s_voice_arrow_points[] = {
 
 static const lv_point_precise_t s_voice_check_points[] = {
     {0, 9}, {7, 16}, {21, 1},
-};
-
-static const lv_point_precise_t s_voice_exclamation_points[] = {
-    {1, 0}, {1, 13},
 };
 
 static void render_state(void);
@@ -605,6 +618,30 @@ static lv_obj_t *make_plain_obj(lv_obj_t *parent, int32_t w, int32_t h,
     lv_obj_set_style_bg_opa(obj, opa, 0);
     lv_obj_set_style_radius(obj, radius, 0);
     return obj;
+}
+
+static void apply_voice_circle_optical_scale(lv_obj_t *obj, int32_t size)
+{
+    lv_obj_set_style_transform_pivot_x(obj, size / 2, 0);
+    lv_obj_set_style_transform_pivot_y(obj, size / 2, 0);
+    lv_obj_set_style_transform_scale_y(obj, VOICE_CIRCLE_OPTICAL_SCALE_Y, 0);
+}
+
+static void center_voice_footer_status(void)
+{
+    if (!s_voice_footer_dot || !s_voice_footer_status) {
+        return;
+    }
+
+    lv_obj_update_layout(s_voice_footer_status);
+    int32_t group_width = VOICE_FOOTER_DOT_SIZE + VOICE_FOOTER_GAP +
+                          lv_obj_get_width(s_voice_footer_status);
+    int32_t group_left = (LCD_H_RES - group_width + 1) / 2;
+    lv_obj_align(s_voice_footer_dot, LV_ALIGN_TOP_LEFT,
+                 group_left, VOICE_FOOTER_DOT_TOP);
+    lv_obj_align(s_voice_footer_status, LV_ALIGN_TOP_LEFT,
+                 group_left + VOICE_FOOTER_DOT_SIZE + VOICE_FOOTER_GAP,
+                 VOICE_FOOTER_STATUS_TOP);
 }
 
 static void create_provider_icon(lv_obj_t *parent)
@@ -934,8 +971,8 @@ static void create_ui(void)
     }
 
     s_voice_spinner = lv_arc_create(s_recording_overlay);
-    lv_obj_set_size(s_voice_spinner, 62, 62);
-    lv_obj_align(s_voice_spinner, LV_ALIGN_TOP_MID, 0, 50);
+    lv_obj_set_size(s_voice_spinner, VOICE_SPINNER_SIZE, VOICE_SPINNER_SIZE);
+    lv_obj_align(s_voice_spinner, LV_ALIGN_TOP_MID, 0, VOICE_SPINNER_TOP);
     lv_arc_set_bg_angles(s_voice_spinner, 0, 360);
     lv_arc_set_angles(s_voice_spinner, 0, 95);
     lv_obj_set_style_arc_width(s_voice_spinner, 5, LV_PART_MAIN);
@@ -945,18 +982,26 @@ static void create_ui(void)
     lv_obj_set_style_arc_rounded(s_voice_spinner, true, LV_PART_MAIN | LV_PART_INDICATOR);
     lv_obj_remove_style(s_voice_spinner, NULL, LV_PART_KNOB);
     lv_obj_remove_flag(s_voice_spinner, LV_OBJ_FLAG_CLICKABLE);
-    s_voice_spinner_core = make_plain_obj(s_recording_overlay, 16, 16,
+    apply_voice_circle_optical_scale(s_voice_spinner, VOICE_SPINNER_SIZE);
+    s_voice_spinner_core = make_plain_obj(s_recording_overlay,
+                                          VOICE_SPINNER_CORE_SIZE,
+                                          VOICE_SPINNER_CORE_SIZE,
                                           lv_color_hex(0xf4f5f7), LV_OPA_COVER,
                                           LV_RADIUS_CIRCLE);
-    lv_obj_align(s_voice_spinner_core, LV_ALIGN_TOP_MID, 0, 73);
-    s_voice_spinner_center = make_plain_obj(s_recording_overlay, 6, 6,
+    s_voice_spinner_center = make_plain_obj(s_recording_overlay,
+                                            VOICE_SPINNER_CENTER_SIZE,
+                                            VOICE_SPINNER_CENTER_SIZE,
                                             lv_color_hex(0x0a84ff), LV_OPA_COVER,
                                             LV_RADIUS_CIRCLE);
-    lv_obj_align(s_voice_spinner_center, LV_ALIGN_TOP_MID, 0, 78);
+    lv_obj_update_layout(s_recording_overlay);
+    lv_obj_align_to(s_voice_spinner_core, s_voice_spinner,
+                    LV_ALIGN_CENTER, 0, 0);
+    lv_obj_align_to(s_voice_spinner_center, s_voice_spinner_core,
+                    LV_ALIGN_CENTER, 0, 0);
 
     s_voice_pending_group = lv_obj_create(s_recording_overlay);
     lv_obj_remove_style_all(s_voice_pending_group);
-    lv_obj_set_size(s_voice_pending_group, 76, 78);
+    lv_obj_set_size(s_voice_pending_group, 76, 80);
     lv_obj_align(s_voice_pending_group, LV_ALIGN_TOP_MID, 0, 51);
     lv_obj_t *pending_box = make_plain_obj(s_voice_pending_group, 66, 58,
                                            lv_color_hex(0x050608), LV_OPA_TRANSP, 12);
@@ -972,10 +1017,22 @@ static void create_ui(void)
     lv_obj_t *pending_cursor = make_plain_obj(pending_box, 2, 31,
                                               lv_color_hex(0x0a84ff), LV_OPA_COVER, 1);
     lv_obj_align(pending_cursor, LV_ALIGN_RIGHT_MID, -9, 1);
-    s_voice_pending_arrow = make_plain_obj(s_voice_pending_group, 22, 22,
-                                           lv_color_hex(0x0a84ff), LV_OPA_COVER,
-                                           LV_RADIUS_CIRCLE);
-    lv_obj_align(s_voice_pending_arrow, LV_ALIGN_TOP_MID, 0, 55);
+    s_voice_pending_arrow = lv_obj_create(s_voice_pending_group);
+    lv_obj_remove_style_all(s_voice_pending_arrow);
+    lv_obj_set_size(s_voice_pending_arrow,
+                    VOICE_PENDING_ARROW_GROUP_SIZE,
+                    VOICE_PENDING_ARROW_GROUP_SIZE);
+    lv_obj_align(s_voice_pending_arrow, LV_ALIGN_TOP_MID, 0,
+                 VOICE_PENDING_ARROW_TOP);
+    lv_obj_t *pending_arrow_circle = make_plain_obj(s_voice_pending_arrow,
+                                                    VOICE_PENDING_ARROW_SIZE,
+                                                    VOICE_PENDING_ARROW_SIZE,
+                                                    lv_color_hex(0x0a84ff),
+                                                    LV_OPA_COVER,
+                                                    LV_RADIUS_CIRCLE);
+    lv_obj_align(pending_arrow_circle, LV_ALIGN_CENTER, 0, 0);
+    apply_voice_circle_optical_scale(pending_arrow_circle,
+                                     VOICE_PENDING_ARROW_SIZE);
     lv_obj_t *arrow_line = lv_line_create(s_voice_pending_arrow);
     lv_line_set_points(arrow_line, s_voice_arrow_points,
                        sizeof(s_voice_arrow_points) / sizeof(s_voice_arrow_points[0]));
@@ -986,19 +1043,28 @@ static void create_ui(void)
 
     s_voice_success_group = lv_obj_create(s_recording_overlay);
     lv_obj_remove_style_all(s_voice_success_group);
-    lv_obj_set_size(s_voice_success_group, 68, 68);
-    lv_obj_align(s_voice_success_group, LV_ALIGN_TOP_MID, 0, 47);
-    s_voice_success_ring = make_plain_obj(s_voice_success_group, 64, 64,
+    lv_obj_set_size(s_voice_success_group,
+                    VOICE_RESULT_GROUP_WIDTH, VOICE_RESULT_GROUP_HEIGHT);
+    lv_obj_align(s_voice_success_group, LV_ALIGN_TOP_MID, 0,
+                 VOICE_RESULT_GROUP_TOP);
+    s_voice_success_ring = make_plain_obj(s_voice_success_group,
+                                          VOICE_RESULT_RING_SIZE,
+                                          VOICE_RESULT_RING_SIZE,
                                           lv_color_hex(0x050608), LV_OPA_TRANSP,
                                           LV_RADIUS_CIRCLE);
     lv_obj_set_style_border_width(s_voice_success_ring, 2, 0);
     lv_obj_set_style_border_color(s_voice_success_ring, lv_color_hex(0x147a57), 0);
     lv_obj_align(s_voice_success_ring, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_t *success_core = make_plain_obj(s_voice_success_group, 44, 44,
+    apply_voice_circle_optical_scale(s_voice_success_ring,
+                                     VOICE_RESULT_RING_SIZE);
+    lv_obj_t *success_core = make_plain_obj(s_voice_success_group,
+                                            VOICE_RESULT_CORE_SIZE,
+                                            VOICE_RESULT_CORE_SIZE,
                                             lv_color_hex(0x32d583), LV_OPA_COVER,
                                             LV_RADIUS_CIRCLE);
     lv_obj_align(success_core, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_t *check_line = lv_line_create(success_core);
+    apply_voice_circle_optical_scale(success_core, VOICE_RESULT_CORE_SIZE);
+    lv_obj_t *check_line = lv_line_create(s_voice_success_group);
     lv_line_set_points(check_line, s_voice_check_points,
                        sizeof(s_voice_check_points) / sizeof(s_voice_check_points[0]));
     lv_obj_set_style_line_width(check_line, 5, 0);
@@ -1008,26 +1074,33 @@ static void create_ui(void)
 
     s_voice_failed_group = lv_obj_create(s_recording_overlay);
     lv_obj_remove_style_all(s_voice_failed_group);
-    lv_obj_set_size(s_voice_failed_group, 68, 68);
-    lv_obj_align(s_voice_failed_group, LV_ALIGN_TOP_MID, 0, 47);
-    s_voice_failed_ring = make_plain_obj(s_voice_failed_group, 64, 64,
+    lv_obj_set_size(s_voice_failed_group,
+                    VOICE_RESULT_GROUP_WIDTH, VOICE_RESULT_GROUP_HEIGHT);
+    lv_obj_align(s_voice_failed_group, LV_ALIGN_TOP_MID, 0,
+                 VOICE_RESULT_GROUP_TOP);
+    s_voice_failed_ring = make_plain_obj(s_voice_failed_group,
+                                         VOICE_RESULT_RING_SIZE,
+                                         VOICE_RESULT_RING_SIZE,
                                          lv_color_hex(0x050608), LV_OPA_TRANSP,
                                          LV_RADIUS_CIRCLE);
     lv_obj_set_style_border_width(s_voice_failed_ring, 2, 0);
     lv_obj_set_style_border_color(s_voice_failed_ring, lv_color_hex(0x8f2d3a), 0);
     lv_obj_align(s_voice_failed_ring, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_t *failed_core = make_plain_obj(s_voice_failed_group, 44, 44,
+    apply_voice_circle_optical_scale(s_voice_failed_ring,
+                                     VOICE_RESULT_RING_SIZE);
+    lv_obj_t *failed_core = make_plain_obj(s_voice_failed_group,
+                                           VOICE_RESULT_CORE_SIZE,
+                                           VOICE_RESULT_CORE_SIZE,
                                            lv_color_hex(0xff5a67), LV_OPA_COVER,
                                            LV_RADIUS_CIRCLE);
     lv_obj_align(failed_core, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_t *exclamation_line = lv_line_create(failed_core);
-    lv_line_set_points(exclamation_line, s_voice_exclamation_points,
-                       sizeof(s_voice_exclamation_points) / sizeof(s_voice_exclamation_points[0]));
-    lv_obj_set_style_line_width(exclamation_line, 5, 0);
-    lv_obj_set_style_line_color(exclamation_line, lv_color_hex(0x3b0710), 0);
-    lv_obj_set_style_line_rounded(exclamation_line, true, 0);
+    apply_voice_circle_optical_scale(failed_core, VOICE_RESULT_CORE_SIZE);
+    lv_obj_t *exclamation_line = make_plain_obj(s_voice_failed_group, 5, 16,
+                                                lv_color_hex(0x3b0710),
+                                                LV_OPA_COVER,
+                                                LV_RADIUS_CIRCLE);
     lv_obj_align(exclamation_line, LV_ALIGN_CENTER, 0, -4);
-    lv_obj_t *exclamation_dot = make_plain_obj(failed_core, 5, 5,
+    lv_obj_t *exclamation_dot = make_plain_obj(s_voice_failed_group, 5, 5,
                                                lv_color_hex(0x3b0710), LV_OPA_COVER,
                                                LV_RADIUS_CIRCLE);
     lv_obj_align(exclamation_dot, LV_ALIGN_CENTER, 0, 11);
@@ -1042,15 +1115,17 @@ static void create_ui(void)
                                         lv_color_hex(0x555c68), 120, LV_TEXT_ALIGN_CENTER);
     lv_obj_align(s_voice_secondary_hint, LV_ALIGN_TOP_MID, 0, 174);
 
-    s_voice_footer_dot = make_plain_obj(s_recording_overlay, 4, 4,
+    s_voice_footer_dot = make_plain_obj(s_recording_overlay,
+                                        VOICE_FOOTER_DOT_SIZE,
+                                        VOICE_FOOTER_DOT_SIZE,
                                         lv_color_hex(0x0a84ff), LV_OPA_COVER,
                                         LV_RADIUS_CIRCLE);
-    lv_obj_align(s_voice_footer_dot, LV_ALIGN_TOP_LEFT, 45, 203);
     s_voice_footer_status = make_label(s_recording_overlay, "HOLDING",
                                        &lv_font_montserrat_8,
-                                       lv_color_hex(0x8ec5ff), 78, LV_TEXT_ALIGN_LEFT);
+                                       lv_color_hex(0x8ec5ff),
+                                       LV_SIZE_CONTENT, LV_TEXT_ALIGN_LEFT);
     lv_obj_set_style_text_letter_space(s_voice_footer_status, 1, 0);
-    lv_obj_align(s_voice_footer_status, LV_ALIGN_TOP_LEFT, 52, 199);
+    center_voice_footer_status();
     s_voice_footer_divider = make_plain_obj(s_recording_overlay, 119, 1,
                                             lv_color_hex(0x202631), LV_OPA_COVER, 1);
     lv_obj_align(s_voice_footer_divider, LV_ALIGN_TOP_MID, 0, 218);
@@ -1428,6 +1503,7 @@ static void show_m3b_voice_overlay(void)
     lv_label_set_text(s_recording_hint, hint);
     lv_label_set_text(s_voice_secondary_hint, secondary_hint);
     lv_label_set_text(s_voice_footer_status, footer_status);
+    center_voice_footer_status();
     lv_obj_set_style_text_font(s_recording_title, FONT_CN, 0);
     lv_obj_set_style_text_font(s_recording_hint, FONT_UI_SMALL, 0);
     lv_obj_set_style_text_font(s_voice_secondary_hint, FONT_UI_SMALL, 0);

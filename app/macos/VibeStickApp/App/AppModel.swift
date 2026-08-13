@@ -289,29 +289,23 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let validated = try requested.validated()
-                let previousKey = validated.provider.isCloud
-                    ? try await asrSecretManager.storedAPIKey()
-                    : nil
-                if validated.requiresAPIKey && suppliedKey.isEmpty && previousKey == nil {
+                let hasStoredKey = validated.provider.isCloud
+                    ? await asrSecretManager.containsAPIKey()
+                    : false
+                if validated.requiresAPIKey && suppliedKey.isEmpty && !hasStoredKey {
                     throw ASRConfigurationError.missingAPIKey
-                }
-                if !suppliedKey.isEmpty {
-                    try await asrSecretManager.saveAPIKey(suppliedKey)
                 }
 
                 var value = configuration
                 value.asr = validated
-                do {
-                    try await preferencesStore.save(value)
-                } catch {
-                    if !suppliedKey.isEmpty {
-                        if let previousKey {
-                            try? await asrSecretManager.saveAPIKey(previousKey)
-                        } else {
-                            try? await asrSecretManager.deleteAPIKey()
-                        }
+                try await preferencesStore.save(value)
+                if !suppliedKey.isEmpty {
+                    do {
+                        try await asrSecretManager.saveAPIKey(suppliedKey)
+                    } catch {
+                        try? await preferencesStore.save(configuration)
+                        throw error
                     }
-                    throw error
                 }
 
                 configuration = value
