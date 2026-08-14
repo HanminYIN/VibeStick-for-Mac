@@ -405,10 +405,10 @@ class RecordingController:
                 current_target=current_target,
             )
 
-        inspection = self.paste_injector.inspect_target()
+        inspection = self.paste_injector.inspect_target(snapshot.target)
         if not inspection.success or inspection.target is None:
             time.sleep(CONFIRM_TARGET_RETRY_DELAY_SECONDS)
-            inspection = self.paste_injector.inspect_target()
+            inspection = self.paste_injector.inspect_target(snapshot.target)
         if not inspection.success or inspection.target is None:
             transition = self.pending_send.invalidate(
                 session_id=session_id,

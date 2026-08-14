@@ -13,9 +13,13 @@ from typing import Callable
 
 
 DEFAULT_PENDING_SEND_TTL_SECONDS = 30.0
+COMPATIBILITY_PENDING_SEND_TTL_SECONDS = 15.0
 MIN_PENDING_SEND_TTL_SECONDS = 5.0
 MAX_PENDING_SEND_TTL_SECONDS = 300.0
 FOCUS_FINGERPRINT_LENGTH = 64
+TARGET_SCOPE_FOCUSED_INPUT = "focused_input"
+TARGET_SCOPE_CHATGPT_WINDOW = "chatgpt_window"
+CHATGPT_COMPATIBILITY_BUNDLE_IDS = frozenset({"com.openai.codex"})
 
 
 class SendSessionPhase(str, Enum):
@@ -33,6 +37,7 @@ class SendTarget:
     bundle_id: str
     process_id: int
     focus_fingerprint: str
+    verification_scope: str = TARGET_SCOPE_FOCUSED_INPUT
 
     @classmethod
     def normalized(
@@ -41,9 +46,11 @@ class SendTarget:
         bundle_id: str,
         process_id: int,
         focus_fingerprint: str,
+        verification_scope: str = TARGET_SCOPE_FOCUSED_INPUT,
     ) -> SendTarget | None:
         normalized_bundle_id = str(bundle_id).strip()[:255]
         normalized_fingerprint = str(focus_fingerprint).strip().lower()
+        normalized_scope = str(verification_scope).strip().lower()
         if not normalized_bundle_id or not all(
             character.isalnum() or character in {"-", "_", "."}
             for character in normalized_bundle_id
@@ -55,10 +62,21 @@ class SendTarget:
             character in "0123456789abcdef" for character in normalized_fingerprint
         ):
             return None
+        if normalized_scope not in {
+            TARGET_SCOPE_FOCUSED_INPUT,
+            TARGET_SCOPE_CHATGPT_WINDOW,
+        }:
+            return None
+        if (
+            normalized_scope == TARGET_SCOPE_CHATGPT_WINDOW
+            and normalized_bundle_id not in CHATGPT_COMPATIBILITY_BUNDLE_IDS
+        ):
+            return None
         return cls(
             bundle_id=normalized_bundle_id,
             process_id=process_id,
             focus_fingerprint=normalized_fingerprint,
+            verification_scope=normalized_scope,
         )
 
 
@@ -117,7 +135,9 @@ class PendingSendCoordinator:
     """Fail-closed, at-most-once state for M3-B blue-button confirmation.
 
     This object never stores transcript text or a window title. The target is
-    represented only by a bundle ID, process ID, and a SHA-256 focus fingerprint.
+    represented only by a bundle ID, process ID, a verification scope, and a
+    SHA-256 focus fingerprint. The narrow ChatGPT window fallback expires sooner
+    than a fully identified focused input.
     """
 
     def __init__(
@@ -169,12 +189,15 @@ class PendingSendCoordinator:
             if self._snapshot.phase in {SendSessionPhase.PENDING, SendSessionPhase.CONFIRMING}:
                 return self._transition(False, False, "another_pending_send_exists")
             now = self._now()
+            ttl_seconds = self._ttl_seconds
+            if target.verification_scope == TARGET_SCOPE_CHATGPT_WINDOW:
+                ttl_seconds = min(ttl_seconds, COMPATIBILITY_PENDING_SEND_TTL_SECONDS)
             self._snapshot = SendSessionSnapshot(
                 session_id=normalized_session_id,
                 phase=SendSessionPhase.PENDING,
                 target=target,
                 created_at_epoch=now,
-                expires_at_epoch=now + self._ttl_seconds,
+                expires_at_epoch=now + ttl_seconds,
                 updated_at_epoch=now,
                 reason="awaiting_blue_button_confirmation",
             )
@@ -336,6 +359,9 @@ class PendingSendCoordinator:
                     bundle_id=str(target_payload.get("bundle_id") or ""),
                     process_id=target_payload.get("process_id"),
                     focus_fingerprint=str(target_payload.get("focus_fingerprint") or ""),
+                    verification_scope=str(
+                        target_payload.get("verification_scope") or TARGET_SCOPE_FOCUSED_INPUT
+                    ),
                 )
             if phase != SendSessionPhase.IDLE and (not session_id or target is None):
                 return SendSessionSnapshot.idle()

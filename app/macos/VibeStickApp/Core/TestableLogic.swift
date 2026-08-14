@@ -98,6 +98,151 @@ enum ServiceStateResolver {
     }
 }
 
+enum RuntimeMaintenancePhase: String, Equatable, Sendable {
+    case checking
+    case ready
+    case installationRequired
+    case repairRequired
+    case permissionRequired
+    case startRequired
+    case blocked
+}
+
+enum RuntimeMaintenanceAction: String, Equatable, Sendable {
+    case installBridge
+    case installHUD
+    case installPaste
+    case repairBridge
+    case repairHUD
+    case repairPaste
+    case grantPastePermission
+    case startBridge
+    case startHUD
+    case waitForRecording
+    case resolvePortConflict
+    case preserveExternalBridge
+
+    var title: String {
+        switch self {
+        case .installBridge: "安装设备连接服务"
+        case .installHUD: "安装屏幕提示服务"
+        case .installPaste: "安装文字输入服务"
+        case .repairBridge: "修复设备连接服务"
+        case .repairHUD: "修复屏幕提示服务"
+        case .repairPaste: "修复文字输入服务"
+        case .grantPastePermission: "在系统设置中开启文字输入权限"
+        case .startBridge: "启动设备连接服务"
+        case .startHUD: "启动屏幕提示服务"
+        case .waitForRecording: "等待当前语音操作结束"
+        case .resolvePortConflict: "先处理端口冲突或未知后台"
+        case .preserveExternalBridge: "保留外部 Bridge，不自动接管"
+        }
+    }
+}
+
+struct RuntimeMaintenancePlan: Equatable, Sendable {
+    let phase: RuntimeMaintenancePhase
+    let actions: [RuntimeMaintenanceAction]
+
+    var allowsPayloadInstall: Bool {
+        switch phase {
+        case .installationRequired, .repairRequired, .ready: true
+        case .checking, .permissionRequired, .startRequired, .blocked: false
+        }
+    }
+
+    var summary: String {
+        switch phase {
+        case .checking:
+            "正在只读检查现有后台组件。"
+        case .ready:
+            "后台组件完整，无需安装或修复。"
+        case .installationRequired:
+            "发现缺失组件；M4-2 将先备份现状，再补齐安装。"
+        case .repairRequired:
+            "发现损坏、版本不匹配或未就绪组件；修复前必须保留可回退副本。"
+        case .permissionRequired:
+            "组件本身完整，只需由你在 macOS 系统设置中授权，不应重装。"
+        case .startRequired:
+            "组件已经安装，只需启动后台服务，不需要重新安装。"
+        case .blocked:
+            "当前状态不允许安全安装或修复；先完成下面的阻断项。"
+        }
+    }
+}
+
+enum RuntimeMaintenancePlanner {
+    static func make(from snapshot: RuntimeSnapshot) -> RuntimeMaintenancePlan {
+        let components = [snapshot.bridge, snapshot.hud, snapshot.paste]
+
+        if snapshot.checkedAt == .distantPast || components.contains(where: {
+            $0.phase == .unknown || $0.phase == .starting
+        }) {
+            return RuntimeMaintenancePlan(phase: .checking, actions: [])
+        }
+        if snapshot.isRecordingActive {
+            return RuntimeMaintenancePlan(phase: .blocked, actions: [.waitForRecording])
+        }
+        if snapshot.bridge.ownership == .conflictingProcess
+            || components.contains(where: { $0.phase == .portConflict }) {
+            return RuntimeMaintenancePlan(phase: .blocked, actions: [.resolvePortConflict])
+        }
+        if snapshot.bridge.ownership == .externalProcess {
+            return RuntimeMaintenancePlan(phase: .blocked, actions: [.preserveExternalBridge])
+        }
+
+        let missingActions = components.compactMap { component -> RuntimeMaintenanceAction? in
+            guard !component.isInstalled || component.phase == .notInstalled else { return nil }
+            switch component.kind {
+            case .bridge: return .installBridge
+            case .hud: return .installHUD
+            case .paste: return .installPaste
+            }
+        }
+        if !missingActions.isEmpty {
+            return RuntimeMaintenancePlan(
+                phase: .installationRequired,
+                actions: missingActions
+            )
+        }
+
+        let repairActions = components.compactMap { component -> RuntimeMaintenanceAction? in
+            guard [.needsRepair, .versionMismatch, .runningNotReady].contains(component.phase) else {
+                return nil
+            }
+            switch component.kind {
+            case .bridge: return .repairBridge
+            case .hud: return .repairHUD
+            case .paste: return .repairPaste
+            }
+        }
+        if !repairActions.isEmpty {
+            return RuntimeMaintenancePlan(phase: .repairRequired, actions: repairActions)
+        }
+
+        if snapshot.paste.phase == .permissionMissing {
+            return RuntimeMaintenancePlan(
+                phase: .permissionRequired,
+                actions: [.grantPastePermission]
+            )
+        }
+
+        let startActions = components.compactMap { component -> RuntimeMaintenanceAction? in
+            guard component.phase == .stopped else { return nil }
+            switch component.kind {
+            case .bridge: return .startBridge
+            case .hud: return .startHUD
+            case .paste: return nil
+            }
+        }
+        if !startActions.isEmpty {
+            return RuntimeMaintenancePlan(phase: .startRequired, actions: startActions)
+        }
+
+        return RuntimeMaintenancePlan(phase: .ready, actions: [])
+    }
+}
+
 enum LaunchAgentStateParser {
     static func isRunning(_ launchctlOutput: String) -> Bool {
         launchctlOutput

@@ -8,15 +8,24 @@ from pathlib import Path
 from unittest import mock
 
 from vibe_stick.audio.recorder import RecordingController
-from vibe_stick.audio.send_session import SendSessionPhase, SendTarget
+from vibe_stick.audio.send_session import (
+    SendSessionPhase,
+    SendTarget,
+    TARGET_SCOPE_CHATGPT_WINDOW,
+)
 from vibe_stick.paste.input_injector import PasteResult
 
 
-def _target(*, process_id: int = 42) -> SendTarget:
+def _target(
+    *,
+    process_id: int = 42,
+    verification_scope: str = "focused_input",
+) -> SendTarget:
     target = SendTarget.normalized(
         bundle_id="com.openai.codex",
         process_id=process_id,
         focus_fingerprint=("a" if process_id == 42 else "b") * 64,
+        verification_scope=verification_scope,
     )
     assert target is not None
     return target
@@ -115,6 +124,96 @@ class RecordingSendFlowTests(unittest.TestCase):
             SendSessionPhase.IDLE,
         )
 
+    def test_m3b_chatgpt_window_fallback_arms_a_pending_send(self) -> None:
+        compatibility_target = _target(
+            verification_scope=TARGET_SCOPE_CHATGPT_WINDOW
+        )
+        self.controller.paste_injector.paste.return_value = PasteResult(
+            True,
+            "Pasted into ChatGPT; waiting for blue-button confirmation",
+            compatibility_target,
+            "pasted_compat",
+        )
+        with mock.patch.dict(os.environ, {"VIBE_STICK_SEND_MODE": "confirm"}, clear=True):
+            self._start(interaction_version=2)
+            session = self._stop()
+
+        pending = self.controller.send_session_snapshot()
+        self.assertEqual(session.status, "pending_send")
+        self.assertTrue(session.pasted)
+        self.assertEqual(pending.phase, SendSessionPhase.PENDING)
+        self.assertEqual(pending.target, compatibility_target)
+
+    def test_chatgpt_window_fallback_confirms_once_for_the_same_window(self) -> None:
+        compatibility_target = _target(
+            verification_scope=TARGET_SCOPE_CHATGPT_WINDOW
+        )
+        self.controller.paste_injector.paste.return_value = PasteResult(
+            True,
+            "Pasted into ChatGPT; waiting for blue-button confirmation",
+            compatibility_target,
+            "pasted_compat",
+        )
+        self.controller.paste_injector.inspect_target.return_value = PasteResult(
+            True,
+            "Focused ChatGPT window identified",
+            compatibility_target,
+        )
+        self.controller.paste_injector.confirm_return.return_value = PasteResult(
+            True,
+            "Return sent to the confirmed ChatGPT window",
+            compatibility_target,
+        )
+        with mock.patch.dict(os.environ, {"VIBE_STICK_SEND_MODE": "confirm"}, clear=True):
+            self._start(interaction_version=2)
+            self._stop()
+            with (
+                mock.patch("vibe_stick.audio.recorder.show_hud"),
+                mock.patch("vibe_stick.audio.recorder.hide_hud"),
+            ):
+                first = self.controller.confirm_send(self.session_id)
+                duplicate = self.controller.confirm_send(self.session_id)
+
+        self.assertTrue(first.accepted)
+        self.assertEqual(first.snapshot.phase, SendSessionPhase.SENT)
+        self.assertFalse(duplicate.accepted)
+        self.controller.paste_injector.inspect_target.assert_called_once_with(
+            compatibility_target
+        )
+        self.controller.paste_injector.confirm_return.assert_called_once_with(
+            compatibility_target
+        )
+
+    def test_chatgpt_window_fallback_rejects_a_switched_application(self) -> None:
+        compatibility_target = _target(
+            verification_scope=TARGET_SCOPE_CHATGPT_WINDOW
+        )
+        self.controller.paste_injector.paste.return_value = PasteResult(
+            True,
+            "Pasted into ChatGPT; waiting for blue-button confirmation",
+            compatibility_target,
+            "pasted_compat",
+        )
+        self.controller.paste_injector.inspect_target.return_value = PasteResult(
+            False,
+            "ChatGPT is not the focused application",
+        )
+        with mock.patch.dict(os.environ, {"VIBE_STICK_SEND_MODE": "confirm"}, clear=True):
+            self._start(interaction_version=2)
+            self._stop()
+            with (
+                mock.patch("vibe_stick.audio.recorder.show_hud"),
+                mock.patch("vibe_stick.audio.recorder.time.sleep"),
+            ):
+                result = self.controller.confirm_send(self.session_id)
+
+        self.assertTrue(result.accepted)
+        self.assertFalse(result.should_press_enter)
+        self.assertEqual(result.snapshot.phase, SendSessionPhase.INVALIDATED)
+        self.assertEqual(self.controller.session.status, "send_failed")
+        self.assertEqual(self.controller.paste_injector.inspect_target.call_count, 2)
+        self.controller.paste_injector.confirm_return.assert_not_called()
+
     def test_m3b_confirmation_sends_return_once_and_is_idempotent(self) -> None:
         self.controller.paste_injector.paste.return_value = PasteResult(
             True,
@@ -146,7 +245,7 @@ class RecordingSendFlowTests(unittest.TestCase):
         self.assertFalse(duplicate.accepted)
         self.assertEqual(duplicate.reason, "confirmation_already_consumed")
         self.assertEqual(self.controller.session.status, "sent")
-        self.controller.paste_injector.inspect_target.assert_called_once_with()
+        self.controller.paste_injector.inspect_target.assert_called_once_with(_target())
         self.controller.paste_injector.confirm_return.assert_called_once_with(_target())
         hide_hud.assert_called_once_with()
 
@@ -200,6 +299,7 @@ class RecordingSendFlowTests(unittest.TestCase):
         self.assertTrue(result.accepted)
         self.assertEqual(result.snapshot.phase, SendSessionPhase.SENT)
         self.assertEqual(self.controller.paste_injector.inspect_target.call_count, 2)
+        self.controller.paste_injector.inspect_target.assert_called_with(_target())
         sleep.assert_called_once_with(0.12)
         self.controller.paste_injector.confirm_return.assert_called_once_with(_target())
 

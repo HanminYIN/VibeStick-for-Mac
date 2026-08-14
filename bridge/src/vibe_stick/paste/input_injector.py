@@ -65,11 +65,14 @@ class MacPasteInjector:
             return PasteResult(False, message)
         return PasteResult(True, "Pasted into the focused app")
 
-    def inspect_target(self) -> PasteResult:
+    def inspect_target(self, expected_target: SendTarget | None = None) -> PasteResult:
         helper = os.environ.get("VIBE_STICK_PASTE_HELPER", "").strip()
         if not helper:
             return PasteResult(False, "Focused-target inspection requires VibeStick Paste")
-        result = self._invoke_helper(helper, {"operation": "inspect_target"})
+        request: dict[str, object] = {"operation": "inspect_target"}
+        if expected_target is not None:
+            request["expected_target"] = asdict(expected_target)
+        result = self._invoke_helper(helper, request)
         if result.success and result.target is None:
             return PasteResult(False, "VibeStick Paste returned no focused target")
         return result
@@ -202,6 +205,7 @@ def _target_from_response(raw: object) -> SendTarget | None:
         bundle_id=str(raw.get("bundle_id") or ""),
         process_id=raw.get("process_id"),
         focus_fingerprint=str(raw.get("focus_fingerprint") or ""),
+        verification_scope=str(raw.get("verification_scope") or "focused_input"),
     )
 
 
@@ -212,7 +216,7 @@ def _delivery_from_response(
     target: SendTarget | None,
 ) -> str:
     value = str(raw or "").strip().lower()
-    if value in {"pasted", "clipboard"}:
+    if value in {"pasted", "pasted_compat", "clipboard"}:
         return value
     if success:
         return "pasted" if target is not None else ""

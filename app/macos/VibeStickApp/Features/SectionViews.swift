@@ -785,25 +785,109 @@ struct ButtonAndReminderView: View {
 }
 
 struct UpdatesAndRecoveryView: View {
+    @EnvironmentObject private var model: AppModel
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "更新与恢复",
-                    subtitle: "M1 不会下载大型工具链，也不会碰当前设备固件。",
-                    milestone: "M4"
+                    subtitle: "M4-2 可从 DMG 内的校验载荷事务式安装后台组件；固件仍保持只读。",
+                    milestone: nil
                 )
 
                 StatusCard(
+                    title: "Mac 后台安装与修复",
+                    subtitle: "先预检；只有单独确认后才暂存、备份、切换、启动验证，并在失败时回退",
+                    systemImage: maintenanceSystemImage,
+                    tone: maintenanceTone
+                ) {
+                    HStack {
+                        PhasePill(text: maintenanceLabel, tone: maintenanceTone)
+                        Spacer()
+                        Button("重新检查") {
+                            model.requestRefresh(forcePermissionCheck: true)
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.isRefreshing || model.runtimeInstallInProgress)
+                    }
+
+                    Text(maintenancePlan.summary)
+                        .foregroundStyle(.secondary)
+
+                    VStack(spacing: 2) {
+                        ServiceStatusRow(
+                            component: model.runtimeSnapshot.bridge,
+                            showTechnicalDetails: model.configuration.showTechnicalDetails
+                        )
+                        Divider()
+                        ServiceStatusRow(
+                            component: model.runtimeSnapshot.hud,
+                            showTechnicalDetails: model.configuration.showTechnicalDetails
+                        )
+                        Divider()
+                        ServiceStatusRow(
+                            component: model.runtimeSnapshot.paste,
+                            showTechnicalDetails: model.configuration.showTechnicalDetails
+                        )
+                    }
+
+                    if !maintenancePlan.actions.isEmpty {
+                        Divider()
+                        VStack(alignment: .leading, spacing: 9) {
+                            Text("下一步计划")
+                                .font(.subheadline.weight(.semibold))
+                            ForEach(maintenancePlan.actions, id: \.rawValue) { action in
+                                Label(action.title, systemImage: "arrow.right.circle")
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+
+                    Label(
+                        "只使用 App 内逐文件 SHA-256 校验的载荷；不读取仓库 .env，不执行 scripts/install.sh。",
+                        systemImage: "checkmark.shield"
+                    )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if installationActionAvailable {
+                        Divider()
+                        HStack {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(runtimeInstallTitle)
+                                    .font(.subheadline.weight(.semibold))
+                                Text(runtimeInstallDetail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                model.requestRuntimeInstall()
+                            } label: {
+                                if model.runtimeInstallInProgress {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Text(runtimeInstallButtonTitle)
+                                }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.runtimeInstallInProgress || model.isRefreshing)
+                        }
+                    }
+                }
+
+                StatusCard(
                     title: "固件与烧录",
-                    subtitle: "后续按需下载，避免把一个多 GB 的完整开发环境塞进 DMG",
+                    subtitle: "按需下载轻量工具，不把完整 ESP-IDF 塞进 DMG",
                     systemImage: "externaldrive.badge.timemachine",
                     tone: .inactive
                 ) {
-                    Label("一键下载所需工具", systemImage: "arrow.down.circle")
-                    Label("选择设备页面模块并同步通用配置", systemImage: "square.stack.3d.up")
-                    Label("烧录前自动备份，失败时可恢复稳定版本", systemImage: "arrow.uturn.backward.circle")
-                    Text("以上按钮将在 M4 实现；当前仅展示规划，避免误操作。")
+                    Label("M4-2：后台组件事务式安装、验证与回退", systemImage: "checkmark.seal")
+                    Label("M4-3：固定版本与 SHA-256 校验的烧录工具", systemImage: "checkmark.shield")
+                    Label("M4-4：端口识别、固件备份、更新与故障恢复", systemImage: "arrow.uturn.backward.circle")
+                    Text("M4-3 与 M4-4 尚未开放；当前页面不会下载烧录工具，也不会接触设备固件。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -812,6 +896,84 @@ struct UpdatesAndRecoveryView: View {
             .frame(maxWidth: 920, alignment: .leading)
         }
         .navigationTitle("更新与恢复")
+        .confirmationDialog(
+            "安装、修复或重新安装 VibeStick 后台组件？",
+            isPresented: $model.runtimeInstallConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("继续并保留回退副本") {
+                model.confirmRuntimeInstall()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("确认后会短暂停止受管 Bridge 与 HUD，验证 DMG 内载荷，备份现有安装，再启动并检查新组件。任何验证失败都会尝试恢复旧运行时和原服务状态。")
+        }
+    }
+
+    private var maintenancePlan: RuntimeMaintenancePlan {
+        RuntimeMaintenancePlanner.make(from: model.runtimeSnapshot)
+    }
+
+    private var installationActionAvailable: Bool {
+        maintenancePlan.allowsPayloadInstall
+    }
+
+    private var runtimeInstallTitle: String {
+        switch maintenancePlan.phase {
+        case .installationRequired: "安装缺少的后台组件"
+        case .repairRequired: "修复受管后台组件"
+        case .ready: "重新安装已验证后台组件"
+        default: "管理后台组件"
+        }
+    }
+
+    private var runtimeInstallDetail: String {
+        if maintenancePlan.phase == .ready {
+            return "仅在你主动确认时重新安装；仍会备份当前版本，且不触碰固件、钥匙串、设备登记、录音、日志或当前配置。"
+        }
+        return "不会触碰固件、钥匙串、设备登记、录音、日志或当前配置。"
+    }
+
+    private var runtimeInstallButtonTitle: String {
+        switch maintenancePlan.phase {
+        case .installationRequired: "安装…"
+        case .repairRequired: "修复…"
+        case .ready: "重新安装…"
+        default: "继续…"
+        }
+    }
+
+    private var maintenanceLabel: String {
+        switch maintenancePlan.phase {
+        case .checking: "正在检查"
+        case .ready: "无需处理"
+        case .installationRequired: "需要安装"
+        case .repairRequired: "需要修复"
+        case .permissionRequired: "需要授权"
+        case .startRequired: "等待启动"
+        case .blocked: "已安全阻断"
+        }
+    }
+
+    private var maintenanceTone: HealthTone {
+        switch maintenancePlan.phase {
+        case .ready: .healthy
+        case .checking: .neutral
+        case .startRequired: .inactive
+        case .installationRequired, .repairRequired, .permissionRequired, .blocked: .warning
+        }
+    }
+
+    private var maintenanceSystemImage: String {
+        switch maintenancePlan.phase {
+        case .ready: "checkmark.seal.fill"
+        case .checking: "magnifyingglass"
+        case .installationRequired: "shippingbox.fill"
+        case .repairRequired: "wrench.and.screwdriver.fill"
+        case .permissionRequired: "hand.raised.fill"
+        case .startRequired: "play.circle.fill"
+        case .blocked: "exclamationmark.shield.fill"
+        }
     }
 }
 

@@ -8,9 +8,11 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from vibe_stick.audio.send_session import (
+    COMPATIBILITY_PENDING_SEND_TTL_SECONDS,
     PendingSendCoordinator,
     SendSessionPhase,
     SendTarget,
+    TARGET_SCOPE_CHATGPT_WINDOW,
 )
 
 
@@ -25,11 +27,17 @@ class _Clock:
         self.value += seconds
 
 
-def _target(*, process_id: int = 42, fingerprint: str = "a" * 64) -> SendTarget:
+def _target(
+    *,
+    process_id: int = 42,
+    fingerprint: str = "a" * 64,
+    verification_scope: str = "focused_input",
+) -> SendTarget:
     target = SendTarget.normalized(
         bundle_id="com.openai.codex",
         process_id=process_id,
         focus_fingerprint=fingerprint,
+        verification_scope=verification_scope,
     )
     assert target is not None
     return target
@@ -147,6 +155,20 @@ class PendingSendCoordinatorTests(unittest.TestCase):
         self.assertFalse(result.should_press_enter)
         self.assertEqual(result.reason, "pending_send_expired")
 
+    def test_chatgpt_window_fallback_expires_after_fifteen_seconds(self) -> None:
+        target = _target(verification_scope=TARGET_SCOPE_CHATGPT_WINDOW)
+        armed = self.coordinator.arm(session_id=self.session_id, target=target)
+        self.clock.advance(COMPATIBILITY_PENDING_SEND_TTL_SECONDS)
+
+        snapshot = self.coordinator.snapshot()
+
+        self.assertTrue(armed.accepted)
+        self.assertEqual(
+            armed.snapshot.expires_at_epoch - armed.snapshot.created_at_epoch,
+            COMPATIBILITY_PENDING_SEND_TTL_SECONDS,
+        )
+        self.assertEqual(snapshot.phase, SendSessionPhase.EXPIRED)
+
     def test_new_recording_invalidates_pending_but_not_confirming(self) -> None:
         self.coordinator.arm(session_id=self.session_id, target=_target())
         second_session_id = "11111111111111111111111111111111"
@@ -194,6 +216,7 @@ class PendingSendCoordinatorTests(unittest.TestCase):
         self.assertNotIn("clipboard", serialized)
         self.assertEqual(payload["target"]["bundle_id"], "com.openai.codex")
         self.assertEqual(payload["target"]["process_id"], 42)
+        self.assertEqual(payload["target"]["verification_scope"], "focused_input")
 
     def test_invalid_target_and_ttl_are_rejected(self) -> None:
         invalid_target = SendTarget.normalized(
@@ -203,6 +226,14 @@ class PendingSendCoordinatorTests(unittest.TestCase):
         )
 
         self.assertIsNone(invalid_target)
+        self.assertIsNone(
+            SendTarget.normalized(
+                bundle_id="com.example.simulator",
+                process_id=42,
+                focus_fingerprint="a" * 64,
+                verification_scope=TARGET_SCOPE_CHATGPT_WINDOW,
+            )
+        )
         with self.assertRaises(ValueError):
             PendingSendCoordinator(self.path, clock=self.clock, ttl_seconds=301)
 

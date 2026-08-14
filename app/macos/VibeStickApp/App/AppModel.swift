@@ -34,12 +34,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var pairingPhase: PairingPhase = .idle
     @Published private(set) var isRefreshing = false
     @Published private(set) var serviceActionInProgress = false
+    @Published private(set) var runtimeInstallInProgress = false
     @Published private(set) var deviceConfigurationSaveInProgress = false
     @Published private(set) var asrSettingsSaveInProgress = false
     @Published var presentedMessage: AppMessage?
+    @Published var runtimeInstallConfirmationPresented = false
 
     private let bridgeClient: BridgeClient
     private let runtimeManager: RuntimeServiceManager
+    private let runtimeInstaller: RuntimeInstaller
     private let configurationInspector: ConfigurationInspector
     private let preferencesStore: PreferencesStore
     private let loginItemController: LoginItemController
@@ -60,6 +63,7 @@ final class AppModel: ObservableObject {
     init(
         bridgeClient: BridgeClient = BridgeClient(),
         runtimeManager: RuntimeServiceManager = RuntimeServiceManager(),
+        runtimeInstaller: RuntimeInstaller = RuntimeInstaller(),
         configurationInspector: ConfigurationInspector = ConfigurationInspector(),
         preferencesStore: PreferencesStore = PreferencesStore(),
         loginItemController: LoginItemController = LoginItemController(),
@@ -72,6 +76,7 @@ final class AppModel: ObservableObject {
     ) {
         self.bridgeClient = bridgeClient
         self.runtimeManager = runtimeManager
+        self.runtimeInstaller = runtimeInstaller
         self.configurationInspector = configurationInspector
         self.preferencesStore = preferencesStore
         self.loginItemController = loginItemController
@@ -88,7 +93,7 @@ final class AppModel: ObservableObject {
             ?? "0.2.0-dev"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "local"
-        return "\(version) (\(build)) · M3-C"
+        return "\(version) (\(build)) · M4-2"
     }
 
     func start() {
@@ -439,6 +444,56 @@ final class AppModel: ObservableObject {
                     ? result.message
                     : "系统已接收请求，但服务没有在等待时间内达到目标状态。\n\n设备连接服务：\(runtimeSnapshot.bridge.phase.label)\n屏幕提示服务：\(runtimeSnapshot.hud.phase.label)"
             )
+        }
+    }
+
+    func requestRuntimeInstall() {
+        let plan = RuntimeMaintenancePlanner.make(from: runtimeSnapshot)
+        guard plan.allowsPayloadInstall else {
+            presentedMessage = AppMessage(
+                title: "当前不需要安装",
+                message: plan.summary
+            )
+            return
+        }
+        runtimeInstallConfirmationPresented = true
+    }
+
+    func confirmRuntimeInstall() {
+        guard !runtimeInstallInProgress else { return }
+        runtimeInstallConfirmationPresented = false
+        runtimeInstallInProgress = true
+
+        Task {
+            await refresh(forcePermissionCheck: false)
+            let currentPlan = RuntimeMaintenancePlanner.make(from: runtimeSnapshot)
+            guard currentPlan.allowsPayloadInstall else {
+                runtimeInstallInProgress = false
+                presentedMessage = AppMessage(
+                    title: "安装未开始",
+                    message: "重新检查后，当前状态不再允许安装或修复。\n\n\(currentPlan.summary)"
+                )
+                return
+            }
+
+            do {
+                let receipt = try await runtimeInstaller.install()
+                runtimeInstallInProgress = false
+                await refresh(forcePermissionCheck: true)
+                presentedMessage = AppMessage(
+                    title: "后台组件已验证",
+                    message: receipt.preservedPasteIdentity
+                        ? "已安装载荷 \(receipt.payloadVersion)，并保留原有文字输入组件身份与辅助功能授权。旧运行时保存在可回退副本中。"
+                        : "已安装载荷 \(receipt.payloadVersion) 并通过启动验证。文字输入组件发生变化时，macOS 可能需要重新确认辅助功能权限；旧运行时保存在可回退副本中。"
+                )
+            } catch {
+                runtimeInstallInProgress = false
+                await refresh(forcePermissionCheck: true)
+                presentedMessage = AppMessage(
+                    title: "安装未完成",
+                    message: error.localizedDescription
+                )
+            }
         }
     }
 

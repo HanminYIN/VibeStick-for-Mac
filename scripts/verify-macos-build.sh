@@ -6,7 +6,7 @@ PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M3-C.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-2.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -33,6 +33,13 @@ sign_and_verify_bundle() {
   /usr/bin/codesign --force --sign - "$bundle_path"
   /usr/bin/codesign --verify --deep --strict "$bundle_path"
   printf '%s\n' "PASS: $label ad-hoc signature verified"
+}
+
+verify_bundle_signature() {
+  bundle_path="$1"
+  label="$2"
+  /usr/bin/codesign --verify --deep --strict "$bundle_path"
+  printf '%s\n' "PASS: $label embedded signature verified without mutation"
 }
 
 detach_disk_image() {
@@ -176,6 +183,7 @@ assert_menu_bar_source_contract() {
 assert_m3b_interface_source_contract() {
   section_views="$ROOT_DIR/app/macos/VibeStickApp/Features/SectionViews.swift"
   infrastructure="$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift"
+  firmware_ui="$ROOT_DIR/firmware/sticks3/src/vibe_ui.c"
 
   if ! /usr/bin/grep -F 'Text("显示故障排查信息")' "$section_views" >/dev/null \
     || ! /usr/bin/grep -F 'Button("打开本地数据文件夹（故障排查）")' "$section_views" >/dev/null \
@@ -188,8 +196,8 @@ assert_m3b_interface_source_contract() {
     || ! /usr/bin/grep -F 'Image("CodexDeviceIcon")' "$section_views" >/dev/null \
     || ! /usr/bin/grep -F 'batteryPercent.map { "\($0)%" } ?? "--%"' "$ROOT_DIR/app/macos/VibeStickApp/Core/Models.swift" >/dev/null \
     || ! /usr/bin/grep -F '.minimumScaleFactor(0.75)' "$section_views" >/dev/null \
-    || ! /usr/bin/grep -F 'make_label(screen, "LEFT", &lv_font_montserrat_12' "$ROOT_DIR/firmware/sticks3/src/main.c" >/dev/null \
-    || ! /usr/bin/grep -F 'focus_status_optics' "$ROOT_DIR/firmware/sticks3/src/main.c" >/dev/null \
+    || ! /usr/bin/grep -F 'make_label(screen, "LEFT", &lv_font_montserrat_12' "$firmware_ui" >/dev/null \
+    || ! /usr/bin/grep -F 'focus_status_optics' "$firmware_ui" >/dev/null \
     || ! /usr/bin/grep -F 'NSWorkspace.shared.open(SupportPaths.supportDirectory)' "$infrastructure" >/dev/null \
     || ! /usr/bin/grep -F 'title: "当前语音链路"' "$section_views" >/dev/null \
     || ! /usr/bin/grep -F 'title: "最近一次设备语音"' "$section_views" >/dev/null \
@@ -252,6 +260,30 @@ assert_m3c_asr_source_contract() {
     exit 1
   fi
   printf '%s\n' "PASS: M3-C ASR configuration uses Keychain and a fixed injection-independent audio fixture"
+}
+
+assert_m4_install_source_contract() {
+  installer_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M4RuntimeInstaller.swift"
+  app_model="$ROOT_DIR/app/macos/VibeStickApp/App/AppModel.swift"
+  section_views="$ROOT_DIR/app/macos/VibeStickApp/Features/SectionViews.swift"
+
+  if ! /usr/bin/grep -F 'RuntimePayload.noindex' "$installer_source" >/dev/null \
+    || ! /usr/bin/grep -F 'manifest-v1.json' "$installer_source" >/dev/null \
+    || ! /usr/bin/grep -F 'Backups.noindex' "$installer_source" >/dev/null \
+    || ! /usr/bin/grep -F 'revalidateBeforeMutation' "$installer_source" >/dev/null \
+    || ! /usr/bin/grep -F 'runtimeInstallConfirmationPresented' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F 'allowsPayloadInstall' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F '重新安装已验证后台组件' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F '继续并保留回退副本' "$section_views" >/dev/null; then
+    printf '%s\n' "FAIL: the M4-2 transaction, rollback, or explicit-confirmation source contract is incomplete" >&2
+    exit 1
+  fi
+  if /usr/bin/grep -F 'scripts/install.sh' "$installer_source" "$app_model" >/dev/null \
+    || /usr/bin/grep -E 'esptool|idf\.py|erase_flash|write_flash' "$installer_source" "$app_model" >/dev/null; then
+    printf '%s\n' "FAIL: the distributed M4-2 installer references a developer installer or firmware mutation" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: M4-2 source keeps explicit confirmation, revalidation, backup, and firmware boundaries"
 }
 
 assert_menu_bar_icon() {
@@ -610,33 +642,40 @@ assert_app_launch_smoke() {
 assert_menu_bar_source_contract
 assert_m3b_interface_source_contract
 assert_m3c_asr_source_contract
+assert_m4_install_source_contract
 "$ROOT_DIR/scripts/build-macos-app.sh"
 assert_binary "$APP_BINARY" "VibeStick for Mac"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"
 assert_app_icon "$APP_PATH" "built app"
 assert_menu_bar_icon "$APP_PATH" "built app"
 
-for target in VibeStickBridge VibeStickHUD VibeStickPaste; do
-  xcodebuild \
-    -project "$PROJECT_PATH" \
-    -scheme "$target" \
-    -configuration Release \
-    -destination 'platform=macOS,arch=arm64' \
-    -derivedDataPath "$BUILD_ROOT/$target-DerivedData" \
-    CODE_SIGNING_ALLOWED=NO \
-    build
-done
+PAYLOAD_ROOT="$APP_PATH/Contents/Resources/RuntimePayload.noindex"
+BRIDGE_APP="$PAYLOAD_ROOT/Components.noindex/VibeStick Bridge.app"
+HUD_APP="$PAYLOAD_ROOT/Components.noindex/VibeStick HUD.app"
+PASTE_APP="$PAYLOAD_ROOT/Components.noindex/VibeStick Paste.app"
 
-BRIDGE_APP="$BUILD_ROOT/VibeStickBridge-DerivedData/Build/Products/Release/VibeStick Bridge.app"
-HUD_APP="$BUILD_ROOT/VibeStickHUD-DerivedData/Build/Products/Release/VibeStick HUD.app"
-PASTE_APP="$BUILD_ROOT/VibeStickPaste-DerivedData/Build/Products/Release/VibeStick Paste.app"
+python3 "$ROOT_DIR/scripts/runtime-payload-manifest.py" verify "$PAYLOAD_ROOT"
+printf '%s\n' "PASS: embedded M4-2 runtime payload manifest and exact file set verified"
+paste_source_digest="$(/usr/bin/shasum -a 256 "$ROOT_DIR/app/macos/VibeStickPaste/main.swift" | /usr/bin/awk '{print $1}')"
+paste_plist_digest="$(/usr/bin/shasum -a 256 "$ROOT_DIR/app/macos/VibeStickPaste/Info.install.plist" | /usr/bin/awk '{print $1}')"
+expected_paste_fingerprint="$({
+  printf '%s\n' "$paste_source_digest"
+  printf '%s\n' "$paste_plist_digest"
+  printf '%s\n' 'swiftc-frameworks:AppKit,ApplicationServices'
+} | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')"
+actual_paste_fingerprint="$(/usr/bin/sed -n '1p' "$PASTE_APP/Contents/Resources/VibeStickPaste.build")"
+if [ "$actual_paste_fingerprint" != "$expected_paste_fingerprint" ]; then
+  printf '%s\n' "FAIL: embedded Paste identity fingerprint is not compatible with the developer installer" >&2
+  exit 1
+fi
+printf '%s\n' "PASS: unchanged Paste builds retain the stable Accessibility identity fingerprint"
 
 assert_binary "$BRIDGE_APP/Contents/MacOS/VibeStickBridge" "VibeStick Bridge"
 assert_binary "$HUD_APP/Contents/MacOS/VibeStickHUD" "VibeStick HUD"
 assert_binary "$PASTE_APP/Contents/MacOS/VibeStickPaste" "VibeStick Paste"
-sign_and_verify_bundle "$BRIDGE_APP" "VibeStick Bridge"
-sign_and_verify_bundle "$HUD_APP" "VibeStick HUD"
-sign_and_verify_bundle "$PASTE_APP" "VibeStick Paste"
+verify_bundle_signature "$BRIDGE_APP" "VibeStick Bridge"
+verify_bundle_signature "$HUD_APP" "VibeStick HUD"
+verify_bundle_signature "$PASTE_APP" "VibeStick Paste"
 
 xcodebuild \
   -project "$PROJECT_PATH" \
@@ -656,7 +695,7 @@ assert_no_forbidden_files "$APP_PATH" "built app"
 assert_app_launch_smoke "$APP_PATH" "built app"
 
 if [ -d "$APP_PATH/Contents/Helpers/VibeStick Paste.app" ]; then
-  printf '%s\n' "FAIL: VibeStick for Mac must not bundle or replace the installed Paste identity" >&2
+  printf '%s\n' "FAIL: Paste payload must remain in the no-index transaction resources, not Contents/Helpers" >&2
   exit 1
 fi
 
@@ -688,6 +727,9 @@ MOUNTED_APP="$MOUNT_POINT/VibeStick for Mac.app"
 assert_binary "$MOUNTED_APP/Contents/MacOS/VibeStick for Mac" "DMG VibeStick for Mac"
 assert_app_icon "$MOUNTED_APP" "DMG app"
 assert_menu_bar_icon "$MOUNTED_APP" "DMG app"
+python3 "$ROOT_DIR/scripts/runtime-payload-manifest.py" verify \
+  "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex"
+printf '%s\n' "PASS: DMG M4-2 runtime payload manifest verified after mounting"
 
 assert_no_forbidden_files "$MOUNT_POINT" "mounted DMG"
 assert_app_launch_smoke "$MOUNTED_APP" "DMG app"

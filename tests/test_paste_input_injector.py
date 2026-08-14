@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from vibe_stick.audio.send_session import SendTarget
+from vibe_stick.audio.send_session import SendTarget, TARGET_SCOPE_CHATGPT_WINDOW
 from vibe_stick.paste.input_injector import MacPasteInjector
 
 
@@ -27,6 +27,22 @@ class MacPasteInjectorTests(unittest.TestCase):
             perform_paste.index("guard let target else"),
         )
         self.assertIn("Paste attempted; transcript remains on the clipboard", perform_paste)
+
+    def test_swift_helper_limits_window_fallback_to_chatgpt_confirm_mode(self) -> None:
+        source = (
+            Path(__file__).resolve().parents[1]
+            / "app/macos/VibeStickPaste/main.swift"
+        ).read_text()
+
+        self.assertIn(
+            'chatGPTCompatibilityBundleIDs: Set<String> = ["com.openai.codex"]',
+            source,
+        )
+        self.assertIn('private let chatGPTWindowScope = "chatgpt_window"', source)
+        self.assertIn("kAXFocusedWindowAttribute", source)
+        self.assertIn("allowChatGPTWindowFallback: !pressEnter", source)
+        self.assertIn('delivery: target.verification_scope == chatGPTWindowScope', source)
+        self.assertIn('? "pasted_compat"', source)
 
     def test_installed_helper_receives_text_without_exposing_it_in_arguments(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -115,6 +131,90 @@ class MacPasteInjectorTests(unittest.TestCase):
         self.assertIsNotNone(result.target)
         self.assertEqual(result.target.bundle_id, "com.openai.codex")
         self.assertEqual(result.target.process_id, 42)
+        self.assertEqual(result.target.verification_scope, "focused_input")
+
+    def test_chatgpt_window_target_and_compatibility_delivery_are_parsed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = Path(tmp) / "VibeStick Paste.app"
+            helper.mkdir()
+
+            def launch_helper(args, **kwargs):
+                if args[0].endswith("/lsregister"):
+                    return subprocess.CompletedProcess(args, 0, "", "")
+                response_path = Path(args[args.index("--response") + 1])
+                response_path.write_text(
+                    json.dumps(
+                        {
+                            "success": True,
+                            "message": "Pasted into ChatGPT; waiting for blue-button confirmation",
+                            "target": {
+                                "bundle_id": "com.openai.codex",
+                                "process_id": 42,
+                                "focus_fingerprint": "d" * 64,
+                                "verification_scope": TARGET_SCOPE_CHATGPT_WINDOW,
+                            },
+                            "delivery": "pasted_compat",
+                        }
+                    )
+                )
+                return subprocess.CompletedProcess(args, 0, "", "")
+
+            with (
+                patch.dict(os.environ, {"VIBE_STICK_PASTE_HELPER": str(helper)}),
+                patch("vibe_stick.paste.input_injector.platform.system", return_value="Darwin"),
+                patch("vibe_stick.paste.input_injector.subprocess.run") as run,
+            ):
+                run.side_effect = launch_helper
+                result = MacPasteInjector().paste("hello from VibeStick")
+
+        self.assertTrue(result.success)
+        self.assertIsNotNone(result.target)
+        self.assertEqual(result.target.verification_scope, TARGET_SCOPE_CHATGPT_WINDOW)
+        self.assertEqual(result.delivery, "pasted_compat")
+
+    def test_target_inspection_preserves_the_expected_verification_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            helper = Path(tmp) / "VibeStick Paste.app"
+            helper.mkdir()
+            expected_target = SendTarget.normalized(
+                bundle_id="com.openai.codex",
+                process_id=42,
+                focus_fingerprint="e" * 64,
+                verification_scope=TARGET_SCOPE_CHATGPT_WINDOW,
+            )
+            self.assertIsNotNone(expected_target)
+
+            def launch_helper(args, **kwargs):
+                if args[0].endswith("/lsregister"):
+                    return subprocess.CompletedProcess(args, 0, "", "")
+                request_path = Path(args[args.index("--request") + 1])
+                response_path = Path(args[args.index("--response") + 1])
+                request = json.loads(request_path.read_text())
+                self.assertEqual(request["operation"], "inspect_target")
+                self.assertEqual(
+                    request["expected_target"]["verification_scope"],
+                    TARGET_SCOPE_CHATGPT_WINDOW,
+                )
+                response_path.write_text(
+                    json.dumps(
+                        {
+                            "success": True,
+                            "message": "Focused ChatGPT window identified",
+                            "target": request["expected_target"],
+                        }
+                    )
+                )
+                return subprocess.CompletedProcess(args, 0, "", "")
+
+            with (
+                patch.dict(os.environ, {"VIBE_STICK_PASTE_HELPER": str(helper)}),
+                patch("vibe_stick.paste.input_injector.subprocess.run") as run,
+            ):
+                run.side_effect = launch_helper
+                result = MacPasteInjector().inspect_target(expected_target)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.target, expected_target)
 
     def test_clipboard_fallback_is_a_success_without_a_send_target(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -168,6 +268,10 @@ class MacPasteInjectorTests(unittest.TestCase):
                 request = json.loads(request_path.read_text())
                 self.assertEqual(request["operation"], "confirm_return")
                 self.assertEqual(request["expected_target"]["bundle_id"], "com.openai.codex")
+                self.assertEqual(
+                    request["expected_target"]["verification_scope"],
+                    "focused_input",
+                )
                 self.assertNotIn("text", request)
                 self.assertNotIn("transcript", request)
                 response_path.write_text(

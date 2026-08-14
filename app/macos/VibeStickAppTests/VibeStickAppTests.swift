@@ -492,6 +492,137 @@ struct VibeStickAppTests {
     }
 
     @Test
+    func M4MaintenancePlanIsReadyWhenAllComponentsAreHealthy() {
+        let plan = RuntimeMaintenancePlanner.make(from: runtimeSnapshot())
+        #expect(plan.phase == .ready)
+        #expect(plan.actions.isEmpty)
+        #expect(plan.allowsPayloadInstall)
+    }
+
+    @Test
+    func M4MaintenancePlanInstallsOnlyMissingComponents() {
+        let snapshot = runtimeSnapshot(
+            bridge: component(.bridge, phase: .notInstalled, installed: false),
+            paste: component(.paste, phase: .notInstalled, installed: false)
+        )
+        let plan = RuntimeMaintenancePlanner.make(from: snapshot)
+        #expect(plan.phase == .installationRequired)
+        #expect(plan.actions == [.installBridge, .installPaste])
+    }
+
+    @Test
+    func M4MaintenancePlanRepairsBrokenComponentsWithoutReinstallingHealthyOnes() {
+        let snapshot = runtimeSnapshot(
+            hud: component(.hud, phase: .versionMismatch),
+            paste: component(.paste, phase: .needsRepair)
+        )
+        let plan = RuntimeMaintenancePlanner.make(from: snapshot)
+        #expect(plan.phase == .repairRequired)
+        #expect(plan.actions == [.repairHUD, .repairPaste])
+    }
+
+    @Test
+    func M4MaintenancePlanTreatsPastePermissionAsAuthorizationOnly() {
+        let snapshot = runtimeSnapshot(
+            paste: component(.paste, phase: .permissionMissing)
+        )
+        let plan = RuntimeMaintenancePlanner.make(from: snapshot)
+        #expect(plan.phase == .permissionRequired)
+        #expect(plan.actions == [.grantPastePermission])
+        #expect(!plan.actions.contains(.repairPaste))
+    }
+
+    @Test
+    func M4MaintenancePlanStartsInstalledStoppedServices() {
+        let snapshot = runtimeSnapshot(
+            bridge: component(.bridge, phase: .stopped),
+            hud: component(.hud, phase: .stopped)
+        )
+        let plan = RuntimeMaintenancePlanner.make(from: snapshot)
+        #expect(plan.phase == .startRequired)
+        #expect(plan.actions == [.startBridge, .startHUD])
+    }
+
+    @Test
+    func M4MaintenancePlanBlocksWhileRecording() {
+        let plan = RuntimeMaintenancePlanner.make(from: runtimeSnapshot(recording: true))
+        #expect(plan.phase == .blocked)
+        #expect(plan.actions == [.waitForRecording])
+        #expect(!plan.allowsPayloadInstall)
+    }
+
+    @Test
+    func M4MaintenancePlanBlocksUnknownPortOwner() {
+        let snapshot = runtimeSnapshot(
+            bridge: component(
+                .bridge,
+                phase: .portConflict,
+                ownership: .conflictingProcess
+            )
+        )
+        let plan = RuntimeMaintenancePlanner.make(from: snapshot)
+        #expect(plan.phase == .blocked)
+        #expect(plan.actions == [.resolvePortConflict])
+    }
+
+    @Test
+    func M4MaintenancePlanNeverTakesOverExternalBridge() {
+        let snapshot = runtimeSnapshot(
+            bridge: component(
+                .bridge,
+                phase: .healthy,
+                installed: false,
+                ownership: .externalProcess
+            )
+        )
+        let plan = RuntimeMaintenancePlanner.make(from: snapshot)
+        #expect(plan.phase == .blocked)
+        #expect(plan.actions == [.preserveExternalBridge])
+    }
+
+    @Test
+    func M4MaintenancePlanWaitsForCompleteInspection() {
+        let snapshot = runtimeSnapshot(
+            bridge: component(.bridge, phase: .unknown),
+            checkedAt: .distantPast
+        )
+        let plan = RuntimeMaintenancePlanner.make(from: snapshot)
+        #expect(plan.phase == .checking)
+        #expect(plan.actions.isEmpty)
+    }
+
+    private func component(
+        _ kind: ComponentKind,
+        phase: ServicePhase = .healthy,
+        installed: Bool = true,
+        ownership: RuntimeOwnership = .legacyLaunchAgent
+    ) -> ComponentHealth {
+        ComponentHealth(
+            kind: kind,
+            phase: phase,
+            detail: phase.label,
+            isInstalled: installed,
+            ownership: ownership
+        )
+    }
+
+    private func runtimeSnapshot(
+        bridge: ComponentHealth? = nil,
+        hud: ComponentHealth? = nil,
+        paste: ComponentHealth? = nil,
+        recording: Bool = false,
+        checkedAt: Date = Date(timeIntervalSince1970: 1_000)
+    ) -> RuntimeSnapshot {
+        RuntimeSnapshot(
+            bridge: bridge ?? component(.bridge),
+            hud: hud ?? component(.hud),
+            paste: paste ?? component(.paste),
+            isRecordingActive: recording,
+            checkedAt: checkedAt
+        )
+    }
+
+    @Test
     func preferencesPersistAtomicallyWithPrivatePermissions() async throws {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("VibeStickPreferencesTests-\(UUID().uuidString)", isDirectory: true)
@@ -734,6 +865,299 @@ struct VibeStickAppTests {
 
         #expect(latin.normalized.project.name == "abcdefghijklmnopqr")
         #expect(chinese.normalized.project.name.utf8.count < 40)
+    }
+
+    @Test
+    func runtimePayloadManifestRejectsTamperingAndExtraFiles() throws {
+        let root = temporaryTestDirectory("PayloadTamper")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeRuntimePayload(at: root)
+        _ = try RuntimePayloadValidator.validate(root: root)
+
+        let main = root.appendingPathComponent("runtime/bridge/src/vibe_stick/__main__.py")
+        try Data("tampered".utf8).write(to: main)
+        #expect(throws: RuntimeInstallError.self) {
+            try RuntimePayloadValidator.validate(root: root)
+        }
+
+        try makeRuntimePayload(at: root, replaceExisting: true)
+        try Data("extra".utf8).write(to: root.appendingPathComponent("unexpected.txt"))
+        #expect(throws: RuntimeInstallError.self) {
+            try RuntimePayloadValidator.validate(root: root)
+        }
+    }
+
+    @Test
+    func runtimePayloadManifestRejectsSymlinksAndTraversal() throws {
+        let root = temporaryTestDirectory("PayloadPaths")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeRuntimePayload(at: root)
+        try FileManager.default.createSymbolicLink(
+            at: root.appendingPathComponent("runtime/link"),
+            withDestinationURL: root.appendingPathComponent("runtime/bridge")
+        )
+        #expect(throws: RuntimeInstallError.self) {
+            try RuntimePayloadValidator.validate(root: root)
+        }
+
+        try FileManager.default.removeItem(at: root.appendingPathComponent("runtime/link"))
+        let manifestURL = root.appendingPathComponent(RuntimePayloadValidator.manifestName)
+        var manifest = try JSONDecoder().decode(
+            RuntimePayloadManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+        manifest = RuntimePayloadManifest(
+            schemaVersion: manifest.schemaVersion,
+            payloadVersion: manifest.payloadVersion,
+            files: manifest.files + [
+                RuntimePayloadFile(
+                    path: "../escape",
+                    sha256: String(repeating: "0", count: 64),
+                    size: 0,
+                    mode: 0o600
+                )
+            ]
+        )
+        try JSONEncoder().encode(manifest).write(to: manifestURL)
+        #expect(throws: RuntimeInstallError.self) {
+            try RuntimePayloadValidator.validate(root: root)
+        }
+    }
+
+    @Test
+    func runtimeInstallerSwitchesManagedTargetsAndPreservesPrivateConfiguration() async throws {
+        let fixture = try makeRuntimeInstallFixture("InstallSuccess")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = MockRuntimeInstallController(preservePaste: false)
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: fixture.payload,
+            serviceController: controller
+        )
+
+        let receipt = try await installer.install()
+
+        #expect(try String(contentsOf: fixture.layout.runtimeDirectory.appendingPathComponent("bridge/version.txt"), encoding: .utf8) == "new-runtime")
+        #expect(try String(contentsOf: fixture.layout.bridgeApp.appendingPathComponent("Contents/MacOS/VibeStickBridge"), encoding: .utf8) == "new-bridge")
+        #expect(try String(contentsOf: fixture.privateConfiguration, encoding: .utf8) == "do-not-touch")
+        #expect(try String(contentsOf: receipt.backupDirectory.appendingPathComponent("managed/support/runtime/bridge/version.txt"), encoding: .utf8) == "old-runtime")
+        #expect(FileManager.default.fileExists(atPath: receipt.backupDirectory.appendingPathComponent("install-receipt-v1.json").path))
+        let events = await controller.recordedEvents()
+        #expect(events == ["preflight", "validate", "paste", "revalidate", "stop", "start", "verify"])
+    }
+
+    @Test(arguments: [RuntimeInstallFault.afterBackup, .afterSwitch, .afterStart])
+    func runtimeInstallerRollsBackAtEveryMutationFault(fault: RuntimeInstallFault) async throws {
+        let fixture = try makeRuntimeInstallFixture("Rollback-\(fault.rawValue)")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = MockRuntimeInstallController(preservePaste: false)
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: fixture.payload,
+            serviceController: controller
+        )
+
+        do {
+            _ = try await installer.install(fault: fault)
+            Issue.record("Expected injected fault \(fault.rawValue)")
+        } catch let error as RuntimeInstallError {
+            #expect(error.localizedDescription.contains("旧运行时和原服务状态已恢复"))
+        }
+
+        #expect(try String(contentsOf: fixture.layout.runtimeDirectory.appendingPathComponent("bridge/version.txt"), encoding: .utf8) == "old-runtime")
+        #expect(try String(contentsOf: fixture.layout.bridgeApp.appendingPathComponent("Contents/MacOS/VibeStickBridge"), encoding: .utf8) == "old-bridge")
+        #expect(try String(contentsOf: fixture.layout.bridgeLaunchAgent, encoding: .utf8) == "old-bridge-plist")
+        #expect(try String(contentsOf: fixture.privateConfiguration, encoding: .utf8) == "do-not-touch")
+        let restored = await controller.didRestore(
+            RuntimeServiceCheckpoint(
+                bridgeWasLoaded: true,
+                bridgeWasRunning: true,
+                hudWasLoaded: true,
+                hudWasRunning: true
+            )
+        )
+        #expect(restored)
+    }
+
+    @Test
+    func runtimeInstallerKeepsUnchangedPasteIdentityInPlace() async throws {
+        let fixture = try makeRuntimeInstallFixture("PreservePaste")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let existingPaste = fixture.layout.pasteApp.appendingPathComponent("Contents/MacOS/VibeStickPaste")
+        let controller = MockRuntimeInstallController(preservePaste: true)
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: fixture.payload,
+            serviceController: controller
+        )
+
+        let receipt = try await installer.install()
+
+        #expect(receipt.preservedPasteIdentity)
+        #expect(try String(contentsOf: existingPaste, encoding: .utf8) == "old-paste")
+        #expect(try String(contentsOf: receipt.backupDirectory.appendingPathComponent("managed/support/Components.noindex/VibeStick Paste.app/Contents/MacOS/VibeStickPaste"), encoding: .utf8) == "old-paste")
+    }
+}
+
+private struct RuntimeInstallFixture {
+    let root: URL
+    let payload: URL
+    let layout: RuntimeInstallLayout
+    let privateConfiguration: URL
+}
+
+private func temporaryTestDirectory(_ label: String) -> URL {
+    FileManager.default.temporaryDirectory
+        .appendingPathComponent("VibeStick-\(label)-\(UUID().uuidString)", isDirectory: true)
+}
+
+private func writeTestFile(_ contents: String, to url: URL, mode: UInt16 = 0o644) throws {
+    try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try Data(contents.utf8).write(to: url)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: NSNumber(value: mode)],
+        ofItemAtPath: url.path
+    )
+}
+
+private func makeRuntimePayload(
+    at root: URL,
+    replaceExisting: Bool = false
+) throws {
+    if replaceExisting, FileManager.default.fileExists(atPath: root.path) {
+        try FileManager.default.removeItem(at: root)
+    }
+    let files: [(String, String, UInt16)] = [
+        ("Components.noindex/VibeStick Bridge.app/Contents/MacOS/VibeStickBridge", "new-bridge", 0o755),
+        ("Components.noindex/VibeStick HUD.app/Contents/MacOS/VibeStickHUD", "new-hud", 0o755),
+        ("Components.noindex/VibeStick Paste.app/Contents/MacOS/VibeStickPaste", "new-paste", 0o755),
+        ("Components.noindex/VibeStick Paste.app/Contents/Resources/VibeStickPaste.build", "paste-build-1\n", 0o644),
+        ("runtime/bridge/pyproject.toml", "[project]\nrequires-python = \">=3.11\"\n", 0o644),
+        ("runtime/bridge/src/vibe_stick/__main__.py", "print('bridge')\n", 0o644),
+        ("runtime/bridge/version.txt", "new-runtime", 0o644),
+    ]
+    for (relativePath, contents, mode) in files {
+        try writeTestFile(contents, to: root.appendingPathComponent(relativePath), mode: mode)
+    }
+
+    let entries = try files.map { item in
+        let (relativePath, _, mode) = item
+        let url = root.appendingPathComponent(relativePath)
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        let size = (attributes[.size] as? NSNumber)?.uint64Value ?? 0
+        return RuntimePayloadFile(
+            path: relativePath,
+            sha256: try RuntimePayloadDigest.sha256(of: url),
+            size: size,
+            mode: mode
+        )
+    }.sorted { $0.path < $1.path }
+    let manifest = RuntimePayloadManifest(
+        schemaVersion: RuntimePayloadManifest.currentSchemaVersion,
+        payloadVersion: "test-m4.2",
+        files: entries
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try encoder.encode(manifest).write(
+        to: root.appendingPathComponent(RuntimePayloadValidator.manifestName)
+    )
+}
+
+private func makeRuntimeInstallFixture(_ label: String) throws -> RuntimeInstallFixture {
+    let root = temporaryTestDirectory(label)
+    let payload = root.appendingPathComponent("payload", isDirectory: true)
+    let support = root.appendingPathComponent("home/Library/Application Support/VibeStick", isDirectory: true)
+    let launchAgents = root.appendingPathComponent("home/Library/LaunchAgents", isDirectory: true)
+    let layout = RuntimeInstallLayout(
+        supportDirectory: support,
+        launchAgentsDirectory: launchAgents
+    )
+    try makeRuntimePayload(at: payload)
+    try writeTestFile("old-runtime", to: layout.runtimeDirectory.appendingPathComponent("bridge/version.txt"))
+    try writeTestFile("old-bridge", to: layout.bridgeApp.appendingPathComponent("Contents/MacOS/VibeStickBridge"), mode: 0o755)
+    try writeTestFile("old-hud", to: layout.hudApp.appendingPathComponent("Contents/MacOS/VibeStickHUD"), mode: 0o755)
+    try writeTestFile("old-paste", to: layout.pasteApp.appendingPathComponent("Contents/MacOS/VibeStickPaste"), mode: 0o755)
+    try writeTestFile("paste-build-1\n", to: layout.pasteApp.appendingPathComponent("Contents/Resources/VibeStickPaste.build"))
+    try writeTestFile("old-bridge-plist", to: layout.bridgeLaunchAgent, mode: 0o600)
+    try writeTestFile("old-hud-plist", to: layout.hudLaunchAgent, mode: 0o600)
+    let privateConfiguration = support.appendingPathComponent("config-v1.json")
+    try writeTestFile("do-not-touch", to: privateConfiguration, mode: 0o600)
+    return RuntimeInstallFixture(
+        root: root,
+        payload: payload,
+        layout: layout,
+        privateConfiguration: privateConfiguration
+    )
+}
+
+private actor MockRuntimeInstallController: RuntimeInstallServiceControlling {
+    private let preservePaste: Bool
+    private var events: [String] = []
+    private var restoredCheckpoint: RuntimeServiceCheckpoint?
+
+    init(preservePaste: Bool) {
+        self.preservePaste = preservePaste
+    }
+
+    func preflight() -> RuntimeInstallPreflight {
+        events.append("preflight")
+        return RuntimeInstallPreflight(
+            pythonPath: "/usr/bin/python3",
+            checkpoint: RuntimeServiceCheckpoint(
+                bridgeWasLoaded: true,
+                bridgeWasRunning: true,
+                hudWasLoaded: true,
+                hudWasRunning: true
+            )
+        )
+    }
+
+    func validateComponents(at componentsDirectory: URL) {
+        events.append("validate")
+    }
+
+    func revalidateBeforeMutation() -> RuntimeServiceCheckpoint {
+        events.append("revalidate")
+        return RuntimeServiceCheckpoint(
+            bridgeWasLoaded: true,
+            bridgeWasRunning: true,
+            hudWasLoaded: true,
+            hudWasRunning: true
+        )
+    }
+
+    func canPreservePasteIdentity(existing: URL, candidate: URL) -> Bool {
+        events.append("paste")
+        return preservePaste
+    }
+
+    func stopManagedServices() {
+        events.append("stop")
+    }
+
+    func startInstalledServices() {
+        events.append("start")
+    }
+
+    func verifyInstalledServices() {
+        events.append("verify")
+    }
+
+    func restoreServiceState(_ checkpoint: RuntimeServiceCheckpoint) {
+        events.append("restore")
+        restoredCheckpoint = checkpoint
+    }
+
+    func recordedEvents() -> [String] {
+        events
+    }
+
+    func didRestore(_ checkpoint: RuntimeServiceCheckpoint) -> Bool {
+        restoredCheckpoint == checkpoint
     }
 }
 

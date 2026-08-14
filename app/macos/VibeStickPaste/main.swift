@@ -3,10 +3,45 @@ import ApplicationServices
 import CryptoKit
 import Foundation
 
+private let focusedInputScope = "focused_input"
+private let chatGPTWindowScope = "chatgpt_window"
+private let chatGPTCompatibilityBundleIDs: Set<String> = ["com.openai.codex"]
+
 private struct PasteTarget: Codable, Equatable {
     let bundle_id: String
     let process_id: Int
     let focus_fingerprint: String
+    let verification_scope: String
+
+    init(
+        bundle_id: String,
+        process_id: Int,
+        focus_fingerprint: String,
+        verification_scope: String = focusedInputScope
+    ) {
+        self.bundle_id = bundle_id
+        self.process_id = process_id
+        self.focus_fingerprint = focus_fingerprint
+        self.verification_scope = verification_scope
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case bundle_id
+        case process_id
+        case focus_fingerprint
+        case verification_scope
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        bundle_id = try values.decode(String.self, forKey: .bundle_id)
+        process_id = try values.decode(Int.self, forKey: .process_id)
+        focus_fingerprint = try values.decode(String.self, forKey: .focus_fingerprint)
+        verification_scope = try values.decodeIfPresent(
+            String.self,
+            forKey: .verification_scope
+        ) ?? focusedInputScope
+    }
 }
 
 private struct PasteRequest: Decodable {
@@ -135,21 +170,91 @@ private func isEditableTextInput(_ element: AXUIElement, role: String) -> Bool {
        role == (kAXComboBoxRole as String) {
         return true
     }
-    var valueIsSettable = DarwinBoolean(false)
-    return AXUIElementIsAttributeSettable(
-        element,
-        kAXValueAttribute as CFString,
-        &valueIsSettable
-    ) == .success && valueIsSettable.boolValue
+    for attribute in [kAXValueAttribute, kAXSelectedTextRangeAttribute] {
+        var isSettable = DarwinBoolean(false)
+        if AXUIElementIsAttributeSettable(
+            element,
+            attribute as CFString,
+            &isSettable
+        ) == .success && isSettable.boolValue {
+            return true
+        }
+    }
+    return false
 }
 
-private func captureTarget() -> TargetCapture {
+private func editableFocusedElement(applicationPID: pid_t) -> AXUIElement? {
+    guard var element = focusedElement(applicationPID: applicationPID) else {
+        return nil
+    }
+    for _ in 0..<6 {
+        var elementPID: pid_t = 0
+        guard AXUIElementGetPid(element, &elementPID) == .success,
+              elementPID == applicationPID else {
+            return nil
+        }
+        let role = stringAttribute(kAXRoleAttribute as CFString, of: element)
+        if !role.isEmpty, isEditableTextInput(element, role: role) {
+            return element
+        }
+        guard let parent = elementAttribute(kAXParentAttribute as CFString, of: element) else {
+            return nil
+        }
+        element = parent
+    }
+    return nil
+}
+
+private func identityParts(for element: AXUIElement) -> [String] {
+    let role = stringAttribute(kAXRoleAttribute as CFString, of: element)
+    let subrole = stringAttribute(kAXSubroleAttribute as CFString, of: element)
+    let identifier = stringAttribute(kAXIdentifierAttribute as CFString, of: element)
+    let position = pointAttribute(kAXPositionAttribute as CFString, of: element)
+    let size = sizeAttribute(kAXSizeAttribute as CFString, of: element)
+    return [
+        role,
+        subrole,
+        identifier,
+        position.map { "\(Int($0.x.rounded())):\(Int($0.y.rounded()))" } ?? "-",
+        size.map { "\(Int($0.width.rounded())):\(Int($0.height.rounded()))" } ?? "-",
+    ]
+}
+
+private func semanticIdentityParts(for element: AXUIElement) -> [String] {
+    [
+        stringAttribute(kAXRoleAttribute as CFString, of: element),
+        stringAttribute(kAXSubroleAttribute as CFString, of: element),
+        stringAttribute(kAXIdentifierAttribute as CFString, of: element),
+    ]
+}
+
+private func makeTarget(
+    bundleID: String,
+    processID: pid_t,
+    scope: String,
+    identity: [String]
+) -> PasteTarget {
+    let fingerprintSource = ([scope, bundleID, String(processID)] + identity)
+        .joined(separator: "\u{1f}")
+    let digest = SHA256.hash(data: Data(fingerprintSource.utf8))
+    let fingerprint = digest.map { String(format: "%02x", $0) }.joined()
+    return PasteTarget(
+        bundle_id: bundleID,
+        process_id: Int(processID),
+        focus_fingerprint: fingerprint,
+        verification_scope: scope
+    )
+}
+
+private func captureFocusedInputTarget() -> TargetCapture {
     guard let application = NSWorkspace.shared.frontmostApplication,
           let bundleID = application.bundleIdentifier,
           !bundleID.isEmpty else {
         return .failure("Could not identify the focused application")
     }
-    guard let element = focusedElement(applicationPID: application.processIdentifier) else {
+    guard let element = editableFocusedElement(
+        applicationPID: application.processIdentifier
+    ) else {
         return .failure("Could not identify the focused input")
     }
 
@@ -159,33 +264,73 @@ private func captureTarget() -> TargetCapture {
         return .failure("The focused input no longer belongs to the frontmost application")
     }
 
-    let role = stringAttribute(kAXRoleAttribute as CFString, of: element)
-    let subrole = stringAttribute(kAXSubroleAttribute as CFString, of: element)
-    let identifier = stringAttribute(kAXIdentifierAttribute as CFString, of: element)
-    let position = pointAttribute(kAXPositionAttribute as CFString, of: element)
-    let size = sizeAttribute(kAXSizeAttribute as CFString, of: element)
-    guard !role.isEmpty, isEditableTextInput(element, role: role) else {
-        return .failure("Could not identify the focused input")
-    }
-
-    let fingerprintSource = [
-        bundleID,
-        String(elementPID),
-        role,
-        subrole,
-        identifier,
-        position.map { "\(Int($0.x.rounded())):\(Int($0.y.rounded()))" } ?? "-",
-        size.map { "\(Int($0.width.rounded())):\(Int($0.height.rounded()))" } ?? "-",
-    ].joined(separator: "\u{1f}")
-    let digest = SHA256.hash(data: Data(fingerprintSource.utf8))
-    let fingerprint = digest.map { String(format: "%02x", $0) }.joined()
     return .success(
-        PasteTarget(
-            bundle_id: bundleID,
-            process_id: Int(elementPID),
-            focus_fingerprint: fingerprint
+        makeTarget(
+            bundleID: bundleID,
+            processID: elementPID,
+            scope: focusedInputScope,
+            identity: identityParts(for: element)
         )
     )
+}
+
+private func captureChatGPTWindowTarget() -> TargetCapture {
+    guard let application = NSWorkspace.shared.frontmostApplication,
+          let bundleID = application.bundleIdentifier,
+          chatGPTCompatibilityBundleIDs.contains(bundleID) else {
+        return .failure("ChatGPT is not the focused application")
+    }
+    let processID = application.processIdentifier
+    let applicationElement = AXUIElementCreateApplication(processID)
+    guard let window = elementAttribute(
+        kAXFocusedWindowAttribute as CFString,
+        of: applicationElement
+    ) else {
+        return .failure("Could not identify the focused ChatGPT window")
+    }
+    var windowPID: pid_t = 0
+    guard AXUIElementGetPid(window, &windowPID) == .success,
+          windowPID == processID else {
+        return .failure("The focused window no longer belongs to ChatGPT")
+    }
+
+    var identity = ["window"] + identityParts(for: window) + [
+        "title",
+        stringAttribute(kAXTitleAttribute as CFString, of: window),
+    ]
+    if let element = focusedElement(applicationPID: processID) {
+        var elementPID: pid_t = 0
+        if AXUIElementGetPid(element, &elementPID) == .success,
+           elementPID == processID {
+            identity += ["focus"] + semanticIdentityParts(for: element)
+        }
+    }
+    return .success(
+        makeTarget(
+            bundleID: bundleID,
+            processID: processID,
+            scope: chatGPTWindowScope,
+            identity: identity
+        )
+    )
+}
+
+private func captureTarget(scope: String) -> TargetCapture {
+    if scope == chatGPTWindowScope {
+        return captureChatGPTWindowTarget()
+    }
+    return captureFocusedInputTarget()
+}
+
+private func targetForPaste(allowChatGPTWindowFallback: Bool) -> PasteTarget? {
+    if case .success(let target) = captureFocusedInputTarget() {
+        return target
+    }
+    guard allowChatGPTWindowFallback,
+          case .success(let target) = captureChatGPTWindowTarget() else {
+        return nil
+    }
+    return target
 }
 
 private func performPaste(text rawText: String, pressEnter: Bool) -> PasteResponse {
@@ -196,8 +341,8 @@ private func performPaste(text rawText: String, pressEnter: Bool) -> PasteRespon
 
     let accessibilityTrusted = accessibilityPermission(prompt: true)
     let target: PasteTarget?
-    if accessibilityTrusted, case .success(let capturedTarget) = captureTarget() {
-        target = capturedTarget
+    if accessibilityTrusted {
+        target = targetForPaste(allowChatGPTWindowFallback: !pressEnter)
     } else {
         target = nil
     }
@@ -239,7 +384,9 @@ private func performPaste(text rawText: String, pressEnter: Bool) -> PasteRespon
 
     if pressEnter {
         Thread.sleep(forTimeInterval: 0.12)
-        guard case .success(let currentTarget) = captureTarget(), currentTarget == target else {
+        guard case .success(let currentTarget) = captureTarget(
+            scope: target.verification_scope
+        ), currentTarget == target else {
             return PasteResponse(
                 success: false,
                 message: "Focused input changed before Return",
@@ -261,13 +408,17 @@ private func performPaste(text rawText: String, pressEnter: Bool) -> PasteRespon
     }
     return PasteResponse(
         success: true,
-        message: "Pasted into the focused app",
+        message: target.verification_scope == chatGPTWindowScope
+            ? "Pasted into ChatGPT; waiting for blue-button confirmation"
+            : "Pasted into the focused app",
         target: target,
-        delivery: "pasted"
+        delivery: target.verification_scope == chatGPTWindowScope
+            ? "pasted_compat"
+            : "pasted"
     )
 }
 
-private func inspectTarget() -> PasteResponse {
+private func inspectTarget(expectedTarget: PasteTarget?) -> PasteResponse {
     guard accessibilityPermission(prompt: false) else {
         return PasteResponse(
             success: false,
@@ -275,7 +426,8 @@ private func inspectTarget() -> PasteResponse {
             target: nil
         )
     }
-    switch captureTarget() {
+    let scope = expectedTarget?.verification_scope ?? focusedInputScope
+    switch captureTarget(scope: scope) {
     case .success(let target):
         return PasteResponse(success: true, message: "Focused input identified", target: target)
     case .failure(let message):
@@ -294,7 +446,7 @@ private func confirmReturn(expectedTarget: PasteTarget?) -> PasteResponse {
     guard let expectedTarget else {
         return PasteResponse(success: false, message: "Expected target is missing", target: nil)
     }
-    switch captureTarget() {
+    switch captureTarget(scope: expectedTarget.verification_scope) {
     case .failure(let message):
         return PasteResponse(success: false, message: message, target: nil)
     case .success(let currentTarget):
@@ -345,7 +497,7 @@ do {
             target: nil
         )
     } else if request.operation == "inspect_target" {
-        response = inspectTarget()
+        response = inspectTarget(expectedTarget: request.expected_target)
     } else if request.operation == "confirm_return" {
         response = confirmReturn(expectedTarget: request.expected_target)
     } else {

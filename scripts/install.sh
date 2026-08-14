@@ -25,6 +25,7 @@ LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/La
 BRIDGE_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickBridge/main.swift"
 HUD_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickHUD/main.swift"
 PASTE_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickPaste/main.swift"
+PASTE_INFO_TEMPLATE_PATH="$ROOT_DIR/app/macos/VibeStickPaste/Info.install.plist"
 LEGACY_RUNNER_PATH="$CONFIG_DIR/run-bridge.sh"
 LEGACY_HUD_BINARY_PATH="$CONFIG_DIR/VibeStickHUD"
 
@@ -191,37 +192,7 @@ cat > "$HUD_APP_TEMP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-cat > "$PASTE_APP_TEMP/Contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDisplayName</key>
-  <string>VibeStick Paste</string>
-  <key>CFBundleExecutable</key>
-  <string>VibeStickPaste</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.vibestick.paste</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>VibeStick Paste</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>0.1.4</string>
-  <key>CFBundleVersion</key>
-  <string>1</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
-  <key>LSUIElement</key>
-  <true/>
-  <key>NSPrincipalClass</key>
-  <string>NSApplication</string>
-</dict>
-</plist>
-PLIST
+/usr/bin/ditto "$PASTE_INFO_TEMPLATE_PATH" "$PASTE_APP_TEMP/Contents/Info.plist"
 
 PASTE_SOURCE_DIGEST="$(shasum -a 256 "$PASTE_SOURCE_PATH" | awk '{print $1}')"
 PASTE_PLIST_DIGEST="$(shasum -a 256 "$PASTE_APP_TEMP/Contents/Info.plist" | awk '{print $1}')"
