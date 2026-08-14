@@ -142,3 +142,62 @@ bundles matched the embedded payload, all nested signatures passed, Paste retain
 its existing identity and Accessibility permission, the five protected
 configuration files kept their pre-install digests, and Doctor reported 16 PASS,
 0 WARN, 0 FAIL.
+
+## M4-3 pinned flashing-tool descriptor
+
+M4-3 pins the official Apple Silicon standalone archive from Espressif rather than
+bundling ESP-IDF or resolving a moving “latest” URL:
+
+- tool: `esptool`;
+- version: `5.3.1`;
+- architecture: `macos-arm64`;
+- source: `https://github.com/espressif/esptool/releases/download/v5.3.1/esptool-v5.3.1-macos-arm64.tar.gz`;
+- exact size: `61,218,014` bytes;
+- SHA-256: `f63f7203d88cfe4c17aea34d6cf82769458ce204e49a05816c6384c2d299e6ca`.
+
+The size and digest are recorded in Espressif's official Arduino package index as
+well as the fixed application descriptor. Changing any field is a reviewed source
+change, not an automatic update.
+
+## M4-3 download and cache boundary
+
+Opening the app or the Updates and Recovery page performs only a local cache
+inspection. A real download starts only after the user presses the download button,
+sees the exact version and approximate size, and confirms.
+
+The downloader must:
+
+- accept only the pinned `github.com/espressif/esptool` HTTPS source;
+- refuse any redirect whose next URL is not HTTPS;
+- require HTTP 200 and an allow-listed gzip or binary content type;
+- reject a declared or actual size different from the pinned size;
+- compute SHA-256 over the downloaded file and require the pinned digest;
+- write to a private `0700` versioned cache through a `0600` sibling temporary file;
+- atomically replace the current pinned archive only after every check succeeds;
+- preserve an existing cache if a new response or download fails;
+- remove only the exact pinned archive when the user separately confirms cache
+  removal.
+
+M4-3 does not unpack or execute the archive, enumerate or open serial ports, inspect
+the device, read firmware, build firmware, or issue any erase/write command. Those
+operations, including validation of the extracted executable and its signature,
+belong to M4-4 and require a separate acceptance boundary.
+
+## M4-3 acceptance
+
+- Hostless tests cover insecure descriptors, oversize descriptors, missing, valid,
+  and damaged cache states, verified atomic replacement, HTTPS-response rejection,
+  and exact-scope cache removal.
+- Source gates pin the version, URL, byte count, and SHA-256, and reject serial,
+  extraction, execution, erase, and write behavior in the M4-3 implementation.
+- Release App and DMG contain only the descriptor and downloader code, never an
+  `esptool` archive or the full ESP-IDF toolchain.
+- App and DMG launch smoke tests do not download anything, mutate the cache, restart
+  Bridge/HUD, access USB, or modify firmware.
+- Unit and build tests use small local fixtures and make no external download. The
+  separate real-download acceptance was completed on 2026-08-15 through the installed
+  `0.2.0 (3)` app and its explicit confirmation sheet. The final archive was exactly
+  `61,218,014` bytes with the pinned SHA-256, mode `0600`, and `0700` cache parents;
+  no sibling temporary file remained. The page reported a verified cache and a second
+  local inspection passed. Bridge health remained normal, no `esptool` process ran,
+  and no extraction, serial access, or firmware operation occurred.

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import Security
 import Testing
@@ -997,6 +998,225 @@ struct VibeStickAppTests {
         #expect(try String(contentsOf: existingPaste, encoding: .utf8) == "old-paste")
         #expect(try String(contentsOf: receipt.backupDirectory.appendingPathComponent("managed/support/Components.noindex/VibeStick Paste.app/Contents/MacOS/VibeStickPaste"), encoding: .utf8) == "old-paste")
     }
+
+    @Test
+    func flashingToolDescriptorRejectsInsecureOrUnboundedSources() throws {
+        let data = Data("fixture-tool".utf8)
+        let insecure = makeFlashingToolDescriptor(
+            data: data,
+            sourceURL: URL(string: "http://github.com/espressif/esptool/tool.tar.gz")!
+        )
+        #expect(throws: FlashingToolError.self) {
+            try insecure.validate()
+        }
+
+        let oversized = FlashingToolDescriptor(
+            identifier: insecure.identifier,
+            displayName: insecure.displayName,
+            version: insecure.version,
+            architecture: insecure.architecture,
+            archiveFileName: insecure.archiveFileName,
+            sourceURL: URL(string: "https://github.com/espressif/esptool/tool.tar.gz")!,
+            sha256: insecure.sha256,
+            size: FlashingToolDescriptor.maximumArchiveSize + 1
+        )
+        #expect(throws: FlashingToolError.self) {
+            try oversized.validate()
+        }
+    }
+
+    @Test
+    func flashingToolInspectionDistinguishesMissingReadyAndInvalidCache() async throws {
+        let data = Data("fixture-tool".utf8)
+        let descriptor = makeFlashingToolDescriptor(data: data)
+        let root = temporaryTestDirectory("FlashingToolInspect")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let manager = FlashingToolManager(descriptor: descriptor, cacheDirectory: root)
+
+        #expect(await manager.inspect().phase == .missing)
+
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let archiveURL = await manager.archiveURL
+        try data.write(to: archiveURL)
+        #expect(await manager.inspect().phase == .ready)
+
+        try Data("tampered!!!!".utf8).write(to: archiveURL)
+        #expect(await manager.inspect().phase == .invalid)
+    }
+
+    @Test
+    func flashingToolDownloadVerifiesAndAtomicallyReplacesInvalidCache() async throws {
+        let data = Data("verified-fixture-tool".utf8)
+        let descriptor = makeFlashingToolDescriptor(data: data)
+        let root = temporaryTestDirectory("FlashingToolDownload")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let existing = root.appendingPathComponent(descriptor.archiveFileName)
+        try Data("old-invalid-cache".utf8).write(to: existing)
+        let response = FlashingToolDownloadResponse(
+            statusCode: 200,
+            finalURL: URL(string: "https://release-assets.githubusercontent.com/espressif/tool.tar.gz")!,
+            expectedContentLength: Int64(data.count),
+            mimeType: "application/octet-stream"
+        )
+        let manager = FlashingToolManager(
+            descriptor: descriptor,
+            cacheDirectory: root,
+            transport: MockFlashingToolDownloader(data: data, response: response)
+        )
+
+        let snapshot = try await manager.downloadAndVerify()
+        let permissions = try FileManager.default.attributesOfItem(atPath: existing.path)[.posixPermissions] as? NSNumber
+
+        #expect(snapshot.phase == .ready)
+        #expect(try Data(contentsOf: existing) == data)
+        #expect(permissions?.intValue == 0o600)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.contains(".partial-") }.isEmpty)
+    }
+
+    @Test
+    func flashingToolDownloadRejectsUnsafeResponseWithoutReplacingCache() async throws {
+        let data = Data("verified-fixture-tool".utf8)
+        let descriptor = makeFlashingToolDescriptor(data: data)
+        let root = temporaryTestDirectory("FlashingToolUnsafeResponse")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let existing = root.appendingPathComponent(descriptor.archiveFileName)
+        let previous = Data("keep-this-cache".utf8)
+        try previous.write(to: existing)
+        let response = FlashingToolDownloadResponse(
+            statusCode: 200,
+            finalURL: URL(string: "http://release-assets.githubusercontent.com/espressif/tool.tar.gz")!,
+            expectedContentLength: Int64(data.count),
+            mimeType: "application/octet-stream"
+        )
+        let manager = FlashingToolManager(
+            descriptor: descriptor,
+            cacheDirectory: root,
+            transport: MockFlashingToolDownloader(data: data, response: response)
+        )
+
+        do {
+            _ = try await manager.downloadAndVerify()
+            Issue.record("Expected insecure final URL to be rejected")
+        } catch let error as FlashingToolError {
+            #expect(error.localizedDescription.contains("HTTPS"))
+        }
+        #expect(try Data(contentsOf: existing) == previous)
+    }
+
+    @Test
+    func flashingToolDownloadRejectsStatusTypeSizeAndDigestMismatches() async throws {
+        let data = Data("verified-fixture-tool".utf8)
+        let descriptor = makeFlashingToolDescriptor(data: data)
+        let secureFinalURL = URL(string: "https://release-assets.githubusercontent.com/espressif/tool.tar.gz")!
+        let responses = [
+            FlashingToolDownloadResponse(
+                statusCode: 503,
+                finalURL: secureFinalURL,
+                expectedContentLength: Int64(data.count),
+                mimeType: "application/octet-stream"
+            ),
+            FlashingToolDownloadResponse(
+                statusCode: 200,
+                finalURL: secureFinalURL,
+                expectedContentLength: Int64(data.count),
+                mimeType: "text/html"
+            ),
+            FlashingToolDownloadResponse(
+                statusCode: 200,
+                finalURL: secureFinalURL,
+                expectedContentLength: Int64(data.count + 1),
+                mimeType: "application/octet-stream"
+            ),
+        ]
+
+        for (index, response) in responses.enumerated() {
+            let root = temporaryTestDirectory("FlashingToolResponse-\(index)")
+            defer { try? FileManager.default.removeItem(at: root) }
+            let manager = FlashingToolManager(
+                descriptor: descriptor,
+                cacheDirectory: root,
+                transport: MockFlashingToolDownloader(data: data, response: response)
+            )
+            do {
+                _ = try await manager.downloadAndVerify()
+                Issue.record("Expected response \(index) to be rejected")
+            } catch is FlashingToolError {
+                // Expected.
+            }
+        }
+
+        let wrongData = Data(repeating: 0x78, count: data.count)
+        let digestRoot = temporaryTestDirectory("FlashingToolDigest")
+        defer { try? FileManager.default.removeItem(at: digestRoot) }
+        let digestManager = FlashingToolManager(
+            descriptor: descriptor,
+            cacheDirectory: digestRoot,
+            transport: MockFlashingToolDownloader(
+                data: wrongData,
+                response: FlashingToolDownloadResponse(
+                    statusCode: 200,
+                    finalURL: secureFinalURL,
+                    expectedContentLength: Int64(data.count),
+                    mimeType: "application/octet-stream"
+                )
+            )
+        )
+        do {
+            _ = try await digestManager.downloadAndVerify()
+            Issue.record("Expected SHA-256 mismatch to be rejected")
+        } catch let error as FlashingToolError {
+            #expect(error.localizedDescription.contains("SHA-256"))
+        }
+    }
+
+    @Test
+    func flashingToolRemovalDeletesOnlyThePinnedArchive() async throws {
+        let data = Data("fixture-tool".utf8)
+        let descriptor = makeFlashingToolDescriptor(data: data)
+        let root = temporaryTestDirectory("FlashingToolRemove")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let archive = root.appendingPathComponent(descriptor.archiveFileName)
+        let unrelated = root.appendingPathComponent("keep.txt")
+        try data.write(to: archive)
+        try Data("keep".utf8).write(to: unrelated)
+        let manager = FlashingToolManager(descriptor: descriptor, cacheDirectory: root)
+
+        let snapshot = try await manager.removeCachedArchive()
+
+        #expect(snapshot.phase == .missing)
+        #expect(!FileManager.default.fileExists(atPath: archive.path))
+        #expect(FileManager.default.fileExists(atPath: unrelated.path))
+    }
+}
+
+private struct MockFlashingToolDownloader: FlashingToolDownloading {
+    let data: Data
+    let response: FlashingToolDownloadResponse
+
+    func download(from sourceURL: URL, to destinationURL: URL) async throws -> FlashingToolDownloadResponse {
+        try data.write(to: destinationURL)
+        return response
+    }
+}
+
+private func makeFlashingToolDescriptor(
+    data: Data,
+    sourceURL: URL = URL(string: "https://github.com/espressif/esptool/tool.tar.gz")!
+) -> FlashingToolDescriptor {
+    let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    return FlashingToolDescriptor(
+        identifier: "test-esptool",
+        displayName: "Test esptool",
+        version: "5.3.1",
+        architecture: "arm64",
+        archiveFileName: "tool.tar.gz",
+        sourceURL: sourceURL,
+        sha256: digest,
+        size: UInt64(data.count)
+    )
 }
 
 private struct RuntimeInstallFixture {

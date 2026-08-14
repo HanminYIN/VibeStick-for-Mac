@@ -6,7 +6,7 @@ PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-2.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-3.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -286,6 +286,33 @@ assert_m4_install_source_contract() {
   printf '%s\n' "PASS: M4-2 source keeps explicit confirmation, revalidation, backup, and firmware boundaries"
 }
 
+assert_m4_flashing_tool_source_contract() {
+  tool_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M4FlashingTool.swift"
+  app_model="$ROOT_DIR/app/macos/VibeStickApp/App/AppModel.swift"
+  section_views="$ROOT_DIR/app/macos/VibeStickApp/Features/SectionViews.swift"
+
+  if ! /usr/bin/grep -F 'esptool-v5.3.1-macos-arm64.tar.gz' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'size: 61_218_014' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'f63f7203d88cfe4c17aea34d6cf82769458ce204e49a05816c6384c2d299e6ca' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'HTTPSOnlyRedirectDelegate' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'session.download(for: request)' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'RuntimePayloadDigest.sha256(of: url)' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'Darwin.rename' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'flashingToolDownloadConfirmationPresented' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F '下载并校验固定版本的烧录工具？' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F '不会解包或运行 esptool' "$section_views" >/dev/null; then
+    printf '%s\n' "FAIL: the M4-3 pinned HTTPS download and cache contract is incomplete" >&2
+    exit 1
+  fi
+
+  if /usr/bin/grep -E 'write_flash|erase_flash|idf\.py|/dev/(cu|tty)|Process\(|posix_spawn|system\(' \
+    "$tool_source" >/dev/null; then
+    printf '%s\n' "FAIL: M4-3 contains serial, execution, or firmware mutation behavior" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: M4-3 pins HTTPS, size, SHA-256, private cache, and no-flash boundaries"
+}
+
 assert_menu_bar_icon() {
   menu_app_path="$1"
   menu_label="$2"
@@ -410,6 +437,7 @@ assert_no_forbidden_files() {
     -name 'sdkconfig.old' -o \
     -name 'esp-idf' -o \
     -name '.espressif' -o \
+    -name 'esptool*.tar.gz' -o \
     -name '*Tests*' \
   \) -print)"
   if [ -n "$forbidden_files" ]; then
@@ -643,6 +671,7 @@ assert_menu_bar_source_contract
 assert_m3b_interface_source_contract
 assert_m3c_asr_source_contract
 assert_m4_install_source_contract
+assert_m4_flashing_tool_source_contract
 "$ROOT_DIR/scripts/build-macos-app.sh"
 assert_binary "$APP_BINARY" "VibeStick for Mac"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"

@@ -23,6 +23,7 @@ private final class StartupSmokeCounter: @unchecked Sendable {
 final class AppModel: ObservableObject {
     @Published private(set) var bridgeSnapshot = BridgeSnapshot.empty
     @Published private(set) var runtimeSnapshot = RuntimeSnapshot.waiting
+    @Published private(set) var flashingToolSnapshot = FlashingToolSnapshot.checking()
     @Published private(set) var configurationSummary = LegacyConfigurationSummary.empty
     @Published private(set) var keychainSummary = KeychainSummary.empty
     @Published private(set) var voiceInteractionSummary = VoiceInteractionSummary.empty
@@ -35,14 +36,18 @@ final class AppModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var serviceActionInProgress = false
     @Published private(set) var runtimeInstallInProgress = false
+    @Published private(set) var flashingToolActionInProgress = false
     @Published private(set) var deviceConfigurationSaveInProgress = false
     @Published private(set) var asrSettingsSaveInProgress = false
     @Published var presentedMessage: AppMessage?
     @Published var runtimeInstallConfirmationPresented = false
+    @Published var flashingToolDownloadConfirmationPresented = false
+    @Published var flashingToolRemovalConfirmationPresented = false
 
     private let bridgeClient: BridgeClient
     private let runtimeManager: RuntimeServiceManager
     private let runtimeInstaller: RuntimeInstaller
+    private let flashingToolManager: FlashingToolManager
     private let configurationInspector: ConfigurationInspector
     private let preferencesStore: PreferencesStore
     private let loginItemController: LoginItemController
@@ -64,6 +69,7 @@ final class AppModel: ObservableObject {
         bridgeClient: BridgeClient = BridgeClient(),
         runtimeManager: RuntimeServiceManager = RuntimeServiceManager(),
         runtimeInstaller: RuntimeInstaller = RuntimeInstaller(),
+        flashingToolManager: FlashingToolManager = FlashingToolManager(),
         configurationInspector: ConfigurationInspector = ConfigurationInspector(),
         preferencesStore: PreferencesStore = PreferencesStore(),
         loginItemController: LoginItemController = LoginItemController(),
@@ -77,6 +83,7 @@ final class AppModel: ObservableObject {
         self.bridgeClient = bridgeClient
         self.runtimeManager = runtimeManager
         self.runtimeInstaller = runtimeInstaller
+        self.flashingToolManager = flashingToolManager
         self.configurationInspector = configurationInspector
         self.preferencesStore = preferencesStore
         self.loginItemController = loginItemController
@@ -93,7 +100,7 @@ final class AppModel: ObservableObject {
             ?? "0.2.0-dev"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "local"
-        return "\(version) (\(build)) · M4-2"
+        return "\(version) (\(build)) · M4-3"
     }
 
     func start() {
@@ -110,6 +117,7 @@ final class AppModel: ObservableObject {
             synchronizeMenuBarPreference()
             configuration.launchAtLogin = await loginItemController.isEnabled()
             await refresh(forcePermissionCheck: true)
+            await refreshFlashingToolStatus()
             scheduleRefreshLoop()
         }
     }
@@ -495,6 +503,73 @@ final class AppModel: ObservableObject {
                 )
             }
         }
+    }
+
+    func requestFlashingToolRefresh() {
+        guard !flashingToolActionInProgress else { return }
+        Task { await refreshFlashingToolStatus() }
+    }
+
+    func requestFlashingToolDownload() {
+        guard !flashingToolActionInProgress else { return }
+        flashingToolDownloadConfirmationPresented = true
+    }
+
+    func confirmFlashingToolDownload() {
+        guard !flashingToolActionInProgress else { return }
+        flashingToolDownloadConfirmationPresented = false
+        flashingToolActionInProgress = true
+        flashingToolSnapshot = .checking(flashingToolSnapshot.descriptor)
+
+        Task {
+            do {
+                flashingToolSnapshot = try await flashingToolManager.downloadAndVerify()
+                presentedMessage = AppMessage(
+                    title: "烧录工具已验证",
+                    message: "\(flashingToolSnapshot.descriptor.displayName) \(flashingToolSnapshot.descriptor.version) 已保存到私有缓存，大小与 SHA-256 均匹配。M4-3 没有解包、运行工具或访问设备串口。"
+                )
+            } catch {
+                flashingToolSnapshot = .failed(detail: error.localizedDescription)
+                presentedMessage = AppMessage(
+                    title: "烧录工具未就绪",
+                    message: error.localizedDescription
+                )
+            }
+            flashingToolActionInProgress = false
+        }
+    }
+
+    func requestFlashingToolRemoval() {
+        guard !flashingToolActionInProgress else { return }
+        flashingToolRemovalConfirmationPresented = true
+    }
+
+    func confirmFlashingToolRemoval() {
+        guard !flashingToolActionInProgress else { return }
+        flashingToolRemovalConfirmationPresented = false
+        flashingToolActionInProgress = true
+
+        Task {
+            do {
+                flashingToolSnapshot = try await flashingToolManager.removeCachedArchive()
+                presentedMessage = AppMessage(
+                    title: "工具缓存已移除",
+                    message: "只删除了当前固定版本的烧录工具归档；后台组件、配置和设备固件均未改变。"
+                )
+            } catch {
+                presentedMessage = AppMessage(
+                    title: "缓存未移除",
+                    message: error.localizedDescription
+                )
+                await refreshFlashingToolStatus()
+            }
+            flashingToolActionInProgress = false
+        }
+    }
+
+    private func refreshFlashingToolStatus() async {
+        flashingToolSnapshot = .checking(flashingToolSnapshot.descriptor)
+        flashingToolSnapshot = await flashingToolManager.inspect()
     }
 
     func setShowMenuBarItem(_ enabled: Bool) {

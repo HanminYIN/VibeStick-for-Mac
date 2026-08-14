@@ -792,7 +792,7 @@ struct UpdatesAndRecoveryView: View {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "更新与恢复",
-                    subtitle: "M4-2 可从 DMG 内的校验载荷事务式安装后台组件；固件仍保持只读。",
+                    subtitle: "M4-3 可按需下载并校验轻量烧录工具；串口访问、固件备份与刷写仍未开放。",
                     milestone: nil
                 )
 
@@ -879,15 +879,75 @@ struct UpdatesAndRecoveryView: View {
                 }
 
                 StatusCard(
-                    title: "固件与烧录",
-                    subtitle: "按需下载轻量工具，不把完整 ESP-IDF 塞进 DMG",
+                    title: "固件烧录工具",
+                    subtitle: "按需缓存固定版本，不把完整 ESP-IDF 或工具归档塞进 DMG",
                     systemImage: "externaldrive.badge.timemachine",
-                    tone: .inactive
+                    tone: flashingToolTone
                 ) {
-                    Label("M4-2：后台组件事务式安装、验证与回退", systemImage: "checkmark.seal")
-                    Label("M4-3：固定版本与 SHA-256 校验的烧录工具", systemImage: "checkmark.shield")
-                    Label("M4-4：端口识别、固件备份、更新与故障恢复", systemImage: "arrow.uturn.backward.circle")
-                    Text("M4-3 与 M4-4 尚未开放；当前页面不会下载烧录工具，也不会接触设备固件。")
+                    HStack {
+                        PhasePill(text: flashingToolLabel, tone: flashingToolTone)
+                        Spacer()
+                        Button("重新检查") {
+                            model.requestFlashingToolRefresh()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(model.flashingToolActionInProgress)
+                    }
+
+                    Text(model.flashingToolSnapshot.detail)
+                        .foregroundStyle(.secondary)
+
+                    Label(
+                        "\(model.flashingToolSnapshot.descriptor.displayName) \(model.flashingToolSnapshot.descriptor.version) · Apple Silicon · \(model.flashingToolSnapshot.descriptor.sizeLabel)",
+                        systemImage: "shippingbox"
+                    )
+                    Label("来源：Espressif 官方 GitHub Release", systemImage: "network.badge.shield.half.filled")
+
+                    if model.configuration.showTechnicalDetails {
+                        Text("SHA-256 · \(model.flashingToolSnapshot.descriptor.sha256)")
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Label(
+                        "下载先进入私有临时文件；HTTP、HTTPS、内容类型、大小或 SHA-256 任一不符都不会替换现有缓存。",
+                        systemImage: "checkmark.shield"
+                    )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Divider()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("M4-3 只准备工具")
+                                .font(.subheadline.weight(.semibold))
+                            Text("不会解包或运行 esptool，不会扫描或打开串口，也不会读取、备份或刷写固件。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+
+                        if model.flashingToolActionInProgress {
+                            ProgressView()
+                                .controlSize(.small)
+                        } else if model.flashingToolSnapshot.phase == .ready {
+                            Button("移除缓存…", role: .destructive) {
+                                model.requestFlashingToolRemoval()
+                            }
+                            .buttonStyle(.bordered)
+                        } else {
+                            Button("下载并校验…") {
+                                model.requestFlashingToolDownload()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                    }
+
+                    Label(
+                        "M4-4 才会加入端口识别、固件备份、更新验证与故障恢复。",
+                        systemImage: "arrow.uturn.backward.circle"
+                    )
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -907,6 +967,49 @@ struct UpdatesAndRecoveryView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("确认后会短暂停止受管 Bridge 与 HUD，验证 DMG 内载荷，备份现有安装，再启动并检查新组件。任何验证失败都会尝试恢复旧运行时和原服务状态。")
+        }
+        .confirmationDialog(
+            "下载并校验固定版本的烧录工具？",
+            isPresented: $model.flashingToolDownloadConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("下载 \(model.flashingToolSnapshot.descriptor.sizeLabel) 并校验") {
+                model.confirmFlashingToolDownload()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("将从 Espressif 官方 GitHub 下载 esptool \(model.flashingToolSnapshot.descriptor.version) 的 Apple Silicon 归档。只有 HTTPS、大小和 SHA-256 全部匹配时才写入私有缓存；不会解包、运行或访问设备。")
+        }
+        .confirmationDialog(
+            "移除本地烧录工具缓存？",
+            isPresented: $model.flashingToolRemovalConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("只移除工具归档", role: .destructive) {
+                model.confirmFlashingToolRemoval()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("只删除 esptool \(model.flashingToolSnapshot.descriptor.version) 的当前缓存，不影响后台组件、配置或设备固件。")
+        }
+    }
+
+    private var flashingToolLabel: String {
+        switch model.flashingToolSnapshot.phase {
+        case .checking: "正在检查"
+        case .missing: "尚未下载"
+        case .ready: "已校验"
+        case .invalid: "缓存无效"
+        case .failed: "下载失败"
+        }
+    }
+
+    private var flashingToolTone: HealthTone {
+        switch model.flashingToolSnapshot.phase {
+        case .checking: .neutral
+        case .ready: .healthy
+        case .missing: .inactive
+        case .invalid, .failed: .warning
         }
     }
 
@@ -1036,7 +1139,7 @@ struct AdvancedSettingsView: View {
                     systemImage: "hammer.fill",
                     tone: .inactive
                 ) {
-                    Text("这是 M3-C 本地开发版：在已验收的 Codex Focus 与语音发送覆盖层之外，增加原生 ASR 配置、钥匙串保存和不注入输入框的独立测试。当前稳定安装的 Bridge、HUD、Paste 与真机固件不会被自动替换。")
+                    Text("这是 M4-3 本地开发版：保留已验收的 Codex Focus、语音发送和原生 ASR 配置，并增加固定版本烧录工具的按需安全下载。当前稳定安装的 Bridge、HUD、Paste、主 App 与真机固件都不会被自动替换。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

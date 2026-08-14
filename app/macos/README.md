@@ -1,15 +1,16 @@
 # VibeStick for Mac
 
-`VibeStick.xcodeproj` is the native SwiftUI control center introduced in M1, extended with M2 pairing/configuration, the M3-A Codex Focus interface, M3-B voice/send diagnostics, and M3-C native ASR configuration. It targets Apple Silicon and macOS 15 or newer.
+`VibeStick.xcodeproj` is the native SwiftUI control center introduced in M1, extended with M2 pairing/configuration, the M3-A Codex Focus interface, M3-B voice/send diagnostics, M3-C native ASR configuration, and M4 transactional maintenance. It targets Apple Silicon and macOS 15 or newer.
 
 See the [M1 achievements and validation evidence](../../docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
 and [M2 achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md),
 plus [M3-A achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M3A_ACHIEVEMENTS.md),
 [M3-B voice/send achievements](../../docs/VIBESTICK_FOR_MAC_M3B_ACHIEVEMENTS.md), and
-[M3-C native ASR configuration achievements](../../docs/VIBESTICK_FOR_MAC_M3C_ACHIEVEMENTS.md),
+[M3-C native ASR configuration achievements](../../docs/VIBESTICK_FOR_MAC_M3C_ACHIEVEMENTS.md), plus the
+[M4 installation and recovery contract](../../docs/design/m4/M4_INSTALLATION_RECOVERY_CONTRACT.md),
 for the upstream boundary, implemented scope, real-device acceptance, and deferred work.
 
-## M1 foundation through M3-C native configuration
+## M1 foundation through M4-3 verified tool download
 
 The M1 app intentionally manages the existing stable installation instead of replacing it:
 
@@ -24,10 +25,12 @@ The M1 app intentionally manages the existing stable installation instead of rep
 - Shows a live 135 × 240 Codex Focus preview whose project-name visibility and fixed name use the same normalized M2 configuration delivered to the device.
 - Configures SiliconFlow, Groq, OpenAI-compatible, or a local ASR command; API Keys are stored only in Keychain.
 - Generates a fixed temporary audio fixture and tests the selected provider without accessing a Mac microphone or invoking Paste, the clipboard, Return, or the M3-B send session.
+- Installs or repairs only the embedded, manifested Bridge/HUD/Paste runtime after explicit confirmation, with backup, verification, and rollback.
+- Downloads the pinned Espressif `esptool` 5.3.1 Apple Silicon archive only after explicit confirmation, verifies HTTPS, exact size, and SHA-256, and stores it in a private cache without unpacking or running it.
 
 First launch does not run `scripts/install.sh`, rebuild helpers, modify `.env`, alter firmware, or re-sign the installed Paste app. Closing or quitting the control center does not stop background services.
 
-The M2 control surface does not turn the current development DMG into a firmware installer. Installing the M2 Bridge and flashing compatible firmware remain separately authorized maintenance actions. No firmware operation happens on app launch or USB detection.
+The M4-3 control surface is not yet a firmware flasher. It can prepare a verified tool archive, but it does not unpack or execute that tool, open a serial port, read firmware, or issue erase/write commands. Firmware backup and flashing remain separately authorized M4-4 work. No firmware operation happens on app launch or USB detection.
 
 If a healthy Bridge is already running outside the installed LaunchAgent, the control center reports it as externally managed and keeps service controls read-only. This avoids creating a second process on port 8765. Stop and restart are also blocked while a recording or transcription is active.
 
@@ -55,7 +58,7 @@ Build the development DMG with:
 scripts/build-macos-dmg.sh
 ```
 
-The result is `.build/macos.noindex/VibeStick-for-Mac-M3-C.dmg`. This M3-C development DMG is for a Mac that already has compatible VibeStick services and firmware installed; it does not install or flash firmware. A self-contained clean-machine installer and on-demand flashing tool download belong to M4/R1.
+The result is `.build/macos.noindex/VibeStick-for-Mac-M4-3.dmg`. This development DMG contains the M4-2 verified runtime payload and the M4-3 pinned downloader, but not `esptool`, ESP-IDF, or a firmware image. Opening it does not install, download, restart services, or flash firmware.
 
 Run the complete local acceptance chain with:
 
