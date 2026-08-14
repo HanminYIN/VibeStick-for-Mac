@@ -792,7 +792,7 @@ struct UpdatesAndRecoveryView: View {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "更新与恢复",
-                    subtitle: "M4-3 可按需下载并校验轻量烧录工具；串口访问、固件备份与刷写仍未开放。",
+                    subtitle: "M4-4B 可安全准备并离线验证固定烧录工具；串口访问、固件备份与刷写仍未开放。",
                     milestone: nil
                 )
 
@@ -920,9 +920,9 @@ struct UpdatesAndRecoveryView: View {
                     Divider()
                     HStack {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text("M4-3 只准备工具")
+                            Text("M4-4B 只准备并离线验证工具")
                                 .font(.subheadline.weight(.semibold))
-                            Text("不会解包或运行 esptool，不会扫描或打开串口，也不会读取、备份或刷写固件。")
+                            Text("解包前后都会校验固定清单；只运行无设备参数的 `esptool version`，不会扫描或打开串口，也不会读取、备份或刷写固件。")
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -931,7 +931,13 @@ struct UpdatesAndRecoveryView: View {
                         if model.flashingToolActionInProgress {
                             ProgressView()
                                 .controlSize(.small)
-                        } else if model.flashingToolSnapshot.phase == .ready {
+                        } else if model.flashingToolSnapshot.phase == .archiveReady {
+                            Button("解包并验证…") {
+                                model.requestFlashingToolPreparation()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        } else if model.flashingToolSnapshot.phase == .ready
+                                    || model.flashingToolSnapshot.phase == .invalid {
                             Button("移除缓存…", role: .destructive) {
                                 model.requestFlashingToolRemoval()
                             }
@@ -945,7 +951,7 @@ struct UpdatesAndRecoveryView: View {
                     }
 
                     Label(
-                        "M4-4 才会加入端口识别、固件备份、更新验证与故障恢复。",
+                        "M4-4C 才会在独立授权后识别设备安全状态并建立私有完整备份；刷写仍属于之后的 M4-4D。",
                         systemImage: "arrow.uturn.backward.circle"
                     )
                         .font(.caption)
@@ -981,6 +987,18 @@ struct UpdatesAndRecoveryView: View {
             Text("将从 Espressif 官方 GitHub 下载 esptool \(model.flashingToolSnapshot.descriptor.version) 的 Apple Silicon 归档。只有 HTTPS、大小和 SHA-256 全部匹配时才写入私有缓存；不会解包、运行或访问设备。")
         }
         .confirmationDialog(
+            "解包并离线验证固定烧录工具？",
+            isPresented: $model.flashingToolPreparationConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("解包并验证 esptool \(model.flashingToolSnapshot.descriptor.version)") {
+                model.confirmFlashingToolPreparation()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("只会把已通过大小和 SHA-256 校验的固定归档解到私有版本目录，随后检查精确文件集、内部摘要、纯 Apple Silicon 架构、Espressif Developer ID 签名，并运行不带端口参数的 `esptool version`。不会扫描或打开串口，也不会读取、备份、擦除或写入设备。")
+        }
+        .confirmationDialog(
             "移除本地烧录工具缓存？",
             isPresented: $model.flashingToolRemovalConfirmationPresented,
             titleVisibility: .visible
@@ -990,7 +1008,7 @@ struct UpdatesAndRecoveryView: View {
             }
             Button("取消", role: .cancel) {}
         } message: {
-            Text("只删除 esptool \(model.flashingToolSnapshot.descriptor.version) 的当前缓存，不影响后台组件、配置或设备固件。")
+            Text("只删除 esptool \(model.flashingToolSnapshot.descriptor.version) 的固定归档和已准备目录，不影响后台组件、配置或设备固件。")
         }
     }
 
@@ -998,9 +1016,10 @@ struct UpdatesAndRecoveryView: View {
         switch model.flashingToolSnapshot.phase {
         case .checking: "正在检查"
         case .missing: "尚未下载"
-        case .ready: "已校验"
+        case .archiveReady: "归档已校验"
+        case .ready: "工具已准备"
         case .invalid: "缓存无效"
-        case .failed: "下载失败"
+        case .failed: "操作失败"
         }
     }
 
@@ -1008,7 +1027,7 @@ struct UpdatesAndRecoveryView: View {
         switch model.flashingToolSnapshot.phase {
         case .checking: .neutral
         case .ready: .healthy
-        case .missing: .inactive
+        case .missing, .archiveReady: .inactive
         case .invalid, .failed: .warning
         }
     }

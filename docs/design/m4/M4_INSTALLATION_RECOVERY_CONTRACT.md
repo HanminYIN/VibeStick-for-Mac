@@ -12,8 +12,14 @@ M4 is split into independently accepted stages:
 2. M4-2: transactional Bridge, HUD, and Paste installation or repair with backup,
    post-install verification, and rollback.
 3. M4-3: pinned lightweight flashing-tool download with HTTPS and SHA-256 checks.
-4. M4-4: USB mode detection, firmware backup, flash verification, and recovery.
-5. M4-5: legacy migration, redacted diagnostics, and clean-machine acceptance.
+4. M4-4A: secret-free distributable firmware, USB Wi-Fi provisioning, and an
+   offline-validated firmware payload.
+5. M4-4B: explicitly confirmed extraction and offline identity/version validation
+   of the pinned flashing tool.
+6. M4-4C: separately authorized device identity/security inspection and private
+   full-flash backup.
+7. M4-4D: separately authorized erase/write verification and recovery.
+8. M4-5: legacy migration, redacted diagnostics, and clean-machine acceptance.
 
 ## M4-1 mutation boundary
 
@@ -201,3 +207,122 @@ belong to M4-4 and require a separate acceptance boundary.
   no sibling temporary file remained. The page reported a verified cache and a second
   local inspection passed. Bridge health remained normal, no `esptool` process ran,
   and no extraction, serial access, or firmware operation occurred.
+
+## M4-4A distributable firmware and provisioning boundary
+
+M4-4 begins with a source-and-package-only stage. M4-4A may build a maintainer
+firmware payload and embed it in the development App/DMG, but it does not unpack or
+execute the downloaded flashing tool, enumerate or open serial ports, inspect or
+back up a device, restart any runtime, or erase/write/verify device flash.
+
+The distributable firmware build is compiled with
+`VIBE_STICK_DISTRIBUTABLE_BUILD=ON`. In that mode the firmware configuration header
+does not include `vibe_stick_secrets.h`, even when the maintainer has that ignored
+file locally. The image boots with Wi-Fi unconfigured while keeping USB Serial/JTAG
+pairing available. The normal development build remains compatible with the
+existing ignored compile-time configuration.
+
+USB pairing schema 1 remains valid and does not alter Wi-Fi. Schema 2 requires the
+same pairing and Bridge fields plus `wifi_ssid` and `wifi_password`. The firmware
+accepts a 1–32 byte valid UTF-8 SSID without control characters and an 8–63 byte
+printable-ASCII WPA2 password. Pairing and Wi-Fi values are written in one NVS
+commit; an error restores the in-memory configuration. A successful credential
+change is acknowledged with `restart_required: true` before the firmware restarts.
+Identify responses advertise `pairing_schema_version: 2` and only the boolean
+`wifi_configured`; neither command logs or returns credentials.
+
+`FirmwarePayload.noindex` contains exactly:
+
+- `bootloader.bin` at `0x0`;
+- `partition-table.bin` at `0x8000`;
+- `vibe-stick.bin` at `0x10000`;
+- `manifest-v1.json`.
+
+The schema-1 manifest pins the ESP32-S3/StickS3 target, 8 MiB DIO/80 MHz flash
+geometry, source revision and source-tree digest, image modes/sizes/SHA-256 values,
+and the preserved NVS range `0x9000..<0xf000`. Python generation and Swift offline
+validation reject extra or missing files, symlinks, path/offset changes, overlaps,
+wrong modes, bounds violations, and digest mismatches. Packaging also scans the
+three images for values from the local ignored secret header without printing
+those values.
+
+## M4-4A acceptance
+
+- Python tests cover manifest round-trip, exact offsets, NVS preservation, build
+  arguments, tampering, extra files, symlinks, modes, and non-disclosing secret
+  detection.
+- Swift tests cover schema-1 backward compatibility, schema-2 Wi-Fi validation and
+  encoding, firmware geometry, exact file set, tampering, and NVS overlap rejection.
+- A separate ESP-IDF build directory produces the distributable images. The legacy
+  `firmware/sticks3/build` development images are never copied into the App.
+- App and mounted-DMG gates validate both the Python and Swift-compatible manifest
+  contract and permit `.bin` files only in the exact firmware payload directory.
+- M4-4B extraction/tool validation, M4-4C device identity/security inspection and
+  private full-flash backup, and M4-4D flash/verification/recovery each remain a
+  separately authorized stage.
+
+Current local acceptance evidence (2026-08-15): 173 Python tests and 56 Swift
+tests passed; the ESP-IDF 5.5.1 distributable build, Release App/helpers,
+signatures, fresh-window launch smoke tests, and mounted DMG checks passed. The
+`0.2.0 (4)` candidate DMG is 2,643,120 bytes with SHA-256
+`49c4ddaf0aa96c6562b871a4de3a0e4a057df86c1e2162ad817d57fc4d419bbc`.
+No flashing-tool extraction/execution, serial/device access, runtime installation
+or restart, firmware backup, erase, write, or verification occurred.
+
+## M4-4B extracted-tool boundary
+
+M4-4B may run only after the pinned M4-3 archive is present and has again passed
+its exact size and SHA-256 checks. App launch, page navigation, USB detection, and
+ordinary refresh remain inspection-only. Extraction begins only after the user
+selects the separate prepare action and confirms the dialog that names the exact
+version and the no-device boundary.
+
+Before extraction, `/usr/bin/tar` lists the archive twice: the name list must equal
+the seven pinned entries in their fixed order with no duplicates, and the verbose
+list must contain exactly one directory followed by six ordinary files. Absolute
+paths, traversal, alternate roots, links, devices, extra files, missing files, or
+reordered entries are rejected before extraction. The verified archive is then
+unpacked with one path component stripped into a private sibling staging directory;
+owner and archive permissions are not inherited.
+
+The extracted directory must contain exactly the pinned `README.md`, `LICENSE`,
+`esptool`, `espefuse`, `espsecure`, and `esp_rfc2217_server` files. Every size and
+SHA-256 is fixed in source. The four executables must be thin arm64 Mach-O files and
+pass strict Apple code-signature requirements for Espressif Developer ID team
+`QWXF6GB4AV` and their exact signing identifiers. The directory and executable
+permissions are normalized to `0700`; documentation files use `0600`.
+
+Only after those checks may the App execute the exact argument vector
+`esptool version` in a minimal environment with no port, chip, read, erase, write,
+or verify argument. Its two version lines must identify the pinned version. A
+validated staging directory replaces `Prepared.noindex` only after the offline
+command succeeds; replacement failure restores the previous directory, and
+temporary/backup paths are removed. Refresh validates the on-disk files and
+signatures but never executes the tool automatically.
+
+M4-4B does not bundle the downloaded archive or extracted tool in the App/DMG. It
+does not enumerate or open serial ports, inspect device security state, read or
+back up flash, erase/write/verify firmware, install a main App, or start/restart
+Bridge or HUD. Those device operations remain M4-4C/D and require new authorization.
+
+## M4-4B acceptance
+
+- Hostless tests cover exact archive listings, traversal, duplicates, links,
+  extracted file-set and digest checks, private permissions, wrong versions,
+  cleanup, and preservation of an already prepared tool after a failed attempt.
+- Source gates pin all inner file sizes/digests, the Espressif team ID, strict code
+  signature validation, the exact `version` argument, and the absence of serial or
+  flash commands.
+- Release App and DMG still contain neither the archive nor an extracted `esptool`.
+- App and mounted-DMG smoke tests remain read-only for the tool cache and preserve
+  the existing Bridge/HUD process identities.
+
+Current local acceptance evidence (2026-08-15): 173 Python tests and 59 Swift
+tests passed; Release App/helpers, signatures, fresh-window smoke tests, and the
+mounted M4-4B DMG passed. The `0.2.0 (5)` candidate DMG is 2,668,475 bytes with
+SHA-256 `aff2f26f0cd34f00de4828bdf73c4f330b1f3845128f9ac4883b9cf25d1c7019`.
+The separately authorized real preparation used the same manager implementation:
+all six files, private modes, four arm64 identities and Espressif signatures
+passed, and `esptool version` returned `5.3.1`. No temporary/backup entry or
+`esptool` process remained; Bridge health was HTTP 200. No serial/device access,
+runtime restart, firmware backup, erase, write, or verification occurred.

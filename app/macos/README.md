@@ -10,7 +10,7 @@ plus [M3-A achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M3
 [M4 installation and recovery contract](../../docs/design/m4/M4_INSTALLATION_RECOVERY_CONTRACT.md),
 for the upstream boundary, implemented scope, real-device acceptance, and deferred work.
 
-## M1 foundation through M4-3 verified tool download
+## M1 foundation through M4-4B tool preparation
 
 The M1 app intentionally manages the existing stable installation instead of replacing it:
 
@@ -26,11 +26,12 @@ The M1 app intentionally manages the existing stable installation instead of rep
 - Configures SiliconFlow, Groq, OpenAI-compatible, or a local ASR command; API Keys are stored only in Keychain.
 - Generates a fixed temporary audio fixture and tests the selected provider without accessing a Mac microphone or invoking Paste, the clipboard, Return, or the M3-B send session.
 - Installs or repairs only the embedded, manifested Bridge/HUD/Paste runtime after explicit confirmation, with backup, verification, and rollback.
-- Downloads the pinned Espressif `esptool` 5.3.1 Apple Silicon archive only after explicit confirmation, verifies HTTPS, exact size, and SHA-256, and stores it in a private cache without unpacking or running it.
+- Downloads the pinned Espressif `esptool` 5.3.1 Apple Silicon archive only after explicit confirmation and verifies HTTPS, exact size, and SHA-256.
+- After a second explicit confirmation, validates the exact archive listing, inner file digests, thin-arm64 executables, Espressif Developer ID signatures, and the offline `esptool version` command before transactionally preparing a private tool directory.
 
 First launch does not run `scripts/install.sh`, rebuild helpers, modify `.env`, alter firmware, or re-sign the installed Paste app. Closing or quitting the control center does not stop background services.
 
-The M4-3 control surface is not yet a firmware flasher. It can prepare a verified tool archive, but it does not unpack or execute that tool, open a serial port, read firmware, or issue erase/write commands. Firmware backup and flashing remain separately authorized M4-4 work. No firmware operation happens on app launch or USB detection.
+The M4-4B control center is not yet a firmware flasher. Its development bundle contains a secret-free, offline-validated StickS3 payload. It can prepare the separately downloaded tool only after confirmation and runs only the no-device `esptool version` command. It does not enumerate or open a serial port, inspect device security state, read or back up firmware, or issue erase/write commands. Device inspection/backup and flashing remain separately authorized M4-4C/D work. No firmware operation happens on app launch or USB detection.
 
 If a healthy Bridge is already running outside the installed LaunchAgent, the control center reports it as externally managed and keeps service controls read-only. This avoids creating a second process on port 8765. Stop and restart are also blocked while a recording or transcription is active.
 
@@ -58,7 +59,7 @@ Build the development DMG with:
 scripts/build-macos-dmg.sh
 ```
 
-The result is `.build/macos.noindex/VibeStick-for-Mac-M4-3.dmg`. This development DMG contains the M4-2 verified runtime payload and the M4-3 pinned downloader, but not `esptool`, ESP-IDF, or a firmware image. Opening it does not install, download, restart services, or flash firmware.
+The result is `.build/macos.noindex/VibeStick-for-Mac-M4-4B.dmg`. This development DMG contains the M4-2 verified runtime payload, the M4-3 pinned downloader, the M4-4A secret-free firmware payload, and M4-4B validation logic. It does not contain the downloaded archive, extracted `esptool`, or ESP-IDF. Opening it does not install, download, extract, execute a tool, restart services, access USB, or flash firmware.
 
 Run the complete local acceptance chain with:
 

@@ -19,6 +19,9 @@ typedef enum {
 
 typedef struct {
     char device_id[32];
+    char wifi_ssid[33];
+    char wifi_password[65];
+    bool wifi_configured;
     char pairing_token[64];
     char pairing_id[40];
     char bridge_id[40];
@@ -38,5 +41,5 @@ typedef struct {
 esp_err_t vibe_device_config_init(void);
 const vibe_device_config_t *vibe_device_config_get(void);
 bool vibe_device_config_module_enabled(const char *module);
-esp_err_t vibe_device_config_apply_pairing_json(const char *json);
+esp_err_t vibe_device_config_apply_pairing_json(const char *json, bool *wifi_changed);
 esp_err_t vibe_device_config_apply_configuration_json(const char *json, bool *changed);

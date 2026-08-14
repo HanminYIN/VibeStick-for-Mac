@@ -249,31 +249,82 @@ actor USBDeviceDetector {
     }
 }
 
+struct WiFiProvisioningCredentials: Equatable, Sendable {
+    let ssid: String
+    let password: String
+
+    init(ssid: String, password: String) throws {
+        let ssidBytes = Data(ssid.utf8)
+        guard !ssidBytes.isEmpty, ssidBytes.count <= 32,
+              !ssid.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
+            throw PairingError.invalidWiFiSSID
+        }
+        let passwordBytes = Array(password.utf8)
+        guard (8...63).contains(passwordBytes.count),
+              passwordBytes.allSatisfy({ (0x20...0x7e).contains($0) }) else {
+            throw PairingError.invalidWiFiPassword
+        }
+        self.ssid = ssid
+        self.password = password
+    }
+}
+
+struct DevicePairingPayload: Encodable, Sendable {
+    let schemaVersion: Int
+    let pairingID: String
+    let bridgeID: String
+    let deviceID: String
+    let token: String
+    let bridgePort: Int
+    let fallbackHost: String
+    let wifiSSID: String?
+    let wifiPassword: String?
+
+    init(
+        identity: DeviceIdentity,
+        material: PairingMaterial,
+        bridgeID: String,
+        fallbackHost: String,
+        wifiCredentials: WiFiProvisioningCredentials?
+    ) {
+        schemaVersion = wifiCredentials == nil ? 1 : 2
+        pairingID = material.pairingID
+        self.bridgeID = bridgeID
+        deviceID = identity.deviceID
+        token = material.token
+        bridgePort = 8765
+        self.fallbackHost = fallbackHost
+        wifiSSID = wifiCredentials?.ssid
+        wifiPassword = wifiCredentials?.password
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case schemaVersion = "schema_version"
+        case pairingID = "pairing_id"
+        case bridgeID = "bridge_id"
+        case deviceID = "device_id"
+        case token
+        case bridgePort = "bridge_port"
+        case fallbackHost = "fallback_host"
+        case wifiSSID = "wifi_ssid"
+        case wifiPassword = "wifi_password"
+    }
+}
+
 actor DeviceSerialClient {
     private struct CommandResponse: Decodable {
         let command: String
         let ok: Bool?
         let identity: DeviceIdentity?
         let error: String?
-    }
-
-    private struct PairingPayload: Encodable {
-        let schemaVersion = 1
-        let pairingID: String
-        let bridgeID: String
-        let deviceID: String
-        let token: String
-        let bridgePort: Int
-        let fallbackHost: String
+        let restartRequired: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case schemaVersion = "schema_version"
-            case pairingID = "pairing_id"
-            case bridgeID = "bridge_id"
-            case deviceID = "device_id"
-            case token
-            case bridgePort = "bridge_port"
-            case fallbackHost = "fallback_host"
+            case command
+            case ok
+            case identity
+            case error
+            case restartRequired = "restart_required"
         }
     }
 
@@ -302,15 +353,18 @@ actor DeviceSerialClient {
         material: PairingMaterial,
         bridgeID: String,
         fallbackHost: String,
+        wifiCredentials: WiFiProvisioningCredentials? = nil,
         portPath: String
     ) throws {
-        let payload = PairingPayload(
-            pairingID: material.pairingID,
+        if wifiCredentials != nil, (identity.pairingSchemaVersion ?? 1) < 2 {
+            throw PairingError.unsupportedWiFiProvisioning
+        }
+        let payload = DevicePairingPayload(
+            identity: identity,
+            material: material,
             bridgeID: bridgeID,
-            deviceID: identity.deviceID,
-            token: material.token,
-            bridgePort: 8765,
-            fallbackHost: fallbackHost
+            fallbackHost: fallbackHost,
+            wifiCredentials: wifiCredentials
         )
         let encoded = try JSONEncoder().encode(payload).base64EncodedString()
         let command = "VIBESTICK PAIR \(encoded)\n"
@@ -410,6 +464,7 @@ protocol DeviceSerialPairing: Sendable {
         material: PairingMaterial,
         bridgeID: String,
         fallbackHost: String,
+        wifiCredentials: WiFiProvisioningCredentials?,
         portPath: String
     ) async throws
 }
@@ -455,10 +510,17 @@ actor DevicePairingManager {
         self.keychainStore = keychainStore
     }
 
-    func pair(candidate: USBDeviceCandidate, fallbackHost requestedHost: String?) async throws -> DeviceIdentity {
+    func pair(
+        candidate: USBDeviceCandidate,
+        fallbackHost requestedHost: String?,
+        wifiCredentials: WiFiProvisioningCredentials? = nil
+    ) async throws -> DeviceIdentity {
         let identity = try await serialClient.identify(portPath: candidate.portPath)
         guard identity.model == "M5Stack StickS3", identity.protocolVersion >= 2 else {
             throw PairingError.unsupportedFirmware
+        }
+        if wifiCredentials != nil, (identity.pairingSchemaVersion ?? 1) < 2 {
+            throw PairingError.unsupportedWiFiProvisioning
         }
         let fallbackHost = try ManualBridgeAddressValidator.normalized(requestedHost)
             ?? LocalNetworkAddressResolver.resolve()
@@ -490,6 +552,7 @@ actor DevicePairingManager {
                 material: material,
                 bridgeID: bridgeID,
                 fallbackHost: fallbackHost,
+                wifiCredentials: wifiCredentials,
                 portPath: candidate.portPath
             )
             if keychainPlan.previousAccount != keychainPlan.newAccount {
@@ -540,6 +603,9 @@ enum PairingError: LocalizedError {
     case serialWriteFailed
     case responseTimedOut
     case unsupportedFirmware
+    case unsupportedWiFiProvisioning
+    case invalidWiFiSSID
+    case invalidWiFiPassword
     case deviceRejected(String)
     case invalidManualAddress
     case noLocalAddress
@@ -551,6 +617,9 @@ enum PairingError: LocalizedError {
         case .serialWriteFailed: "向 StickS3 发送配对数据失败"
         case .responseTimedOut: "StickS3 没有响应 M2 配对协议；当前稳定固件可能尚未升级"
         case .unsupportedFirmware: "设备已连接，但当前固件不支持 M2 安全配对协议"
+        case .unsupportedWiFiProvisioning: "设备固件不支持通过 USB 安全写入 Wi-Fi 配置"
+        case .invalidWiFiSSID: "Wi-Fi 名称必须是 1 到 32 字节，且不能包含控制字符"
+        case .invalidWiFiPassword: "当前 WPA2 配网只接受 8 到 63 位可打印 ASCII 密码"
         case .deviceRejected(let message): message
         case .invalidManualAddress: "手动 Bridge 地址无效；请填写 IPv4 地址或局域网主机名"
         case .noLocalAddress: "无法确定 Mac 的局域网地址；请在高级设置填写手动地址"

@@ -1553,8 +1553,9 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
 
 static esp_err_t init_wifi(void)
 {
-    if (strlen(VIBE_STICK_WIFI_SSID) == 0) {
-        ESP_LOGW(TAG, "VIBE_STICK_WIFI_SSID is empty; Wi-Fi disabled");
+    const vibe_device_config_t *config = vibe_device_config_get();
+    if (!config->wifi_configured || config->wifi_ssid[0] == '\0') {
+        ESP_LOGW(TAG, "Wi-Fi is not configured; USB provisioning remains available");
         return ESP_OK;
     }
     ESP_RETURN_ON_ERROR(esp_netif_init(), TAG, "netif init");
@@ -1565,8 +1566,8 @@ static esp_err_t init_wifi(void)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, &wifi_event_handler, NULL));
     wifi_config_t wifi_config = {0};
-    strlcpy((char *)wifi_config.sta.ssid, VIBE_STICK_WIFI_SSID, sizeof(wifi_config.sta.ssid));
-    strlcpy((char *)wifi_config.sta.password, VIBE_STICK_WIFI_PASSWORD, sizeof(wifi_config.sta.password));
+    strlcpy((char *)wifi_config.sta.ssid, config->wifi_ssid, sizeof(wifi_config.sta.ssid));
+    strlcpy((char *)wifi_config.sta.password, config->wifi_password, sizeof(wifi_config.sta.password));
     wifi_config.sta.threshold.authmode = WIFI_AUTH_WPA2_PSK;
     ESP_RETURN_ON_ERROR(esp_wifi_set_mode(WIFI_MODE_STA), TAG, "wifi mode");
     ESP_RETURN_ON_ERROR(esp_wifi_set_config(WIFI_IF_STA, &wifi_config), TAG, "wifi config");

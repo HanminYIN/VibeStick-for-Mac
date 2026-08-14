@@ -16,6 +16,8 @@ static const char *TAG = "vibe_config";
 static const char *NAMESPACE = "vibe_m2";
 
 static vibe_device_config_t s_config;
+static bool valid_utf8_ssid(const char *value);
+static bool valid_wifi_password(const char *value);
 
 static void make_device_id(char *target, size_t target_len)
 {
@@ -32,6 +34,9 @@ static void defaults(void)
 {
     memset(&s_config, 0, sizeof(s_config));
     make_device_id(s_config.device_id, sizeof(s_config.device_id));
+    strlcpy(s_config.wifi_ssid, VIBE_STICK_WIFI_SSID, sizeof(s_config.wifi_ssid));
+    strlcpy(s_config.wifi_password, VIBE_STICK_WIFI_PASSWORD, sizeof(s_config.wifi_password));
+    s_config.wifi_configured = s_config.wifi_ssid[0] != '\0';
     strlcpy(s_config.pairing_token, VIBE_STICK_BRIDGE_TOKEN, sizeof(s_config.pairing_token));
     strlcpy(s_config.fallback_host, VIBE_STICK_BRIDGE_HOST, sizeof(s_config.fallback_host));
     s_config.bridge_port = VIBE_STICK_BRIDGE_PORT;
@@ -53,7 +58,7 @@ static void nvs_get_string(nvs_handle_t handle, const char *key, char *target, s
     target[target_len - 1] = '\0';
 }
 
-static esp_err_t persist_pairing(void)
+static esp_err_t persist_pairing(bool include_wifi)
 {
     nvs_handle_t handle;
     ESP_RETURN_ON_ERROR(nvs_open(NAMESPACE, NVS_READWRITE, &handle), TAG, "open nvs");
@@ -62,6 +67,8 @@ static esp_err_t persist_pairing(void)
     if (err == ESP_OK) err = nvs_set_str(handle, "bridge_id", s_config.bridge_id);
     if (err == ESP_OK) err = nvs_set_str(handle, "fallback", s_config.fallback_host);
     if (err == ESP_OK) err = nvs_set_u16(handle, "bridge_port", s_config.bridge_port);
+    if (include_wifi && err == ESP_OK) err = nvs_set_str(handle, "wifi_ssid", s_config.wifi_ssid);
+    if (include_wifi && err == ESP_OK) err = nvs_set_str(handle, "wifi_pass", s_config.wifi_password);
     if (err == ESP_OK) err = nvs_commit(handle);
     nvs_close(handle);
     return err;
@@ -91,6 +98,16 @@ esp_err_t vibe_device_config_init(void)
         return ESP_OK;
     }
     ESP_RETURN_ON_ERROR(err, TAG, "open nvs");
+
+    char stored_wifi_ssid[sizeof(s_config.wifi_ssid)] = "";
+    char stored_wifi_password[sizeof(s_config.wifi_password)] = "";
+    nvs_get_string(handle, "wifi_ssid", stored_wifi_ssid, sizeof(stored_wifi_ssid));
+    nvs_get_string(handle, "wifi_pass", stored_wifi_password, sizeof(stored_wifi_password));
+    if (valid_utf8_ssid(stored_wifi_ssid) && valid_wifi_password(stored_wifi_password)) {
+        strlcpy(s_config.wifi_ssid, stored_wifi_ssid, sizeof(s_config.wifi_ssid));
+        strlcpy(s_config.wifi_password, stored_wifi_password, sizeof(s_config.wifi_password));
+        s_config.wifi_configured = true;
+    }
 
     char stored_token[sizeof(s_config.pairing_token)] = "";
     char stored_pairing_id[sizeof(s_config.pairing_id)] = "";
@@ -171,8 +188,62 @@ static bool valid_host(const char *value)
     return true;
 }
 
-esp_err_t vibe_device_config_apply_pairing_json(const char *json)
+static bool valid_utf8_ssid(const char *value)
 {
+    const unsigned char *bytes = (const unsigned char *)value;
+    size_t length = value ? strlen(value) : 0;
+    if (length == 0 || length > 32) return false;
+    for (size_t index = 0; index < length;) {
+        unsigned char first = bytes[index];
+        if (first < 0x80) {
+            if (first < 0x20 || first == 0x7f) return false;
+            index++;
+            continue;
+        }
+        size_t continuation_count = 0;
+        uint32_t codepoint = 0;
+        if (first >= 0xc2 && first <= 0xdf) {
+            continuation_count = 1;
+            codepoint = first & 0x1f;
+        } else if (first >= 0xe0 && first <= 0xef) {
+            continuation_count = 2;
+            codepoint = first & 0x0f;
+        } else if (first >= 0xf0 && first <= 0xf4) {
+            continuation_count = 3;
+            codepoint = first & 0x07;
+        } else {
+            return false;
+        }
+        if (index + continuation_count >= length) return false;
+        for (size_t offset = 1; offset <= continuation_count; ++offset) {
+            unsigned char next = bytes[index + offset];
+            if ((next & 0xc0) != 0x80) return false;
+            codepoint = (codepoint << 6) | (next & 0x3f);
+        }
+        if ((continuation_count == 2 && codepoint < 0x800) ||
+            (continuation_count == 3 && codepoint < 0x10000) ||
+            (codepoint >= 0xd800 && codepoint <= 0xdfff) || codepoint > 0x10ffff) {
+            return false;
+        }
+        index += continuation_count + 1;
+    }
+    return true;
+}
+
+static bool valid_wifi_password(const char *value)
+{
+    size_t length = value ? strlen(value) : 0;
+    if (length < 8 || length > 63) return false;
+    for (size_t index = 0; index < length; ++index) {
+        unsigned char byte = (unsigned char)value[index];
+        if (byte < 0x20 || byte > 0x7e) return false;
+    }
+    return true;
+}
+
+esp_err_t vibe_device_config_apply_pairing_json(const char *json, bool *wifi_changed)
+{
+    if (wifi_changed) *wifi_changed = false;
     cJSON *root = cJSON_Parse(json);
     ESP_RETURN_ON_FALSE(root != NULL, ESP_ERR_INVALID_ARG, TAG, "pair json");
     cJSON *schema = cJSON_GetObjectItemCaseSensitive(root, "schema_version");
@@ -182,13 +253,20 @@ esp_err_t vibe_device_config_apply_pairing_json(const char *json)
     cJSON *bridge_id = cJSON_GetObjectItemCaseSensitive(root, "bridge_id");
     cJSON *host = cJSON_GetObjectItemCaseSensitive(root, "fallback_host");
     cJSON *port = cJSON_GetObjectItemCaseSensitive(root, "bridge_port");
-    bool valid = cJSON_IsNumber(schema) && schema->valueint == 1 &&
+    int schema_version = cJSON_IsNumber(schema) ? schema->valueint : 0;
+    bool valid = (schema_version == 1 || schema_version == 2) &&
                  cJSON_IsString(pairing_id) && valid_uuid(pairing_id->valuestring) &&
                  cJSON_IsString(device_id) && strcmp(device_id->valuestring, s_config.device_id) == 0 &&
                  cJSON_IsString(token) && valid_token(token->valuestring) &&
                  cJSON_IsString(bridge_id) && valid_uuid(bridge_id->valuestring) &&
                  cJSON_IsString(host) && valid_host(host->valuestring) &&
                  cJSON_IsNumber(port) && port->valueint > 0 && port->valueint <= 65535;
+    cJSON *wifi_ssid = cJSON_GetObjectItemCaseSensitive(root, "wifi_ssid");
+    cJSON *wifi_password = cJSON_GetObjectItemCaseSensitive(root, "wifi_password");
+    if (schema_version == 2) {
+        valid = valid && cJSON_IsString(wifi_ssid) && valid_utf8_ssid(wifi_ssid->valuestring) &&
+                cJSON_IsString(wifi_password) && valid_wifi_password(wifi_password->valuestring);
+    }
     if (!valid) {
         cJSON_Delete(root);
         return ESP_ERR_INVALID_ARG;
@@ -201,9 +279,18 @@ esp_err_t vibe_device_config_apply_pairing_json(const char *json)
     strlcpy(s_config.fallback_host, host->valuestring, sizeof(s_config.fallback_host));
     s_config.bridge_port = (uint16_t)port->valueint;
     s_config.paired = true;
+    bool credentials_changed = false;
+    if (schema_version == 2) {
+        credentials_changed = strcmp(s_config.wifi_ssid, wifi_ssid->valuestring) != 0 ||
+                              strcmp(s_config.wifi_password, wifi_password->valuestring) != 0;
+        strlcpy(s_config.wifi_ssid, wifi_ssid->valuestring, sizeof(s_config.wifi_ssid));
+        strlcpy(s_config.wifi_password, wifi_password->valuestring, sizeof(s_config.wifi_password));
+        s_config.wifi_configured = true;
+    }
     cJSON_Delete(root);
-    esp_err_t err = persist_pairing();
+    esp_err_t err = persist_pairing(schema_version == 2);
     if (err != ESP_OK) s_config = previous;
+    if (err == ESP_OK && wifi_changed) *wifi_changed = credentials_changed;
     return err;
 }
 

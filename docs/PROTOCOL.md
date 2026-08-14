@@ -58,7 +58,7 @@ VIBESTICK IDENTIFY
 ```
 
 ```text
-VIBESTICK_RESPONSE {"command":"identify","ok":true,"identity":{"device_id":"vs-001122334455","model":"M5Stack StickS3","firmware_version":"0.2.0-dev","protocol_version":2}}
+VIBESTICK_RESPONSE {"command":"identify","ok":true,"identity":{"device_id":"vs-001122334455","model":"M5Stack StickS3","firmware_version":"0.2.0-dev","protocol_version":2,"pairing_schema_version":2,"wifi_configured":false}}
 ```
 
 Pair, where `<payload>` is standard Base64-encoded JSON:
@@ -92,6 +92,19 @@ auth=paired
 ```
 
 Paired firmware selects only the service whose `bridge_id` exactly matches its USB pairing record. It resolves the current IPv4 address and port, and falls back to the validated manual host if mDNS is unavailable. A failed request invalidates the discovered address so resolution can be retried.
+
+### Pairing schema 2 and first Wi-Fi provisioning
+
+Schema 1 remains the compatibility format and never changes stored Wi-Fi. Schema 2
+adds `wifi_ssid` and `wifi_password` to the existing pairing object. It is intended
+for a secret-free distributable firmware that boots offline and receives its first
+network configuration over the explicit USB pairing action.
+
+The SSID must be valid UTF-8, 1–32 bytes, and contain no control characters. The
+current WPA2-only firmware accepts an 8–63 byte printable-ASCII password. Pairing,
+Bridge, and Wi-Fi values are committed together in NVS. A changed Wi-Fi credential
+returns `restart_required: true`; the acknowledgement is sent before the device
+restarts. Identify returns only `wifi_configured`, never the SSID or password.
 
 ## GET /health
 

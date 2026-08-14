@@ -1,7 +1,7 @@
 # Third-Party Audit
 
 This audit began with the v0.1.1 cleanup and was reviewed through the VibeStick for Mac
-M4-3 real-download acceptance on 2026-08-15.
+M4-4B private esptool preparation work on 2026-08-15.
 
 | Project / file / dependency | Source | Current use | License status | Risk | Recommendation |
 | --- | --- | --- | --- | --- | --- |
@@ -22,7 +22,8 @@ M4-3 real-download acceptance on 2026-08-15.
 | `firmware/sticks3/generated/vibe_stick_ui_10.c`, `vibe_stick_ui_12.c`, and `vibe_stick_project_cn_10.c` | Generated from Noto Sans CJK SC / Noto Sans SC Regular | Uncompressed LVGL glyph subsets for fixed Chinese home-screen and M3-B voice labels, plus 6,763 GB2312 Hanzi for user-configured project names | Source font is SIL Open Font License 1.1, copyright Adobe 2014-2021 | Medium | Keep generated subsets and the reproducible generator with NOTICE attribution. Do not use the reserved Source or Noto names as a VibeStick brand. |
 | `firmware/sticks3/src/idf_component.yml` dependencies: `espressif/button`, `espressif/esp_codec_dev`, `lvgl/lvgl` | ESP Component Registry | Build-time firmware dependencies | External open-source components, not vendored after cleanup | Low | Keep dependency manifest and lock file. Review component licenses before binary release. |
 | ESP-IDF framework | Espressif | Firmware framework | External SDK, not vendored | Low | Keep as build prerequisite. |
-| Espressif `esptool` 5.3.1 standalone `macos-arm64` archive | Espressif GitHub Release, pinned HTTPS URL, size, and SHA-256 | Downloaded only on explicit request into a private local cache for future M4-4 flashing | GPL-2.0-or-later; not bundled in the App or DMG | Medium | Keep version and digest fixed. Before M4-4 execution, verify the extracted executable, notarization/signature, license material, and supported command contract. |
+| `FirmwarePayload.noindex` generated images | Project firmware linked with ESP-IDF and audited component dependencies | Secret-free StickS3 installation payload prepared by maintainers | Binary redistribution review remains required before a public Release | Medium | Keep local to the development App/DMG until component notices and release signing are complete. Never copy the local development firmware build. |
+| Espressif `esptool` 5.3.1 standalone `macos-arm64` archive | Espressif GitHub Release, pinned HTTPS URL, archive/inner-file sizes and SHA-256 values, and Developer ID team `QWXF6GB4AV` | Downloaded and prepared only after separate explicit confirmations in a private local cache; only the offline `version` command is enabled in M4-4B | GPL-2.0-or-later; `LICENSE` remains in the private prepared directory and neither archive nor extracted files are bundled in the App/DMG | Medium | Keep all identities fixed. Review the exact read/backup/write command plan and recovery evidence before separately authorizing M4-4C/D. |
 | SiliconFlow, Groq, and OpenAI-compatible ASR APIs | Optional external services | Speech-to-text when explicitly configured or tested | Service APIs, no source vendored | Medium | Clearly display the selected endpoint and that audio leaves the Mac. Do not commit API keys. |
 | Local Codex session files | User-local Codex data | Quota/status observation from `~/.codex/sessions/**/*.jsonl` | User-local data, not vendored | Medium | Keep local-only. Do not upload or commit session data. |
 | Historical VoiceStick / StickS3VoiceKit / VoiceStickTrial directories outside this repository | Local historical reference directories in the parent workspace | Not part of VibeStick repository | Source/license uncertain from local copy | High | Do not copy into VibeStick. Do not publish as part of this repository. |

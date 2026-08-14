@@ -42,6 +42,7 @@ final class AppModel: ObservableObject {
     @Published var presentedMessage: AppMessage?
     @Published var runtimeInstallConfirmationPresented = false
     @Published var flashingToolDownloadConfirmationPresented = false
+    @Published var flashingToolPreparationConfirmationPresented = false
     @Published var flashingToolRemovalConfirmationPresented = false
 
     private let bridgeClient: BridgeClient
@@ -100,7 +101,7 @@ final class AppModel: ObservableObject {
             ?? "0.2.0-dev"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "local"
-        return "\(version) (\(build)) · M4-3"
+        return "\(version) (\(build)) · M4-4B"
     }
 
     func start() {
@@ -544,6 +545,36 @@ final class AppModel: ObservableObject {
         flashingToolRemovalConfirmationPresented = true
     }
 
+    func requestFlashingToolPreparation() {
+        guard !flashingToolActionInProgress,
+              flashingToolSnapshot.phase == .archiveReady else { return }
+        flashingToolPreparationConfirmationPresented = true
+    }
+
+    func confirmFlashingToolPreparation() {
+        guard !flashingToolActionInProgress else { return }
+        flashingToolPreparationConfirmationPresented = false
+        flashingToolActionInProgress = true
+        flashingToolSnapshot = .checking(flashingToolSnapshot.descriptor)
+
+        Task {
+            do {
+                flashingToolSnapshot = try await flashingToolManager.prepareAndVerify()
+                presentedMessage = AppMessage(
+                    title: "烧录工具已准备",
+                    message: "esptool \(flashingToolSnapshot.descriptor.version) 已通过固定条目、逐文件 SHA-256、Apple Silicon 架构、Espressif Developer ID 签名和离线版本检查。没有访问设备或串口。"
+                )
+            } catch {
+                flashingToolSnapshot = .failed(detail: error.localizedDescription)
+                presentedMessage = AppMessage(
+                    title: "烧录工具未准备",
+                    message: error.localizedDescription
+                )
+            }
+            flashingToolActionInProgress = false
+        }
+    }
+
     func confirmFlashingToolRemoval() {
         guard !flashingToolActionInProgress else { return }
         flashingToolRemovalConfirmationPresented = false
@@ -554,7 +585,7 @@ final class AppModel: ObservableObject {
                 flashingToolSnapshot = try await flashingToolManager.removeCachedArchive()
                 presentedMessage = AppMessage(
                     title: "工具缓存已移除",
-                    message: "只删除了当前固定版本的烧录工具归档；后台组件、配置和设备固件均未改变。"
+                    message: "只删除了当前固定版本的烧录工具归档和准备目录；后台组件、配置和设备固件均未改变。"
                 )
             } catch {
                 presentedMessage = AppMessage(

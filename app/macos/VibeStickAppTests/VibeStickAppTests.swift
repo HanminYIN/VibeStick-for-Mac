@@ -737,6 +737,8 @@ struct VibeStickAppTests {
         )
 
         #expect(identity.pairingID == "90d71007-7734-44f7-8987-b2980437e6c6")
+        #expect(identity.pairingSchemaVersion == nil)
+        #expect(identity.wifiConfigured == nil)
         #expect(PairingRecovery.confirmsCommittedRotation(
             expectedPairingID: "90d71007-7734-44f7-8987-b2980437e6c6",
             identity: identity
@@ -745,6 +747,55 @@ struct VibeStickAppTests {
             expectedPairingID: "11111111-2222-3333-4444-555555555555",
             identity: identity
         ))
+    }
+
+    @Test
+    func pairingSchemaTwoCarriesValidatedWiFiWithoutChangingLegacyPayloads() throws {
+        let identity = DeviceIdentity(
+            deviceID: "vs-001122334455",
+            model: "M5Stack StickS3",
+            firmwareVersion: "0.2.0-dev",
+            protocolVersion: 2,
+            pairingID: nil,
+            pairingSchemaVersion: 2,
+            wifiConfigured: false
+        )
+        let material = PairingMaterial(
+            token: String(repeating: "a", count: 43),
+            tokenSalt: String(repeating: "1", count: 32),
+            tokenHash: String(repeating: "2", count: 64),
+            pairingID: "90d71007-7734-44f7-8987-b2980437e6c6"
+        )
+        let credentials = try WiFiProvisioningCredentials(ssid: "中文 Wi-Fi", password: "valid-passphrase")
+        let versionTwo = DevicePairingPayload(
+            identity: identity,
+            material: material,
+            bridgeID: "11111111-2222-4333-8444-555555555555",
+            fallbackHost: "192.0.2.10",
+            wifiCredentials: credentials
+        )
+        let versionOne = DevicePairingPayload(
+            identity: identity,
+            material: material,
+            bridgeID: "11111111-2222-4333-8444-555555555555",
+            fallbackHost: "192.0.2.10",
+            wifiCredentials: nil
+        )
+        let v2JSON = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(versionTwo)) as? [String: Any])
+        let v1JSON = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(versionOne)) as? [String: Any])
+
+        #expect(v2JSON["schema_version"] as? Int == 2)
+        #expect(v2JSON["wifi_ssid"] as? String == "中文 Wi-Fi")
+        #expect(v2JSON["wifi_password"] as? String == "valid-passphrase")
+        #expect(v1JSON["schema_version"] as? Int == 1)
+        #expect(v1JSON["wifi_ssid"] == nil)
+        #expect(v1JSON["wifi_password"] == nil)
+        #expect(throws: PairingError.self) {
+            _ = try WiFiProvisioningCredentials(ssid: "", password: "valid-passphrase")
+        }
+        #expect(throws: PairingError.self) {
+            _ = try WiFiProvisioningCredentials(ssid: "Wi-Fi", password: "short")
+        }
     }
 
     @Test
@@ -926,6 +977,70 @@ struct VibeStickAppTests {
     }
 
     @Test
+    func firmwarePayloadValidatorPinsImagesGeometryAndNVSRange() throws {
+        let root = temporaryTestDirectory("FirmwarePayload")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeFirmwarePayload(at: root)
+
+        let validated = try FirmwarePayloadValidator.validate(root: root)
+
+        #expect(validated.target == "esp32s3")
+        #expect(validated.flash.size == 8 * 1024 * 1024)
+        #expect(validated.preservedRanges == [FirmwarePayloadValidator.preservedNVS])
+        #expect(Dictionary(uniqueKeysWithValues: validated.files.map { ($0.path, $0.offset) })
+            == FirmwarePayloadValidator.requiredOffsets)
+    }
+
+    @Test
+    func firmwarePayloadValidatorRejectsTamperingExtraFilesAndNVSOverlap() throws {
+        let root = temporaryTestDirectory("FirmwarePayloadTamper")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeFirmwarePayload(at: root)
+        try Data("tampered".utf8).write(to: root.appendingPathComponent("vibe-stick.bin"))
+        #expect(throws: FirmwarePayloadError.self) {
+            try FirmwarePayloadValidator.validate(root: root)
+        }
+
+        try makeFirmwarePayload(at: root, replaceExisting: true)
+        try writeTestFile("extra", to: root.appendingPathComponent("unexpected.bin"))
+        #expect(throws: FirmwarePayloadError.self) {
+            try FirmwarePayloadValidator.validate(root: root)
+        }
+
+        try makeFirmwarePayload(at: root, replaceExisting: true)
+        let manifestURL = root.appendingPathComponent(FirmwarePayloadValidator.manifestName)
+        let original = try JSONDecoder().decode(
+            FirmwarePayloadManifest.self,
+            from: Data(contentsOf: manifestURL)
+        )
+        let changedFiles = original.files.map { entry in
+            entry.path == "partition-table.bin"
+                ? FirmwarePayloadFile(
+                    mode: entry.mode,
+                    offset: 0x9000,
+                    path: entry.path,
+                    sha256: entry.sha256,
+                    size: entry.size
+                )
+                : entry
+        }
+        let changed = FirmwarePayloadManifest(
+            board: original.board,
+            files: changedFiles,
+            flash: original.flash,
+            payloadVersion: original.payloadVersion,
+            preservedRanges: original.preservedRanges,
+            schemaVersion: original.schemaVersion,
+            source: original.source,
+            target: original.target
+        )
+        try JSONEncoder().encode(changed).write(to: manifestURL)
+        #expect(throws: FirmwarePayloadError.self) {
+            try FirmwarePayloadValidator.validate(root: root)
+        }
+    }
+
+    @Test
     func runtimeInstallerSwitchesManagedTargetsAndPreservesPrivateConfiguration() async throws {
         let fixture = try makeRuntimeInstallFixture("InstallSuccess")
         defer { try? FileManager.default.removeItem(at: fixture.root) }
@@ -1018,7 +1133,8 @@ struct VibeStickAppTests {
             archiveFileName: insecure.archiveFileName,
             sourceURL: URL(string: "https://github.com/espressif/esptool/tool.tar.gz")!,
             sha256: insecure.sha256,
-            size: FlashingToolDescriptor.maximumArchiveSize + 1
+            size: FlashingToolDescriptor.maximumArchiveSize + 1,
+            payload: insecure.payload
         )
         #expect(throws: FlashingToolError.self) {
             try oversized.validate()
@@ -1038,7 +1154,7 @@ struct VibeStickAppTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let archiveURL = await manager.archiveURL
         try data.write(to: archiveURL)
-        #expect(await manager.inspect().phase == .ready)
+        #expect(await manager.inspect().phase == .archiveReady)
 
         try Data("tampered!!!!".utf8).write(to: archiveURL)
         #expect(await manager.inspect().phase == .invalid)
@@ -1068,7 +1184,7 @@ struct VibeStickAppTests {
         let snapshot = try await manager.downloadAndVerify()
         let permissions = try FileManager.default.attributesOfItem(atPath: existing.path)[.posixPermissions] as? NSNumber
 
-        #expect(snapshot.phase == .ready)
+        #expect(snapshot.phase == .archiveReady)
         #expect(try Data(contentsOf: existing) == data)
         #expect(permissions?.intValue == 0o600)
         #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).filter { $0.contains(".partial-") }.isEmpty)
@@ -1172,15 +1288,127 @@ struct VibeStickAppTests {
     }
 
     @Test
-    func flashingToolRemovalDeletesOnlyThePinnedArchive() async throws {
+    func flashingToolArchiveListingRejectsTraversalDuplicatesAndLinks() throws {
+        let expected = ["fixture/", "fixture/esptool"]
+        try SystemTarFlashingToolExtractor.validateArchiveListing(
+            names: "fixture/\nfixture/esptool\n",
+            verbose: "drwx------ owner group 0 Jan 1 00:00 fixture/\n-rwx------ owner group 12 Jan 1 00:00 fixture/esptool\n",
+            expectedEntries: expected
+        )
+
+        #expect(throws: FlashingToolError.self) {
+            try SystemTarFlashingToolExtractor.validateArchiveListing(
+                names: "fixture/\n../escape\n",
+                verbose: "drwx------ fixture/\n-rwx------ ../escape\n",
+                expectedEntries: expected
+            )
+        }
+        #expect(throws: FlashingToolError.self) {
+            try SystemTarFlashingToolExtractor.validateArchiveListing(
+                names: "fixture/\nfixture/esptool\nfixture/esptool\n",
+                verbose: "drwx------ fixture/\n-rwx------ fixture/esptool\n-rwx------ fixture/esptool\n",
+                expectedEntries: expected
+            )
+        }
+        #expect(throws: FlashingToolError.self) {
+            try SystemTarFlashingToolExtractor.validateArchiveListing(
+                names: "fixture/\nfixture/esptool\n",
+                verbose: "drwx------ fixture/\nlrwx------ fixture/esptool -> outside\n",
+                expectedEntries: expected
+            )
+        }
+    }
+
+    @Test
+    func flashingToolPreparationValidatesPayloadAndUsesPrivateModes() async throws {
+        let data = Data("prepared-fixture-tool".utf8)
+        let descriptor = makeFlashingToolDescriptor(data: data)
+        let root = temporaryTestDirectory("FlashingToolPrepare")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try data.write(to: root.appendingPathComponent(descriptor.archiveFileName))
+        let manager = FlashingToolManager(
+            descriptor: descriptor,
+            cacheDirectory: root,
+            extractor: MockFlashingToolExtractor(data: data, behavior: .valid),
+            executableValidator: MockFlashingToolExecutableValidator(),
+            versionChecker: MockFlashingToolVersionChecker(reportedVersion: descriptor.version)
+        )
+
+        #expect(await manager.inspect().phase == .archiveReady)
+        let snapshot = try await manager.prepareAndVerify()
+        let prepared = await manager.preparedDirectoryURL
+        let executable = await manager.executableURL
+        let directoryMode = try FileManager.default.attributesOfItem(atPath: prepared.path)[.posixPermissions] as? NSNumber
+        let executableMode = try FileManager.default.attributesOfItem(atPath: executable.path)[.posixPermissions] as? NSNumber
+
+        #expect(snapshot.phase == .ready)
+        #expect(snapshot.executableURL == executable)
+        #expect(directoryMode?.intValue == 0o700)
+        #expect(executableMode?.intValue == 0o700)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: root.path).allSatisfy { !$0.contains(".partial-") && !$0.contains(".backup-") })
+    }
+
+    @Test
+    func flashingToolPreparationRejectsExtraSymlinkAndWrongVersionWithoutReplacingReadyTool() async throws {
+        let data = Data("prepared-fixture-tool".utf8)
+        let descriptor = makeFlashingToolDescriptor(data: data)
+        let root = temporaryTestDirectory("FlashingToolPrepareReject")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try data.write(to: root.appendingPathComponent(descriptor.archiveFileName))
+        let validManager = FlashingToolManager(
+            descriptor: descriptor,
+            cacheDirectory: root,
+            extractor: MockFlashingToolExtractor(data: data, behavior: .valid),
+            executableValidator: MockFlashingToolExecutableValidator(),
+            versionChecker: MockFlashingToolVersionChecker(reportedVersion: descriptor.version)
+        )
+        _ = try await validManager.prepareAndVerify()
+        let preparedExecutable = await validManager.executableURL
+        let original = try Data(contentsOf: preparedExecutable)
+
+        for behavior in [MockFlashingToolExtractor.Behavior.extraFile, .symbolicLink] {
+            let manager = FlashingToolManager(
+                descriptor: descriptor,
+                cacheDirectory: root,
+                extractor: MockFlashingToolExtractor(data: data, behavior: behavior),
+                executableValidator: MockFlashingToolExecutableValidator(),
+                versionChecker: MockFlashingToolVersionChecker(reportedVersion: descriptor.version)
+            )
+            await #expect(throws: FlashingToolError.self) {
+                _ = try await manager.prepareAndVerify()
+            }
+            #expect(try Data(contentsOf: preparedExecutable) == original)
+        }
+
+        let wrongVersionManager = FlashingToolManager(
+            descriptor: descriptor,
+            cacheDirectory: root,
+            extractor: MockFlashingToolExtractor(data: data, behavior: .valid),
+            executableValidator: MockFlashingToolExecutableValidator(),
+            versionChecker: MockFlashingToolVersionChecker(reportedVersion: "0.0.0")
+        )
+        await #expect(throws: FlashingToolError.self) {
+            _ = try await wrongVersionManager.prepareAndVerify()
+        }
+        #expect(try Data(contentsOf: preparedExecutable) == original)
+        #expect(await validManager.inspect().phase == .ready)
+    }
+
+    @Test
+    func flashingToolRemovalDeletesOnlyPinnedArchiveAndPreparedDirectory() async throws {
         let data = Data("fixture-tool".utf8)
         let descriptor = makeFlashingToolDescriptor(data: data)
         let root = temporaryTestDirectory("FlashingToolRemove")
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let archive = root.appendingPathComponent(descriptor.archiveFileName)
+        let prepared = root.appendingPathComponent("Prepared.noindex", isDirectory: true)
         let unrelated = root.appendingPathComponent("keep.txt")
         try data.write(to: archive)
+        try FileManager.default.createDirectory(at: prepared, withIntermediateDirectories: false)
+        try data.write(to: prepared.appendingPathComponent("esptool"))
         try Data("keep".utf8).write(to: unrelated)
         let manager = FlashingToolManager(descriptor: descriptor, cacheDirectory: root)
 
@@ -1188,6 +1416,7 @@ struct VibeStickAppTests {
 
         #expect(snapshot.phase == .missing)
         #expect(!FileManager.default.fileExists(atPath: archive.path))
+        #expect(!FileManager.default.fileExists(atPath: prepared.path))
         #expect(FileManager.default.fileExists(atPath: unrelated.path))
     }
 }
@@ -1199,6 +1428,56 @@ private struct MockFlashingToolDownloader: FlashingToolDownloading {
     func download(from sourceURL: URL, to destinationURL: URL) async throws -> FlashingToolDownloadResponse {
         try data.write(to: destinationURL)
         return response
+    }
+}
+
+private struct MockFlashingToolExtractor: FlashingToolExtracting {
+    enum Behavior: Sendable {
+        case valid
+        case extraFile
+        case symbolicLink
+    }
+
+    let data: Data
+    let behavior: Behavior
+
+    func extract(
+        archiveURL: URL,
+        to destinationURL: URL,
+        expectedEntries: [String]
+    ) throws {
+        let executable = destinationURL.appendingPathComponent("esptool")
+        switch behavior {
+        case .valid:
+            try data.write(to: executable)
+        case .extraFile:
+            try data.write(to: executable)
+            try Data("unexpected".utf8).write(to: destinationURL.appendingPathComponent("extra"))
+        case .symbolicLink:
+            try FileManager.default.createSymbolicLink(
+                at: executable,
+                withDestinationURL: URL(fileURLWithPath: "/private/tmp/outside")
+            )
+        }
+    }
+}
+
+private struct MockFlashingToolExecutableValidator: FlashingToolExecutableValidating {
+    func validate(
+        executableURL: URL,
+        teamIdentifier: String,
+        signingIdentifier: String
+    ) throws {}
+}
+
+private struct MockFlashingToolVersionChecker: FlashingToolVersionChecking {
+    let reportedVersion: String
+
+    func version(executableURL: URL, expectedVersion: String) throws -> String {
+        guard reportedVersion == expectedVersion else {
+            throw FlashingToolError.versionMismatch
+        }
+        return reportedVersion
     }
 }
 
@@ -1215,7 +1494,20 @@ private func makeFlashingToolDescriptor(
         archiveFileName: "tool.tar.gz",
         sourceURL: sourceURL,
         sha256: digest,
-        size: UInt64(data.count)
+        size: UInt64(data.count),
+        payload: FlashingToolPayloadDescriptor(
+            archiveRootDirectory: "fixture",
+            signingTeamIdentifier: "TESTTEAM01",
+            files: [
+                FlashingToolPayloadFile(
+                    path: "esptool",
+                    size: UInt64(data.count),
+                    sha256: digest,
+                    executable: true,
+                    signingIdentifier: "esptool"
+                ),
+            ]
+        )
     )
 }
 
@@ -1284,6 +1576,54 @@ private func makeRuntimePayload(
     encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
     try encoder.encode(manifest).write(
         to: root.appendingPathComponent(RuntimePayloadValidator.manifestName)
+    )
+}
+
+private func makeFirmwarePayload(
+    at root: URL,
+    replaceExisting: Bool = false
+) throws {
+    if replaceExisting, FileManager.default.fileExists(atPath: root.path) {
+        try FileManager.default.removeItem(at: root)
+    }
+    let contents: [String: String] = [
+        "bootloader.bin": "fixture-bootloader",
+        "partition-table.bin": "fixture-partitions",
+        "vibe-stick.bin": "fixture-application",
+    ]
+    var files: [FirmwarePayloadFile] = []
+    for (path, contents) in contents {
+        let url = root.appendingPathComponent(path)
+        try writeTestFile(contents, to: url)
+        let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.uint64Value ?? 0
+        files.append(
+            FirmwarePayloadFile(
+                mode: 0o644,
+                offset: try #require(FirmwarePayloadValidator.requiredOffsets[path]),
+                path: path,
+                sha256: try RuntimePayloadDigest.sha256(of: url),
+                size: size
+            )
+        )
+    }
+    let manifest = FirmwarePayloadManifest(
+        board: "M5Stack StickS3",
+        files: files.sorted { $0.offset < $1.offset },
+        flash: FirmwareFlashGeometry(frequency: "80m", mode: "dio", size: 8 * 1024 * 1024),
+        payloadVersion: "0.2.0-m4.4a-test",
+        preservedRanges: [FirmwarePayloadValidator.preservedNVS],
+        schemaVersion: FirmwarePayloadManifest.currentSchemaVersion,
+        source: FirmwareSourceIdentity(digest: String(repeating: "b", count: 64), revision: String(repeating: "a", count: 40)),
+        target: "esp32s3"
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    try encoder.encode(manifest).write(
+        to: root.appendingPathComponent(FirmwarePayloadValidator.manifestName)
+    )
+    try FileManager.default.setAttributes(
+        [.posixPermissions: NSNumber(value: 0o644)],
+        ofItemAtPath: root.appendingPathComponent(FirmwarePayloadValidator.manifestName).path
     )
 }
 
@@ -1441,7 +1781,9 @@ private actor RejectingPairingSerialClient: DeviceSerialPairing {
             model: "M5Stack StickS3",
             firmwareVersion: "0.2.0-dev",
             protocolVersion: 2,
-            pairingID: nil
+            pairingID: nil,
+            pairingSchemaVersion: nil,
+            wifiConfigured: nil
         )
     }
 
@@ -1450,6 +1792,7 @@ private actor RejectingPairingSerialClient: DeviceSerialPairing {
         material: PairingMaterial,
         bridgeID: String,
         fallbackHost: String,
+        wifiCredentials: WiFiProvisioningCredentials?,
         portPath: String
     ) throws {
         throw PairingError.serialWriteFailed

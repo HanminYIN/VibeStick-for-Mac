@@ -6,7 +6,7 @@ PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-3.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-4B.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -279,7 +279,7 @@ assert_m4_install_source_contract() {
     exit 1
   fi
   if /usr/bin/grep -F 'scripts/install.sh' "$installer_source" "$app_model" >/dev/null \
-    || /usr/bin/grep -E 'esptool|idf\.py|erase_flash|write_flash' "$installer_source" "$app_model" >/dev/null; then
+    || /usr/bin/grep -E 'esptool|idf\.py|erase_flash|write_flash' "$installer_source" >/dev/null; then
     printf '%s\n' "FAIL: the distributed M4-2 installer references a developer installer or firmware mutation" >&2
     exit 1
   fi
@@ -299,18 +299,62 @@ assert_m4_flashing_tool_source_contract() {
     || ! /usr/bin/grep -F 'RuntimePayloadDigest.sha256(of: url)' "$tool_source" >/dev/null \
     || ! /usr/bin/grep -F 'Darwin.rename' "$tool_source" >/dev/null \
     || ! /usr/bin/grep -F 'flashingToolDownloadConfirmationPresented' "$app_model" >/dev/null \
-    || ! /usr/bin/grep -F '下载并校验固定版本的烧录工具？' "$section_views" >/dev/null \
-    || ! /usr/bin/grep -F '不会解包或运行 esptool' "$section_views" >/dev/null; then
+    || ! /usr/bin/grep -F '下载并校验固定版本的烧录工具？' "$section_views" >/dev/null; then
     printf '%s\n' "FAIL: the M4-3 pinned HTTPS download and cache contract is incomplete" >&2
     exit 1
   fi
 
-  if /usr/bin/grep -E 'write_flash|erase_flash|idf\.py|/dev/(cu|tty)|Process\(|posix_spawn|system\(' \
+  if /usr/bin/grep -E 'write_flash|erase_flash|read_flash|verify_flash|idf\.py|/dev/(cu|tty)' \
     "$tool_source" >/dev/null; then
-    printf '%s\n' "FAIL: M4-3 contains serial, execution, or firmware mutation behavior" >&2
+    printf '%s\n' "FAIL: the flashing-tool workflow contains serial or firmware mutation behavior" >&2
     exit 1
   fi
   printf '%s\n' "PASS: M4-3 pins HTTPS, size, SHA-256, private cache, and no-flash boundaries"
+
+  if ! /usr/bin/grep -F 'SystemTarFlashingToolExtractor' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'Set(listedNames).count == listedNames.count' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'cb6109272050558582626b676b2bbf3737ed126df5faef373c5c66fae9c27097' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'QWXF6GB4AV' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'SecStaticCodeCheckValidity' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'arguments: ["version"]' "$tool_source" >/dev/null \
+    || ! /usr/bin/grep -F 'flashingToolPreparationConfirmationPresented' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F '解包并离线验证固定烧录工具？' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F '不会扫描或打开串口' "$section_views" >/dev/null; then
+    printf '%s\n' "FAIL: the M4-4B extraction, identity, or offline-version contract is incomplete" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: M4-4B pins archive entries, inner digests, arm64 identity, Espressif signature, and version-only execution"
+}
+
+assert_m4_firmware_payload_source_contract() {
+  firmware_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M4FirmwarePayload.swift"
+  pairing_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M2Infrastructure.swift"
+  firmware_config="$ROOT_DIR/firmware/sticks3/include/vibe_stick_config.h"
+  device_config="$ROOT_DIR/firmware/sticks3/src/vibe_device_config.c"
+  pairing_firmware="$ROOT_DIR/firmware/sticks3/src/vibe_usb_pairing.c"
+  payload_builder="$ROOT_DIR/scripts/build-macos-firmware-payload.sh"
+
+  if ! /usr/bin/grep -F 'FirmwarePayload.noindex' "$payload_builder" >/dev/null \
+    || ! /usr/bin/grep -F 'VIBE_STICK_DISTRIBUTABLE_BUILD=ON' "$payload_builder" >/dev/null \
+    || ! /usr/bin/grep -F 'assert-no-secrets' "$payload_builder" >/dev/null \
+    || ! /usr/bin/grep -F 'static let preservedNVS' "$firmware_source" >/dev/null \
+    || ! /usr/bin/grep -F '"partition-table.bin": 0x8000' "$firmware_source" >/dev/null \
+    || ! /usr/bin/grep -F '"vibe-stick.bin": 0x10000' "$firmware_source" >/dev/null \
+    || ! /usr/bin/grep -F '#if VIBE_STICK_DISTRIBUTABLE_BUILD' "$firmware_config" >/dev/null \
+    || ! /usr/bin/grep -F 'schema_version == 1 || schema_version == 2' "$device_config" >/dev/null \
+    || ! /usr/bin/grep -F '"wifi_ssid"' "$device_config" >/dev/null \
+    || ! /usr/bin/grep -F '\"pairing_schema_version\":2' "$pairing_firmware" >/dev/null \
+    || ! /usr/bin/grep -F 'struct WiFiProvisioningCredentials' "$pairing_source" >/dev/null; then
+    printf '%s\n' "FAIL: the M4-4A distributable firmware, USB provisioning, or payload contract is incomplete" >&2
+    exit 1
+  fi
+
+  if /usr/bin/grep -E 'write.flash|erase.flash|read.flash|verify.flash|/dev/(cu|tty)|esptool' \
+    "$firmware_source" "$payload_builder" >/dev/null; then
+    printf '%s\n' "FAIL: M4-4A payload preparation contains device access or flashing behavior" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: M4-4A prepares secret-free firmware and schema-v2 USB provisioning without device access"
 }
 
 assert_menu_bar_icon() {
@@ -447,6 +491,36 @@ assert_no_forbidden_files() {
   fi
 }
 
+assert_firmware_binary_scope() {
+  binary_root="$1"
+  binary_label="$2"
+  allowed_suffix='/Contents/Resources/FirmwarePayload.noindex/'
+  found_bootloader=0
+  found_partitions=0
+  found_app=0
+
+  while IFS= read -r binary_path; do
+    case "$binary_path" in
+      *"$allowed_suffix"bootloader.bin) found_bootloader=$((found_bootloader + 1)) ;;
+      *"$allowed_suffix"partition-table.bin) found_partitions=$((found_partitions + 1)) ;;
+      *"$allowed_suffix"vibe-stick.bin) found_app=$((found_app + 1)) ;;
+      *)
+        printf '%s\n' "FAIL: $binary_label contains a firmware binary outside the verified payload" >&2
+        printf '%s\n' "$binary_path" >&2
+        exit 1
+        ;;
+    esac
+  done <<EOF
+$(/usr/bin/find "$binary_root" -type f -name '*.bin' -print)
+EOF
+
+  if [ "$found_bootloader" -ne 1 ] || [ "$found_partitions" -ne 1 ] || [ "$found_app" -ne 1 ]; then
+    printf '%s\n' "FAIL: $binary_label does not contain exactly one copy of each verified firmware image" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: $binary_label firmware binaries are confined to the exact verified payload"
+}
+
 launch_agent_pid() {
   launch_agent_label="$1"
   /bin/launchctl print "gui/$(/usr/bin/id -u)/$launch_agent_label" 2>/dev/null | /usr/bin/awk '
@@ -533,7 +607,8 @@ assert_app_launch_smoke() {
 
   ACTIVE_SMOKE_DIR="$smoke_dir"
   VIBESTICK_SMOKE_OUTPUT="$smoke_heartbeat" \
-    "$smoke_app_binary" >"$smoke_stdout" 2>"$smoke_stderr" &
+    "$smoke_app_binary" -ApplePersistenceIgnoreState YES \
+    >"$smoke_stdout" 2>"$smoke_stderr" &
   smoke_app_pid=$!
   ACTIVE_SMOKE_PID="$smoke_app_pid"
 
@@ -672,6 +747,7 @@ assert_m3b_interface_source_contract
 assert_m3c_asr_source_contract
 assert_m4_install_source_contract
 assert_m4_flashing_tool_source_contract
+assert_m4_firmware_payload_source_contract
 "$ROOT_DIR/scripts/build-macos-app.sh"
 assert_binary "$APP_BINARY" "VibeStick for Mac"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"
@@ -685,6 +761,11 @@ PASTE_APP="$PAYLOAD_ROOT/Components.noindex/VibeStick Paste.app"
 
 python3 "$ROOT_DIR/scripts/runtime-payload-manifest.py" verify "$PAYLOAD_ROOT"
 printf '%s\n' "PASS: embedded M4-2 runtime payload manifest and exact file set verified"
+FIRMWARE_PAYLOAD_ROOT="$APP_PATH/Contents/Resources/FirmwarePayload.noindex"
+python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" verify "$FIRMWARE_PAYLOAD_ROOT"
+python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" assert-no-secrets \
+  "$FIRMWARE_PAYLOAD_ROOT" "$ROOT_DIR/firmware/sticks3/include/vibe_stick_secrets.h"
+printf '%s\n' "PASS: embedded M4-4A firmware payload manifest, geometry, and secret scan verified"
 paste_source_digest="$(/usr/bin/shasum -a 256 "$ROOT_DIR/app/macos/VibeStickPaste/main.swift" | /usr/bin/awk '{print $1}')"
 paste_plist_digest="$(/usr/bin/shasum -a 256 "$ROOT_DIR/app/macos/VibeStickPaste/Info.install.plist" | /usr/bin/awk '{print $1}')"
 expected_paste_fingerprint="$({
@@ -721,6 +802,7 @@ assert_binary "$TEST_BUNDLE/Contents/MacOS/VibeStickForMacTests" "VibeStick host
 printf '%s\n' "PASS: Swift unit tests executed"
 
 assert_no_forbidden_files "$APP_PATH" "built app"
+assert_firmware_binary_scope "$APP_PATH" "built app"
 assert_app_launch_smoke "$APP_PATH" "built app"
 
 if [ -d "$APP_PATH/Contents/Helpers/VibeStick Paste.app" ]; then
@@ -759,8 +841,15 @@ assert_menu_bar_icon "$MOUNTED_APP" "DMG app"
 python3 "$ROOT_DIR/scripts/runtime-payload-manifest.py" verify \
   "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex"
 printf '%s\n' "PASS: DMG M4-2 runtime payload manifest verified after mounting"
+python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" verify \
+  "$MOUNTED_APP/Contents/Resources/FirmwarePayload.noindex"
+python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" assert-no-secrets \
+  "$MOUNTED_APP/Contents/Resources/FirmwarePayload.noindex" \
+  "$ROOT_DIR/firmware/sticks3/include/vibe_stick_secrets.h"
+printf '%s\n' "PASS: DMG M4-4A firmware payload verified after mounting"
 
 assert_no_forbidden_files "$MOUNT_POINT" "mounted DMG"
+assert_firmware_binary_scope "$MOUNT_POINT" "mounted DMG"
 assert_app_launch_smoke "$MOUNTED_APP" "DMG app"
 
 "$LSREGISTER_PATH" -u "$MOUNTED_APP" >/dev/null 2>&1 || true

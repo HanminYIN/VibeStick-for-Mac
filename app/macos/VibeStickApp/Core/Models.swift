@@ -929,6 +929,8 @@ struct DeviceIdentity: Codable, Equatable, Sendable {
     let firmwareVersion: String
     let protocolVersion: Int
     let pairingID: String?
+    let pairingSchemaVersion: Int?
+    let wifiConfigured: Bool?
 
     enum CodingKeys: String, CodingKey {
         case deviceID = "device_id"
@@ -936,6 +938,8 @@ struct DeviceIdentity: Codable, Equatable, Sendable {
         case firmwareVersion = "firmware_version"
         case protocolVersion = "protocol_version"
         case pairingID = "pairing_id"
+        case pairingSchemaVersion = "pairing_schema_version"
+        case wifiConfigured = "wifi_configured"
     }
 }
 

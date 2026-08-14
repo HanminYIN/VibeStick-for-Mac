@@ -21,7 +21,17 @@
 #define VIBE_STICK_ENABLE_M3B_VOICE 0
 #endif
 
-#if __has_include("vibe_stick_secrets.h")
+#ifndef VIBE_STICK_DISTRIBUTABLE_BUILD
+#define VIBE_STICK_DISTRIBUTABLE_BUILD 0
+#endif
+
+#if VIBE_STICK_DISTRIBUTABLE_BUILD
+#define VIBE_STICK_WIFI_SSID ""
+#define VIBE_STICK_WIFI_PASSWORD ""
+#define VIBE_STICK_BRIDGE_HOST "127.0.0.1"
+#define VIBE_STICK_BRIDGE_PORT 8765
+#define VIBE_STICK_BRIDGE_TOKEN ""
+#elif __has_include("vibe_stick_secrets.h")
 #include "vibe_stick_secrets.h"
 #else
 #define VIBE_STICK_WIFI_SSID ""

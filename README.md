@@ -26,13 +26,17 @@ dynamic quota-window layout, and a passive-by-default/manual-refresh quota path.
 M3-B adds the fail-closed voice/send interaction, and M3-C adds native ASR
 provider configuration, Keychain storage, and an injection-independent test.
 
-The current M3-C development DMG is for a Mac that already has VibeStick
-services and compatible firmware installed; it is not a firmware installer.
+The current M4-4B development DMG contains an offline-validated, secret-free
+firmware payload and can prepare the separately downloaded Espressif tool after an
+explicit confirmation. Tool preparation validates the fixed archive and signatures
+and runs only `esptool version`; it does not access a serial port or device. Existing
+installs remain usable while backup and flashing proceed through separately
+authorized M4-4C/D stages.
 M3-A is sealed in local checkpoint `e2113ba`. M3-B has completed success and
 fail-closed real-device acceptance, and M3-B plus M3-C are sealed together in a
 local checkpoint after automated App/Helper/DMG verification. The combined
 runtime changes have not been deployed or published.
-Clean-machine setup and one-click flashing remain M4 work.
+Full device backup, one-click flashing, and recovery remain M4 work.
 
 - [M1 achievements and validation evidence](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
 - [M2 achievements and upstream comparison](docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)

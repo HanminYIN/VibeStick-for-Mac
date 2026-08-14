@@ -25,6 +25,7 @@ fi
 rm -rf "$OUTPUT_PATH"
 /usr/bin/ditto "$PRODUCT_PATH" "$OUTPUT_PATH"
 "$ROOT_DIR/scripts/build-macos-runtime-payload.sh" "$OUTPUT_PATH"
+"$ROOT_DIR/scripts/build-macos-firmware-payload.sh" "$OUTPUT_PATH"
 /usr/bin/codesign --force --sign - "$OUTPUT_PATH"
 /usr/bin/codesign --verify --deep --strict "$OUTPUT_PATH"
 

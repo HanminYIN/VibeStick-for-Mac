@@ -5,6 +5,7 @@
 
 #include "driver/usb_serial_jtag.h"
 #include "esp_log.h"
+#include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mbedtls/base64.h"
@@ -33,8 +34,10 @@ static void send_identify(void)
              "{\"command\":\"identify\",\"ok\":true,\"identity\":{"
              "\"device_id\":\"%s\",\"model\":\"M5Stack StickS3\","
              "\"firmware_version\":\"%s\",\"protocol_version\":2,"
+             "\"pairing_schema_version\":2,\"wifi_configured\":%s,"
              "\"pairing_id\":\"%s\"}}",
-             config->device_id, FIRMWARE_VERSION, config->pairing_id);
+             config->device_id, FIRMWARE_VERSION,
+             config->wifi_configured ? "true" : "false", config->pairing_id);
     send_response(json);
 }
 
@@ -54,7 +57,8 @@ static void handle_pair(const char *encoded)
         return;
     }
     decoded[decoded_len] = '\0';
-    esp_err_t err = vibe_device_config_apply_pairing_json((const char *)decoded);
+    bool wifi_changed = false;
+    esp_err_t err = vibe_device_config_apply_pairing_json((const char *)decoded, &wifi_changed);
     memset(decoded, 0, sizeof(decoded));
     if (err != ESP_OK) {
         send_response("{\"command\":\"pair\",\"ok\":false,\"error\":\"configuration rejected\"}");
@@ -62,7 +66,13 @@ static void handle_pair(const char *encoded)
     }
     vibe_bridge_discovery_use_fallback();
     ESP_LOGI(TAG, "USB pairing updated for device=%s", vibe_device_config_get()->device_id);
-    send_response("{\"command\":\"pair\",\"ok\":true}");
+    send_response(wifi_changed
+        ? "{\"command\":\"pair\",\"ok\":true,\"restart_required\":true}"
+        : "{\"command\":\"pair\",\"ok\":true,\"restart_required\":false}");
+    if (wifi_changed) {
+        vTaskDelay(pdMS_TO_TICKS(250));
+        esp_restart();
+    }
 }
 
 static void handle_line(char *line)
