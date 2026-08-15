@@ -1419,6 +1419,344 @@ struct VibeStickAppTests {
         #expect(!FileManager.default.fileExists(atPath: prepared.path))
         #expect(FileManager.default.fileExists(atPath: unrelated.path))
     }
+
+    @Test
+    func deviceInspectionParserAcceptsOnlyExpectedUnsecuredEightMiBESP32S3() throws {
+        let inspection = try DeviceInspectionOutputParser.parse(
+            securityOutput: deviceSecurityFixture(),
+            flashOutput: deviceFlashFixture(),
+            macOutput: deviceMACFixture(),
+            descriptor: .current,
+            inspectedAt: "2026-08-15T00:00:00Z"
+        )
+
+        #expect(inspection.chip == "ESP32-S3")
+        #expect(inspection.flashSizeBytes == 8 * 1024 * 1024)
+        #expect(!inspection.secureBootEnabled)
+        #expect(!inspection.flashEncryptionEnabled)
+        #expect(inspection.deviceFingerprint.count == 64)
+        #expect(!inspection.deviceFingerprint.contains("02:00:00"))
+
+        let qfnInspection = try DeviceInspectionOutputParser.parse(
+            securityOutput: deviceSecurityFixture().replacingOccurrences(
+                of: "ESP32-S3-PICO-1 (LGA56)",
+                with: "ESP32-S3 (QFN56)"
+            ),
+            flashOutput: deviceFlashFixture(),
+            macOutput: deviceMACFixture(),
+            descriptor: .current,
+            inspectedAt: "2026-08-15T00:00:00Z"
+        )
+        #expect(qfnInspection.chip == "ESP32-S3")
+
+        #expect(throws: DeviceBackupError.self) {
+            _ = try DeviceInspectionOutputParser.parse(
+                securityOutput: deviceSecurityFixture().replacingOccurrences(
+                    of: "Secure Boot: Disabled",
+                    with: "Secure Boot: Enabled"
+                ),
+                flashOutput: deviceFlashFixture(),
+                macOutput: deviceMACFixture(),
+                descriptor: .current,
+                inspectedAt: "2026-08-15T00:00:00Z"
+            )
+        }
+        #expect(throws: DeviceBackupError.self) {
+            _ = try DeviceInspectionOutputParser.parse(
+                securityOutput: deviceSecurityFixture(),
+                flashOutput: deviceFlashFixture().replacingOccurrences(of: "8MB", with: "4MB"),
+                macOutput: deviceMACFixture(),
+                descriptor: .current,
+                inspectedAt: "2026-08-15T00:00:00Z"
+            )
+        }
+        #expect(throws: DeviceBackupError.self) {
+            _ = try DeviceInspectionOutputParser.parse(
+                securityOutput: deviceSecurityFixture().replacingOccurrences(of: "ESP32-S3", with: "ESP32-C3"),
+                flashOutput: deviceFlashFixture(),
+                macOutput: deviceMACFixture(),
+                descriptor: .current,
+                inspectedAt: "2026-08-15T00:00:00Z"
+            )
+        }
+        #expect(throws: DeviceBackupError.self) {
+            _ = try DeviceInspectionOutputParser.parse(
+                securityOutput: deviceSecurityFixture().replacingOccurrences(
+                    of: "Chip type:          ESP32-S3-PICO-1 (LGA56) (revision v0.2)",
+                    with: "Chip type:          ESP32-S3 in Secure Download Mode"
+                ),
+                flashOutput: deviceFlashFixture(),
+                macOutput: deviceMACFixture(),
+                descriptor: .current,
+                inspectedAt: "2026-08-15T00:00:00Z"
+            )
+        }
+    }
+
+    @Test
+    func deviceInspectionRejectsMissingMultipleAndNonStickUSBInputs() async throws {
+        let executable = URL(fileURLWithPath: "/fixture/esptool")
+        let runner = MockDeviceToolRunner()
+
+        let missing = DeviceBackupManager(
+            backupRoot: temporaryTestDirectory("DeviceMissing"),
+            deviceDetector: FixedUSBDeviceDetector(candidates: []),
+            runner: runner
+        )
+        await #expect(throws: DeviceBackupError.self) {
+            _ = try await missing.inspect(executableURL: executable)
+        }
+
+        let candidate = fixtureUSBDeviceCandidate()
+        let multiple = DeviceBackupManager(
+            backupRoot: temporaryTestDirectory("DeviceMultiple"),
+            deviceDetector: FixedUSBDeviceDetector(candidates: [candidate, candidate]),
+            runner: runner
+        )
+        await #expect(throws: DeviceBackupError.self) {
+            _ = try await multiple.inspect(executableURL: executable)
+        }
+
+        let wrong = USBDeviceCandidate(
+            portPath: "/dev/cu.usbmodem99901",
+            serialNumber: nil,
+            vendorID: 0x1234,
+            productID: 0x5678
+        )
+        let unsupported = DeviceBackupManager(
+            backupRoot: temporaryTestDirectory("DeviceWrongUSB"),
+            deviceDetector: FixedUSBDeviceDetector(candidates: [wrong]),
+            runner: runner
+        )
+        await #expect(throws: DeviceBackupError.self) {
+            _ = try await unsupported.inspect(executableURL: executable)
+        }
+        #expect(runner.recordedArguments().isEmpty)
+    }
+
+    @Test
+    func deviceInspectionRejectsSymbolicLinkBackupRootBeforeLaunchingTool() async throws {
+        let parent = temporaryTestDirectory("DeviceSymlinkRoot")
+        defer { try? FileManager.default.removeItem(at: parent) }
+        let target = parent.appendingPathComponent("outside", isDirectory: true)
+        let backupRoot = parent.appendingPathComponent("FirmwareBackups.noindex", isDirectory: true)
+        try FileManager.default.createDirectory(at: target, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: backupRoot, withDestinationURL: target)
+        let runner = MockDeviceToolRunner()
+        let manager = DeviceBackupManager(
+            backupRoot: backupRoot,
+            deviceDetector: FixedUSBDeviceDetector(candidates: [fixtureUSBDeviceCandidate()]),
+            runner: runner
+        )
+
+        await #expect(throws: DeviceBackupError.self) {
+            _ = try await manager.inspect(executableURL: URL(fileURLWithPath: "/fixture/esptool"))
+        }
+        #expect(runner.recordedArguments().isEmpty)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: target.path).isEmpty)
+    }
+
+    @Test
+    func deviceBackupUsesOnlyReadCommandsAndKeepsPrivateDoubleVerifiedImage() async throws {
+        let root = temporaryTestDirectory("DeviceBackupSuccess")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let runner = MockDeviceToolRunner()
+        let manager = DeviceBackupManager(
+            backupRoot: root,
+            deviceDetector: FixedUSBDeviceDetector(candidates: [fixtureUSBDeviceCandidate()]),
+            runner: runner
+        )
+        let expected = try fixtureDeviceInspection()
+
+        let receipt = try await manager.createBackup(
+            expectedInspection: expected,
+            executableURL: URL(fileURLWithPath: "/fixture/esptool")
+        )
+
+        let arguments = runner.recordedArguments()
+        #expect(arguments.count == 5)
+        #expect(arguments.compactMap(deviceSubcommand) == [
+            "get-security-info", "flash-id", "read-mac", "read-flash", "read-flash",
+        ])
+        #expect(arguments.allSatisfy { $0.contains("--no-stub") })
+        #expect(arguments.allSatisfy { !$0.contains("write-flash") && !$0.contains("erase-flash") })
+        #expect(arguments[3].contains("0x800000"))
+        #expect(arguments[4].contains("watchdog-reset"))
+
+        let imageAttributes = try FileManager.default.attributesOfItem(atPath: receipt.flashImageURL.path)
+        let directoryAttributes = try FileManager.default.attributesOfItem(atPath: receipt.backupDirectory.path)
+        let receiptAttributes = try FileManager.default.attributesOfItem(atPath: receipt.receiptURL.path)
+        #expect((imageAttributes[.size] as? NSNumber)?.uint64Value == 8 * 1024 * 1024)
+        #expect((imageAttributes[.posixPermissions] as? NSNumber)?.uint16Value == 0o600)
+        #expect((receiptAttributes[.posixPermissions] as? NSNumber)?.uint16Value == 0o600)
+        #expect((directoryAttributes[.posixPermissions] as? NSNumber)?.uint16Value == 0o700)
+        #expect(try RuntimePayloadDigest.sha256(of: receipt.flashImageURL) == receipt.flashSHA256)
+        let names = try FileManager.default.contentsOfDirectory(atPath: receipt.backupDirectory.path).sorted()
+        #expect(names == ["flash-8MiB.bin", "receipt-v1.json"])
+        let receiptText = try String(contentsOf: receipt.receiptURL, encoding: .utf8)
+        #expect(!receiptText.contains("34:85:18"))
+        #expect(receiptText.contains("two-complete-reads-sha256-match"))
+    }
+
+    @Test
+    func deviceBackupRejectsChangedIdentityAndMismatchedSecondReadWithoutPartials() async throws {
+        let changedRoot = temporaryTestDirectory("DeviceBackupChanged")
+        defer { try? FileManager.default.removeItem(at: changedRoot) }
+        let changedRunner = MockDeviceToolRunner(macAddresses: ["02:00:00:11:22:33"])
+        let changedManager = DeviceBackupManager(
+            backupRoot: changedRoot,
+            deviceDetector: FixedUSBDeviceDetector(candidates: [fixtureUSBDeviceCandidate()]),
+            runner: changedRunner
+        )
+        await #expect(throws: DeviceBackupError.self) {
+            _ = try await changedManager.createBackup(
+                expectedInspection: fixtureDeviceInspection(),
+                executableURL: URL(fileURLWithPath: "/fixture/esptool")
+            )
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: changedRoot.path).isEmpty)
+
+        let mismatchRoot = temporaryTestDirectory("DeviceBackupMismatch")
+        defer { try? FileManager.default.removeItem(at: mismatchRoot) }
+        let mismatchRunner = MockDeviceToolRunner(mismatchSecondRead: true)
+        let mismatchManager = DeviceBackupManager(
+            backupRoot: mismatchRoot,
+            deviceDetector: FixedUSBDeviceDetector(candidates: [fixtureUSBDeviceCandidate()]),
+            runner: mismatchRunner
+        )
+        await #expect(throws: DeviceBackupError.self) {
+            _ = try await mismatchManager.createBackup(
+                expectedInspection: fixtureDeviceInspection(),
+                executableURL: URL(fileURLWithPath: "/fixture/esptool")
+            )
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: mismatchRoot.path).isEmpty)
+    }
+}
+
+private struct FixedUSBDeviceDetector: USBDeviceDetecting {
+    let candidates: [USBDeviceCandidate]
+
+    func detectAll() async -> [USBDeviceCandidate] {
+        candidates
+    }
+}
+
+private final class MockDeviceToolRunner: DeviceToolRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var invocations: [[String]] = []
+    private var macAddresses: [String]
+    private var readCount = 0
+    private let mismatchSecondRead: Bool
+
+    init(
+        macAddresses: [String] = ["02:00:00:aa:bb:cc"],
+        mismatchSecondRead: Bool = false
+    ) {
+        self.macAddresses = macAddresses
+        self.mismatchSecondRead = mismatchSecondRead
+    }
+
+    func run(
+        executableURL: URL,
+        arguments: [String],
+        workingDirectory: URL,
+        timeout: TimeInterval
+    ) throws -> DeviceToolResult {
+        lock.lock()
+        invocations.append(arguments)
+        let command = deviceSubcommand(arguments)
+        var selectedMAC = macAddresses.first ?? "02:00:00:aa:bb:cc"
+        if command == "read-mac", macAddresses.count > 1 {
+            selectedMAC = macAddresses.removeFirst()
+        }
+        if command == "read-flash" { readCount += 1 }
+        let selectedReadCount = readCount
+        lock.unlock()
+
+        switch command {
+        case "get-security-info":
+            return DeviceToolResult(standardOutput: deviceSecurityFixture(), standardError: "")
+        case "flash-id":
+            return DeviceToolResult(standardOutput: deviceFlashFixture(), standardError: "")
+        case "read-mac":
+            return DeviceToolResult(standardOutput: deviceMACFixture(selectedMAC), standardError: "")
+        case "read-flash":
+            let outputURL = URL(fileURLWithPath: try #require(arguments.last))
+            let byte: UInt8 = mismatchSecondRead && selectedReadCount == 2 ? 0x5b : 0x5a
+            let handle = try FileHandle(forWritingTo: outputURL)
+            try handle.truncate(atOffset: 0)
+            let chunk = Data(repeating: byte, count: 64 * 1024)
+            for _ in 0..<128 {
+                try handle.write(contentsOf: chunk)
+            }
+            try handle.close()
+            return DeviceToolResult(
+                standardOutput: "Read 8388608 bytes from 0x00000000 in 1.0 seconds.\n",
+                standardError: ""
+            )
+        default:
+            throw DeviceBackupError.commandNotAllowed
+        }
+    }
+
+    func recordedArguments() -> [[String]] {
+        lock.withLock { invocations }
+    }
+}
+
+private func deviceSubcommand(_ arguments: [String]) -> String? {
+    arguments.first { ["get-security-info", "flash-id", "read-mac", "read-flash"].contains($0) }
+}
+
+private func fixtureUSBDeviceCandidate() -> USBDeviceCandidate {
+    USBDeviceCandidate(
+        portPath: "/dev/cu.usbmodem31101",
+        serialNumber: nil,
+        vendorID: USBDeviceCandidate.esp32S3VendorID,
+        productID: USBDeviceCandidate.usbSerialJTAGProductID
+    )
+}
+
+private func deviceSecurityFixture() -> String {
+    """
+    esptool v5.3.1
+    Connected to ESP32-S3 on /dev/cu.usbmodem31101:
+    Chip type:          ESP32-S3-PICO-1 (LGA56) (revision v0.2)
+    Security Information:
+    =====================
+    Flags: 0x00000000 (0b0)
+    Chip ID: 9
+    API Version: 0
+    Secure Boot: Disabled
+    Flash Encryption: Disabled
+    SPI Boot Crypt Count (SPI_BOOT_CRYPT_CNT): 0x0
+    """
+}
+
+private func deviceFlashFixture() -> String {
+    """
+    Flash Memory Information:
+    =========================
+    Manufacturer: ef
+    Device: 4017
+    Detected flash size: 8MB
+    Flash type set in eFuse: quad (4 data lines)
+    """
+}
+
+private func deviceMACFixture(_ mac: String = "02:00:00:aa:bb:cc") -> String {
+    "MAC: \(mac)\n"
+}
+
+private func fixtureDeviceInspection() throws -> DeviceSecurityInspection {
+    try DeviceInspectionOutputParser.parse(
+        securityOutput: deviceSecurityFixture(),
+        flashOutput: deviceFlashFixture(),
+        macOutput: deviceMACFixture(),
+        descriptor: .current,
+        inspectedAt: "2026-08-15T00:00:00Z"
+    )
 }
 
 private struct MockFlashingToolDownloader: FlashingToolDownloading {

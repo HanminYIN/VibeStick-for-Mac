@@ -792,7 +792,7 @@ struct UpdatesAndRecoveryView: View {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "更新与恢复",
-                    subtitle: "M4-4B 可安全准备并离线验证固定烧录工具；串口访问、固件备份与刷写仍未开放。",
+                    subtitle: "M4-4C 可在独立确认后检查设备并建立私有完整备份；擦除、写入与恢复仍未开放。",
                     milestone: nil
                 )
 
@@ -891,7 +891,7 @@ struct UpdatesAndRecoveryView: View {
                             model.requestFlashingToolRefresh()
                         }
                         .buttonStyle(.bordered)
-                        .disabled(model.flashingToolActionInProgress)
+                        .disabled(model.flashingToolActionInProgress || model.deviceBackupActionInProgress)
                     }
 
                     Text(model.flashingToolSnapshot.detail)
@@ -951,8 +951,91 @@ struct UpdatesAndRecoveryView: View {
                     }
 
                     Label(
-                        "M4-4C 才会在独立授权后识别设备安全状态并建立私有完整备份；刷写仍属于之后的 M4-4D。",
+                        "M4-4C 的设备检查与备份在下方单独确认；刷写仍属于之后的 M4-4D。",
                         systemImage: "arrow.uturn.backward.circle"
+                    )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                StatusCard(
+                    title: "StickS3 检查与私有备份",
+                    subtitle: "只读确认设备身份、安全状态和 8 MiB Flash；不会擦除或写入",
+                    systemImage: "externaldrive.badge.checkmark",
+                    tone: deviceBackupTone
+                ) {
+                    HStack {
+                        PhasePill(text: deviceBackupLabel, tone: deviceBackupTone)
+                        Spacer()
+                        if model.deviceBackupActionInProgress {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+
+                    Text(model.deviceBackupSnapshot.detail)
+                        .foregroundStyle(.secondary)
+
+                    Label(
+                        "每次操作前，请长按侧面电源键，直到蓝灯双闪且屏幕熄灭，再开始。",
+                        systemImage: "button.programmable"
+                    )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    if let inspection = model.deviceBackupSnapshot.inspection {
+                        Divider()
+                        Label("\(inspection.chip) · \(inspection.flashSizeLabel)", systemImage: "cpu")
+                        Label("Secure Boot 关闭 · Flash Encryption 关闭", systemImage: "checkmark.shield")
+                        Label("设备指纹 · \(inspection.shortFingerprint)", systemImage: "number")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+
+                    if let receipt = model.deviceBackupSnapshot.receipt {
+                        Label("完整镜像 · 8,388,608 字节", systemImage: "archivebox")
+                        Label("两次 SHA-256 一致 · \(String(receipt.flashSHA256.prefix(16)))…", systemImage: "checkmark.seal")
+                            .font(.caption.monospaced())
+                            .foregroundStyle(.secondary)
+                        if model.configuration.showTechnicalDetails {
+                            Text(receipt.backupDirectory.path)
+                                .font(.caption.monospaced())
+                                .textSelection(.enabled)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
+                    Divider()
+                    HStack {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("先检查，再备份")
+                                .font(.subheadline.weight(.semibold))
+                            Text("检查使用 ROM-only 命令；备份会完整读取两遍，只有摘要一致才保留。备份可能包含 Wi-Fi 与配对信息，因此只存放在本机私有目录。")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button("检查设备…") {
+                            model.requestDeviceInspection()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(
+                            model.flashingToolSnapshot.phase != .ready
+                                || model.flashingToolActionInProgress
+                                || model.deviceBackupActionInProgress
+                        )
+                        if model.deviceBackupSnapshot.phase == .ready {
+                            Button("建立完整备份…") {
+                                model.requestDeviceBackup()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(model.flashingToolActionInProgress || model.deviceBackupActionInProgress)
+                        }
+                    }
+
+                    Label(
+                        "M4-4C 白名单只有 get-security-info、flash-id、read-mac 和 read-flash；M4-4D 未开放。",
+                        systemImage: "lock.shield"
                     )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -999,6 +1082,30 @@ struct UpdatesAndRecoveryView: View {
             Text("只会把已通过大小和 SHA-256 校验的固定归档解到私有版本目录，随后检查精确文件集、内部摘要、纯 Apple Silicon 架构、Espressif Developer ID 签名，并运行不带端口参数的 `esptool version`。不会扫描或打开串口，也不会读取、备份、擦除或写入设备。")
         }
         .confirmationDialog(
+            "只读检查 StickS3？",
+            isPresented: $model.deviceInspectionConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("检查身份与安全状态") {
+                model.confirmDeviceInspection()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请先让设备进入下载模式。确认后只运行 ROM-only 的固定身份、安全状态、Flash 容量与 MAC 读取；MAC 只用于生成 SHA-256 设备指纹，不会明文保存。操作结束会让设备重新启动，不会擦除或写入 Flash。")
+        }
+        .confirmationDialog(
+            "建立私有 8 MiB 完整备份？",
+            isPresented: $model.deviceBackupConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("读取两遍并验证") {
+                model.confirmDeviceBackup()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请再次让同一设备进入下载模式。确认后会复查身份与安全状态，再用 ROM-only read-flash 完整读取两遍；只有两份 SHA-256 一致才保留一份。备份含完整设备内容，可能包括 Wi-Fi 和配对信息，仅保存到权限 0700/0600 的本机私有目录。不会擦除或写入设备。")
+        }
+        .confirmationDialog(
             "移除本地烧录工具缓存？",
             isPresented: $model.flashingToolRemovalConfirmationPresented,
             titleVisibility: .visible
@@ -1029,6 +1136,28 @@ struct UpdatesAndRecoveryView: View {
         case .ready: .healthy
         case .missing, .archiveReady: .inactive
         case .invalid, .failed: .warning
+        }
+    }
+
+    private var deviceBackupLabel: String {
+        switch model.deviceBackupSnapshot.phase {
+        case .idle: "尚未检查"
+        case .inspecting: "正在检查"
+        case .downloadModeRequired: "需要下载模式"
+        case .ready: "可以备份"
+        case .backingUp: "正在备份"
+        case .complete: "备份已验证"
+        case .blocked: "安全门禁阻止"
+        case .failed: "操作失败"
+        }
+    }
+
+    private var deviceBackupTone: HealthTone {
+        switch model.deviceBackupSnapshot.phase {
+        case .ready, .complete: .healthy
+        case .idle, .inspecting, .backingUp: .neutral
+        case .downloadModeRequired: .inactive
+        case .blocked, .failed: .warning
         }
     }
 

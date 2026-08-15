@@ -215,7 +215,11 @@ private extension Data {
     }
 }
 
-actor USBDeviceDetector {
+protocol USBDeviceDetecting: Sendable {
+    func detectAll() async -> [USBDeviceCandidate]
+}
+
+actor USBDeviceDetector: USBDeviceDetecting {
     private let fileManager: FileManager
 
     init(fileManager: FileManager = .default) {
@@ -223,11 +227,15 @@ actor USBDeviceDetector {
     }
 
     func detect() -> USBDeviceCandidate? {
+        detectAll().first
+    }
+
+    func detectAll() -> [USBDeviceCandidate] {
         let ports = ((try? fileManager.contentsOfDirectory(atPath: "/dev")) ?? [])
             .filter { $0.hasPrefix("cu.usbmodem") }
             .map { "/dev/\($0)" }
             .sorted()
-        guard !ports.isEmpty else { return nil }
+        guard !ports.isEmpty else { return [] }
 
         let process = Process()
         let output = Pipe()
@@ -239,12 +247,12 @@ actor USBDeviceDetector {
             try process.run()
             process.waitUntilExit()
             let data = output.fileHandleForReading.readDataToEndOfFile()
-            return USBDeviceDetectionParser.detect(
+            return USBDeviceDetectionParser.candidates(
                 ioregOutput: String(decoding: data, as: UTF8.self),
                 ports: ports
             )
         } catch {
-            return nil
+            return []
         }
     }
 }

@@ -661,6 +661,10 @@ M4-4B 将归档已校验与工具已准备拆成两个状态，并增加独立�
 
 M4-4B 候选 `0.2.0 (5)` 已通过 173 项 Python、59 项 Swift、Release App/Helper、签名、全新窗口 GUI 启动及挂载 DMG 的完整验收；App/DMG 均未包含下载归档或解包工具。经使用者独立授权，真实缓存随后通过同一 `FlashingToolManager.prepareAndVerify()` 路径完成准备：归档仍为 `61,218,014` 字节与固定 SHA-256，准备目录只有六个固定文件，目录/可执行文件为 `0700`、文档为 `0600`，四个签名和架构复核通过，`esptool version` 返回 `5.3.1`，且没有临时或备份残留。验收后没有 `esptool` 进程，Bridge `/health` 为 HTTP 200，没有访问串口或设备，也没有重启 Bridge/HUD。候选 DMG 为 `2,668,475` 字节，SHA-256 为 `aff2f26f0cd34f00de4828bdf73c4f330b1f3845128f9ac4883b9cf25d1c7019`。
 
+M4-4C 将设备检查与完整备份继续保持为两次显式确认。每次均要求使用者先手动进入下载模式，并在操作开始前重新验证固定归档、准备目录、arm64 身份与 Espressif 签名。设备门禁只接受唯一的 `0x303a:0x1001` USB Serial/JTAG 候选、ESP32-S3、8 MiB Flash，以及明确关闭的 Secure Boot 和 Flash Encryption；明文 MAC 只在内存中用于生成域分离 SHA-256 指纹。备份前再次核对同一设备，再以 ROM-only `read-flash` 对 `0x0..<0x800000` 完整读取两遍；只有大小、0600 权限及两份 SHA-256 全部一致，才在 `FirmwareBackups.noindex` 的 0700 私有目录保留一份镜像和脱敏回执。任一步失败都会删除精确临时目录。M4-4C 白名单不包含擦除、写入、固件比对或恢复命令，M4-4D 仍未开放。
+
+M4-4C 候选 `0.2.0 (6)` 已通过 173 项 Python、64 项 Swift、Release App/Helper、签名、全新窗口 GUI 启动及挂载 DMG 的完整验收；候选 DMG 为 `2,737,018` 字节，SHA-256 为 `f03b988479835fcf21081caf603e72f3bd1491d88795d7c6a6f9d0b535c584f5`。首次真机检查暴露出 esptool 对合法 ESP32-S3-PICO-1 LGA56 封装的描述未被 QFN56 测试夹具覆盖；严格白名单与回归测试补齐后，真实 StickS3 已确认 ESP32-S3、8 MiB Flash，且 Secure Boot 与 Flash Encryption 均未启用。随后经第二次手动下载模式和独立确认，两次完整 8 MiB ROM-only 读取的 SHA-256 一致；落盘目录为 0700，唯一镜像与脱敏 schema-1 回执均为 0600，镜像精确为 8,388,608 字节，回执摘要与独立落盘复算一致，没有临时残留。设备指纹、完整备份摘要和本机目录实例均未写入版本库；没有执行擦除、写入、固件比对或恢复，也没有重启 Bridge/HUD。M4-4C 真机验收完成，当前停在 M4-4D 授权边界。
+
 - 一键下载并校验烧录组件。
 - 自动识别端口和设备模式。
 - 安装、验证、备份、恢复和回退。

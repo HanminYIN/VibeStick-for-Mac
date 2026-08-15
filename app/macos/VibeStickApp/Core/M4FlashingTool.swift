@@ -739,6 +739,17 @@ actor FlashingToolManager {
         return snapshot
     }
 
+    func revalidatedExecutableURL() throws -> URL {
+        try descriptor.validate()
+        try validateArchive(at: archiveURL)
+        try validatePreparedDirectory(
+            at: preparedDirectoryURL,
+            validateExecutableIdentity: true,
+            requireSecureModes: true
+        )
+        return executableURL
+    }
+
     func removeCachedArchive() throws -> FlashingToolSnapshot {
         try descriptor.validate()
         if fileManager.fileExists(atPath: preparedDirectoryURL.path) {

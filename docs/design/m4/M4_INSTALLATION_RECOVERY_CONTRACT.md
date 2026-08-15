@@ -326,3 +326,84 @@ all six files, private modes, four arm64 identities and Espressif signatures
 passed, and `esptool version` returned `5.3.1`. No temporary/backup entry or
 `esptool` process remained; Bridge health was HTTP 200. No serial/device access,
 runtime restart, firmware backup, erase, write, or verification occurred.
+
+## M4-4C device inspection boundary
+
+M4-4C remains inert on App launch, navigation, ordinary refresh, USB appearance,
+and tool-cache refresh. Device access begins only after the user selects the device
+inspection action, sees that the StickS3 must already be in download mode, and
+confirms. The App requires exactly one current USB Serial/JTAG candidate with
+Espressif VID `0x303a`, PID `0x1001`, and a `/dev/cu.usbmodem*` callout path. Zero,
+multiple, or mismatched candidates fail closed.
+
+Immediately before each device workflow, the App revalidates the pinned archive,
+the complete prepared file set, private modes, arm64 Mach-O identity, and Espressif
+Developer ID signature. Device commands use that exact executable in an empty
+private working directory and a minimal environment. M4-4C fixes the target to
+`esp32s3`, the baud to 115200, the reset-before mode to `no-reset`, the loader to
+`--no-stub`, and the connect attempts to three. The only command names admitted by
+the source whitelist are:
+
+- `get-security-info`;
+- `flash-id` with the standard SPI connection;
+- `read-mac`;
+- `read-flash`.
+
+Inspection accepts only the official esptool 5.3.1 ESP32-S3 package descriptions:
+QFN56, ESP32-S3-PICO-1 LGA56, or the forward-compatible unknown-package label,
+each with a numeric silicon revision, plus a detected 8 MiB NOR flash. Secure Boot
+and Flash Encryption must both be explicitly reported disabled. Enabled or
+unparseable security state, a different chip, a different flash size, or an
+unrecognized response blocks backup. The hardware MAC is read only to derive a
+domain-separated SHA-256 device fingerprint; it is discarded and is not placed in
+the UI or receipt. The final inspection command uses the watchdog reset so the
+device exits ROM mode.
+
+## M4-4C private full-flash backup transaction
+
+Backup has a second explicit confirmation and requires the same device to enter
+download mode again. A second identity/security/flash preflight must match the
+previous device fingerprint and flash IDs. The App then runs two complete ROM-only
+reads of `0x0..<0x800000`, with the flash size fixed to `8MB` and progress output
+disabled. Both temporary images must be ordinary, non-symlink files of exactly
+8,388,608 bytes with mode `0600`, and their SHA-256 values must be identical. Only
+then is the verification copy removed and one image retained.
+
+The transaction owns only a newly generated child of
+`~/Library/Application Support/VibeStick/FirmwareBackups.noindex`. A symbolic-link
+backup root is rejected before the tool launches. Parent, staging, and final
+directories are `0700`; the image and sorted schema-1 JSON receipt are `0600`.
+The final receipt is decoded and compared with the expected in-memory document
+before success is returned. It records the tool version, chip and flash geometry,
+disabled security booleans, hashed device fingerprint, image size/digest, and the
+double-read verification method. It contains no raw MAC, Wi-Fi value, pairing
+secret, serial-port path, or firmware bytes. The full image itself may contain
+private NVS data and must never enter source control, the App, DMG, diagnostics, or
+release artifacts.
+
+Any missing device, identity change, tool error, timeout, short read, unsafe file,
+digest mismatch, receipt error, or final validation error removes the exact staging
+or failed final directory. No partial image becomes a backup. The last successful
+read uses a watchdog reset. M4-4C never invokes erase, write, RAM-load, firmware
+comparison, or recovery commands; those remain M4-4D.
+
+## M4-4C acceptance
+
+- Hostless tests cover expected parsing, wrong chip/size/security state, zero,
+  multiple and wrong USB candidates, symbolic-link backup-root rejection, exact
+  command vectors, identity replacement, double-read mismatch cleanup, private
+  modes, exact file set, receipt redaction, and a successful 8 MiB transaction.
+- Source gates require the four-command whitelist, ROM-only/no-reset settings,
+  two fixed full reads, double-read SHA-256 evidence, private paths/modes, and both
+  UI confirmations; they reject all M4-4D mutation/verification command names.
+- Release App and mounted-DMG checks reject `FirmwareBackups.noindex`, backup
+  images and backup receipts from packaged content. Launch smoke remains device-
+  inert and preserves Bridge/HUD process identities.
+- On 2026-08-15, the separately authorized real-device run passed after adding
+  the official ESP32-S3-PICO-1 LGA56 package description to the strict parser.
+  The StickS3 reported 8 MiB flash with Secure Boot and Flash Encryption disabled.
+  Two complete ROM-only reads matched; the retained image was exactly 8,388,608
+  bytes, the independent on-disk digest matched the redacted receipt, directory
+  and file modes were `0700`/`0600`, and no partial directory remained. No device
+  fingerprint, private image digest, or local backup-instance path is recorded
+  here. M4-4D remains separately authorized and unopened.

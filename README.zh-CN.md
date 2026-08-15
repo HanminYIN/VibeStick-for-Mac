@@ -14,7 +14,7 @@ VibeStick for Mac 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：�
 
 VibeStick 面向 M5Stack StickS3，不是 M5Stack 官方项目。Codex、Claude 等第三方 agent 名称只用于说明本地兼容工具和集成。
 
-## 从原始 VibeStick 到 M3-A
+## 从原始 VibeStick 到 M4-4C
 
 原始 VibeStick 奠定了 StickS3 显示 coding agent 状态、额度、提醒和长按语音输入的
 核心闭环。M0 在此基础上增强状态观察、具名后台、Paste 权限与诊断；M1 加入原生
@@ -26,10 +26,11 @@ revision/ACK 的配置同步。真实 Mac 地址变化、凭据轮换、失败�
 HUD、Paste、Codex 状态和额度链路均已通过当前 Mac 与真实 StickS3 验收。M2 当前
 已封存为本地提交 `8ced6eb`，尚未推送或发布。
 
-M3-A 在这套可信连接底座上完成 Codex Focus 新首页、Mac 实时预览、项目名开关、
-动态额度窗口、实机光学校准，以及“平时被动更新、双击主动刷新”的额度策略。
-当前 M3-A 工作区已通过自动回归和真实设备验收，尚未提交或发布；语音与发送交互
-继续在 M3-B 完成，全新机器安装和一键烧录仍属于 M4。
+M3 完成 Codex Focus 新首页、Mac 实时预览、动态额度窗口、中文项目名、语音识别、
+蓝键确认发送和完成效果音，并通过当前 Mac 与真实 StickS3 验收。M4-0 至 M4-4B
+进一步建立全新 Mac 安装、运行时管理、诊断、离线固件载荷以及固定版本烧录工具的
+本地可信链。M4-4C 已完成真实设备身份与安全状态检查，以及私有的完整 8 MiB
+双读取备份验收；写入、恢复演练和一键烧录仍属于后续单独授权的 M4-4D。
 
 - [M1 成果与验收证据](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
 - [M2 成果与原作者版本对比](docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)
@@ -286,7 +287,7 @@ idf.py build
 
 ## 当前限制
 
-- 当前 M3-A 开发 DMG 用于管理已经存在的稳定安装，还不是全新 Mac 安装器；M3-A 已完成本地真机验收，但尚未作为正式版本发布。
+- 当前 M4-4C 开发 DMG 已覆盖全新 Mac 安装准备和只读设备备份流程，但仍是未经发布的开发候选；写入、恢复演练和一键烧录尚未开放。
 - 固件只面向 M5Stack StickS3。
 - Mac App 只支持 Apple Silicon 和 macOS 15 或更高版本；当前为 ad-hoc 签名且未经 Apple 公证。
 - Codex 额度平时跟随本地任务 `rate_limits` 事件，不额外启动进程；手动刷新时才单次调用与当前版本绑定的本机 Codex app-server 协议，获取更新的账户级读数。两者都不是公开额度 API。

@@ -6,7 +6,7 @@ PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-4B.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-4C.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -357,6 +357,37 @@ assert_m4_firmware_payload_source_contract() {
   printf '%s\n' "PASS: M4-4A prepares secret-free firmware and schema-v2 USB provisioning without device access"
 }
 
+assert_m4_device_backup_source_contract() {
+  backup_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M4DeviceBackup.swift"
+  app_model="$ROOT_DIR/app/macos/VibeStickApp/App/AppModel.swift"
+  section_views="$ROOT_DIR/app/macos/VibeStickApp/Features/SectionViews.swift"
+
+  if ! /usr/bin/grep -F 'FirmwareBackups.noindex' "$backup_source" >/dev/null \
+    || ! /usr/bin/grep -F '"get-security-info", "flash-id", "read-mac", "read-flash"' "$backup_source" >/dev/null \
+    || ! /usr/bin/grep -F '"--before", "no-reset"' "$backup_source" >/dev/null \
+    || ! /usr/bin/grep -F '"--no-stub"' "$backup_source" >/dev/null \
+    || ! /usr/bin/grep -F '"ESPTOOL_CFGFILE": workingDirectory.appendingPathComponent("esptool.cfg").path' "$backup_source" >/dev/null \
+    || ! /usr/bin/grep -F '"--after", resetAfterCommand ? "watchdog-reset" : "no-reset"' "$backup_source" >/dev/null \
+    || [ "$(/usr/bin/grep -F -c '"read-flash", "--flash-size", descriptor.expectedFlashSizeLabel' "$backup_source")" -ne 2 ] \
+    || ! /usr/bin/grep -F 'two-complete-reads-sha256-match' "$backup_source" >/dev/null \
+    || ! /usr/bin/grep -F '.posixPermissions: 0o700' "$backup_source" >/dev/null \
+    || ! /usr/bin/grep -F '.posixPermissions: 0o600' "$backup_source" >/dev/null \
+    || ! /usr/bin/grep -F 'device_fingerprint_sha256' "$backup_source" >/dev/null \
+    || ! /usr/bin/grep -F 'deviceInspectionConfirmationPresented' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F 'deviceBackupConfirmationPresented' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F '建立私有 8 MiB 完整备份？' "$section_views" >/dev/null; then
+    printf '%s\n' "FAIL: the M4-4C device inspection, read-only backup, or explicit-confirmation contract is incomplete" >&2
+    exit 1
+  fi
+
+  if /usr/bin/grep -E '"(write-flash|erase-flash|erase-region|verify-flash|write-mem|write-flash-status|load-ram)"' \
+    "$backup_source" >/dev/null; then
+    printf '%s\n' "FAIL: M4-4C contains a device mutation or M4-4D verification command" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: M4-4C pins unique-device inspection, ROM-only commands, double-read verification, and private backup"
+}
+
 assert_menu_bar_icon() {
   menu_app_path="$1"
   menu_label="$2"
@@ -482,6 +513,9 @@ assert_no_forbidden_files() {
     -name 'esp-idf' -o \
     -name '.espressif' -o \
     -name 'esptool*.tar.gz' -o \
+    -name 'FirmwareBackups.noindex' -o \
+    -name 'flash-8MiB.bin' -o \
+    -name 'receipt-v1.json' -o \
     -name '*Tests*' \
   \) -print)"
   if [ -n "$forbidden_files" ]; then
@@ -748,6 +782,7 @@ assert_m3c_asr_source_contract
 assert_m4_install_source_contract
 assert_m4_flashing_tool_source_contract
 assert_m4_firmware_payload_source_contract
+assert_m4_device_backup_source_contract
 "$ROOT_DIR/scripts/build-macos-app.sh"
 assert_binary "$APP_BINARY" "VibeStick for Mac"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"

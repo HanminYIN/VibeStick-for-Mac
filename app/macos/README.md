@@ -10,7 +10,7 @@ plus [M3-A achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M3
 [M4 installation and recovery contract](../../docs/design/m4/M4_INSTALLATION_RECOVERY_CONTRACT.md),
 for the upstream boundary, implemented scope, real-device acceptance, and deferred work.
 
-## M1 foundation through M4-4B tool preparation
+## M1 foundation through M4-4C device backup
 
 The M1 app intentionally manages the existing stable installation instead of replacing it:
 
@@ -28,10 +28,11 @@ The M1 app intentionally manages the existing stable installation instead of rep
 - Installs or repairs only the embedded, manifested Bridge/HUD/Paste runtime after explicit confirmation, with backup, verification, and rollback.
 - Downloads the pinned Espressif `esptool` 5.3.1 Apple Silicon archive only after explicit confirmation and verifies HTTPS, exact size, and SHA-256.
 - After a second explicit confirmation, validates the exact archive listing, inner file digests, thin-arm64 executables, Espressif Developer ID signatures, and the offline `esptool version` command before transactionally preparing a private tool directory.
+- After separate device confirmations, accepts exactly one StickS3 USB Serial/JTAG candidate, checks ESP32-S3 identity, 8 MiB Flash and disabled security features with ROM-only commands, and keeps one private full-flash image only when two complete reads have the same SHA-256.
 
 First launch does not run `scripts/install.sh`, rebuild helpers, modify `.env`, alter firmware, or re-sign the installed Paste app. Closing or quitting the control center does not stop background services.
 
-The M4-4B control center is not yet a firmware flasher. Its development bundle contains a secret-free, offline-validated StickS3 payload. It can prepare the separately downloaded tool only after confirmation and runs only the no-device `esptool version` command. It does not enumerate or open a serial port, inspect device security state, read or back up firmware, or issue erase/write commands. Device inspection/backup and flashing remain separately authorized M4-4C/D work. No firmware operation happens on app launch or USB detection.
+The M4-4C control center is not yet a firmware flasher. Its development bundle contains a secret-free, offline-validated StickS3 payload. App launch and page navigation do not open a serial port. The device inspection and backup buttons each require their own confirmation and a manually entered download mode. M4-4C permits only `get-security-info`, `flash-id`, `read-mac`, and `read-flash`, always with `--no-stub`; it never erases, writes, verifies a candidate firmware image, or changes Bridge/HUD. Backups stay under the user's private VibeStick support directory and are never embedded in the App/DMG. Flashing and recovery remain M4-4D.
 
 If a healthy Bridge is already running outside the installed LaunchAgent, the control center reports it as externally managed and keeps service controls read-only. This avoids creating a second process on port 8765. Stop and restart are also blocked while a recording or transcription is active.
 
@@ -59,7 +60,7 @@ Build the development DMG with:
 scripts/build-macos-dmg.sh
 ```
 
-The result is `.build/macos.noindex/VibeStick-for-Mac-M4-4B.dmg`. This development DMG contains the M4-2 verified runtime payload, the M4-3 pinned downloader, the M4-4A secret-free firmware payload, and M4-4B validation logic. It does not contain the downloaded archive, extracted `esptool`, or ESP-IDF. Opening it does not install, download, extract, execute a tool, restart services, access USB, or flash firmware.
+The result is `.build/macos.noindex/VibeStick-for-Mac-M4-4C.dmg`. This development DMG contains the M4-2 verified runtime payload, the M4-3 pinned downloader, the M4-4A secret-free firmware payload, M4-4B tool validation, and M4-4C read-only device-backup logic. It does not contain the downloaded archive, extracted `esptool`, ESP-IDF, or any device backup. Opening it does not install, download, extract, execute a tool, restart services, access USB, or flash firmware.
 
 Run the complete local acceptance chain with:
 

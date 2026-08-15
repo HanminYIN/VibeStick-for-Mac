@@ -24,6 +24,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var bridgeSnapshot = BridgeSnapshot.empty
     @Published private(set) var runtimeSnapshot = RuntimeSnapshot.waiting
     @Published private(set) var flashingToolSnapshot = FlashingToolSnapshot.checking()
+    @Published private(set) var deviceBackupSnapshot = DeviceBackupSnapshot.idle
     @Published private(set) var configurationSummary = LegacyConfigurationSummary.empty
     @Published private(set) var keychainSummary = KeychainSummary.empty
     @Published private(set) var voiceInteractionSummary = VoiceInteractionSummary.empty
@@ -37,6 +38,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var serviceActionInProgress = false
     @Published private(set) var runtimeInstallInProgress = false
     @Published private(set) var flashingToolActionInProgress = false
+    @Published private(set) var deviceBackupActionInProgress = false
     @Published private(set) var deviceConfigurationSaveInProgress = false
     @Published private(set) var asrSettingsSaveInProgress = false
     @Published var presentedMessage: AppMessage?
@@ -44,11 +46,14 @@ final class AppModel: ObservableObject {
     @Published var flashingToolDownloadConfirmationPresented = false
     @Published var flashingToolPreparationConfirmationPresented = false
     @Published var flashingToolRemovalConfirmationPresented = false
+    @Published var deviceInspectionConfirmationPresented = false
+    @Published var deviceBackupConfirmationPresented = false
 
     private let bridgeClient: BridgeClient
     private let runtimeManager: RuntimeServiceManager
     private let runtimeInstaller: RuntimeInstaller
     private let flashingToolManager: FlashingToolManager
+    private let deviceBackupManager: DeviceBackupManager
     private let configurationInspector: ConfigurationInspector
     private let preferencesStore: PreferencesStore
     private let loginItemController: LoginItemController
@@ -71,6 +76,7 @@ final class AppModel: ObservableObject {
         runtimeManager: RuntimeServiceManager = RuntimeServiceManager(),
         runtimeInstaller: RuntimeInstaller = RuntimeInstaller(),
         flashingToolManager: FlashingToolManager = FlashingToolManager(),
+        deviceBackupManager: DeviceBackupManager = DeviceBackupManager(),
         configurationInspector: ConfigurationInspector = ConfigurationInspector(),
         preferencesStore: PreferencesStore = PreferencesStore(),
         loginItemController: LoginItemController = LoginItemController(),
@@ -85,6 +91,7 @@ final class AppModel: ObservableObject {
         self.runtimeManager = runtimeManager
         self.runtimeInstaller = runtimeInstaller
         self.flashingToolManager = flashingToolManager
+        self.deviceBackupManager = deviceBackupManager
         self.configurationInspector = configurationInspector
         self.preferencesStore = preferencesStore
         self.loginItemController = loginItemController
@@ -101,7 +108,7 @@ final class AppModel: ObservableObject {
             ?? "0.2.0-dev"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "local"
-        return "\(version) (\(build)) · M4-4B"
+        return "\(version) (\(build)) · M4-4C"
     }
 
     func start() {
@@ -507,17 +514,17 @@ final class AppModel: ObservableObject {
     }
 
     func requestFlashingToolRefresh() {
-        guard !flashingToolActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
         Task { await refreshFlashingToolStatus() }
     }
 
     func requestFlashingToolDownload() {
-        guard !flashingToolActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
         flashingToolDownloadConfirmationPresented = true
     }
 
     func confirmFlashingToolDownload() {
-        guard !flashingToolActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
         flashingToolDownloadConfirmationPresented = false
         flashingToolActionInProgress = true
         flashingToolSnapshot = .checking(flashingToolSnapshot.descriptor)
@@ -541,18 +548,19 @@ final class AppModel: ObservableObject {
     }
 
     func requestFlashingToolRemoval() {
-        guard !flashingToolActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
         flashingToolRemovalConfirmationPresented = true
     }
 
     func requestFlashingToolPreparation() {
         guard !flashingToolActionInProgress,
+              !deviceBackupActionInProgress,
               flashingToolSnapshot.phase == .archiveReady else { return }
         flashingToolPreparationConfirmationPresented = true
     }
 
     func confirmFlashingToolPreparation() {
-        guard !flashingToolActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
         flashingToolPreparationConfirmationPresented = false
         flashingToolActionInProgress = true
         flashingToolSnapshot = .checking(flashingToolSnapshot.descriptor)
@@ -576,7 +584,7 @@ final class AppModel: ObservableObject {
     }
 
     func confirmFlashingToolRemoval() {
-        guard !flashingToolActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
         flashingToolRemovalConfirmationPresented = false
         flashingToolActionInProgress = true
 
@@ -601,6 +609,86 @@ final class AppModel: ObservableObject {
     private func refreshFlashingToolStatus() async {
         flashingToolSnapshot = .checking(flashingToolSnapshot.descriptor)
         flashingToolSnapshot = await flashingToolManager.inspect()
+    }
+
+    func requestDeviceInspection() {
+        guard !flashingToolActionInProgress,
+              !deviceBackupActionInProgress,
+              flashingToolSnapshot.phase == .ready else { return }
+        deviceInspectionConfirmationPresented = true
+    }
+
+    func confirmDeviceInspection() {
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
+        deviceInspectionConfirmationPresented = false
+        deviceBackupActionInProgress = true
+        deviceBackupSnapshot = .inspecting
+
+        Task {
+            do {
+                let executableURL = try await flashingToolManager.revalidatedExecutableURL()
+                let inspection = try await deviceBackupManager.inspect(executableURL: executableURL)
+                deviceBackupSnapshot = .ready(inspection)
+                presentedMessage = AppMessage(
+                    title: "设备检查通过",
+                    message: "已确认 ESP32-S3、8 MiB Flash，Secure Boot 与 Flash Encryption 均未启用。设备已退出下载模式；建立备份前需要再次手动进入下载模式。"
+                )
+            } catch {
+                deviceBackupSnapshot = .failure(error)
+                presentedMessage = AppMessage(
+                    title: "设备检查未通过",
+                    message: error.localizedDescription
+                )
+                await refreshFlashingToolStatus()
+            }
+            deviceBackupActionInProgress = false
+        }
+    }
+
+    func requestDeviceBackup() {
+        guard !flashingToolActionInProgress,
+              !deviceBackupActionInProgress,
+              flashingToolSnapshot.phase == .ready,
+              deviceBackupSnapshot.phase == .ready,
+              deviceBackupSnapshot.inspection != nil else { return }
+        deviceBackupConfirmationPresented = true
+    }
+
+    func confirmDeviceBackup() {
+        guard !flashingToolActionInProgress,
+              !deviceBackupActionInProgress,
+              let expectedInspection = deviceBackupSnapshot.inspection else { return }
+        deviceBackupConfirmationPresented = false
+        deviceBackupActionInProgress = true
+        deviceBackupSnapshot = DeviceBackupSnapshot(
+            phase: .backingUp,
+            detail: DeviceBackupSnapshot.backingUp.detail,
+            inspection: expectedInspection,
+            receipt: nil
+        )
+
+        Task {
+            do {
+                let executableURL = try await flashingToolManager.revalidatedExecutableURL()
+                let receipt = try await deviceBackupManager.createBackup(
+                    expectedInspection: expectedInspection,
+                    executableURL: executableURL
+                )
+                deviceBackupSnapshot = .complete(receipt)
+                presentedMessage = AppMessage(
+                    title: "完整备份已验证",
+                    message: "同一设备的两次 8 MiB 完整读取具有相同 SHA-256。已保留一份权限受限的私有备份与脱敏回执；没有擦除或写入设备。"
+                )
+            } catch {
+                deviceBackupSnapshot = .failure(error, preserving: expectedInspection)
+                presentedMessage = AppMessage(
+                    title: "没有建立备份",
+                    message: error.localizedDescription
+                )
+                await refreshFlashingToolStatus()
+            }
+            deviceBackupActionInProgress = false
+        }
     }
 
     func setShowMenuBarItem(_ enabled: Bool) {

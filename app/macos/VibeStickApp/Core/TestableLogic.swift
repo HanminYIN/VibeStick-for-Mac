@@ -328,6 +328,10 @@ enum PastePermissionProbeProtocol {
 
 enum USBDeviceDetectionParser {
     static func detect(ioregOutput: String, ports: [String]) -> USBDeviceCandidate? {
+        candidates(ioregOutput: ioregOutput, ports: ports).first
+    }
+
+    static func candidates(ioregOutput: String, ports: [String]) -> [USBDeviceCandidate] {
         let availablePorts = Set(ports.filter { $0.hasPrefix("/dev/cu.usbmodem") })
         var candidates: [USBDeviceCandidate] = []
         for rawBlock in ioregOutput.components(separatedBy: "+-o AppleUSBACMData").dropFirst() {
@@ -347,7 +351,7 @@ enum USBDeviceDetectionParser {
                 )
             )
         }
-        return candidates.sorted { $0.portPath < $1.portPath }.first
+        return candidates.sorted { $0.portPath < $1.portPath }
     }
 
     private static func quotedValue(after key: String, in text: String) -> String? {
