@@ -799,6 +799,61 @@ struct VibeStickAppTests {
     }
 
     @Test
+    func wifiProvisioningDraftPreservesExistingConfigurationOnlyWhenBothFieldsAreEmpty() throws {
+        #expect(try WiFiProvisioningDraft(ssid: "", password: "").validatedCredentials() == nil)
+
+        let validated = try WiFiProvisioningDraft(
+            ssid: "VibeStick 2.4G",
+            password: "valid-passphrase"
+        ).validatedCredentials()
+        let credentials = try #require(validated)
+        #expect(credentials.ssid == "VibeStick 2.4G")
+        #expect(credentials.password == "valid-passphrase")
+
+        do {
+            _ = try WiFiProvisioningDraft(
+                ssid: "VibeStick 2.4G",
+                password: ""
+            ).validatedCredentials()
+            Issue.record("Expected a partial Wi-Fi draft to fail closed")
+        } catch PairingError.incompleteWiFiCredentials {
+            // Expected: never infer whether a blank field should be preserved or replaced.
+        }
+    }
+
+    @Test
+    func unconfiguredSchemaTwoRequiresWiFiBeforeStagingPairingState() async throws {
+        let serial = UnconfiguredSchemaTwoPairingSerialClient()
+        let registry = MockPairingRegistry(record: nil)
+        let tokens = MockPairingTokenStore(accounts: [:])
+        let manager = DevicePairingManager(
+            serialClient: serial,
+            registryStore: registry,
+            identityStore: FixedPairingBridgeIdentityStore(),
+            keychainStore: tokens
+        )
+
+        do {
+            _ = try await manager.pair(
+                candidate: USBDeviceCandidate(
+                    portPath: "/dev/cu.usbmodem-test",
+                    serialNumber: nil,
+                    vendorID: USBDeviceCandidate.esp32S3VendorID,
+                    productID: USBDeviceCandidate.usbSerialJTAGProductID
+                ),
+                fallbackHost: "192.0.2.10"
+            )
+            Issue.record("Expected first Wi-Fi provisioning to be required")
+        } catch PairingError.wifiCredentialsRequired {
+            // Expected: this happens before registry, Keychain, or USB pair mutation.
+        }
+
+        #expect(await serial.pairAttemptCount() == 0)
+        #expect(await registry.currentRecord() == nil)
+        #expect(tokens.accountNames().isEmpty)
+    }
+
+    @Test
     func pairingHashMatchesBridgeProtocolVector() {
         let salt = Data([
             0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
@@ -1632,6 +1687,225 @@ struct VibeStickAppTests {
         }
         #expect(try FileManager.default.contentsOfDirectory(atPath: mismatchRoot.path).isEmpty)
     }
+
+    @Test
+    func deviceFlashPlanPinsSectorSafeRegionsAndRejectsNVSOverlap() throws {
+        let root = temporaryTestDirectory("DeviceFlashPlan")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try makeFirmwarePayload(at: root)
+        let manifestData = try Data(contentsOf: root.appendingPathComponent("manifest-v1.json"))
+        let manifest = try JSONDecoder().decode(FirmwarePayloadManifest.self, from: manifestData)
+        let plan = try DeviceFlashPlan(manifest: manifest)
+
+        #expect(plan.regions.map(\.offset) == [0x0, 0x8000, 0x10000])
+        #expect(plan.regions.allSatisfy { $0.eraseStart.isMultiple(of: 0x1000) })
+        #expect(plan.regions.allSatisfy { $0.eraseEndExclusive.isMultiple(of: 0x1000) })
+        #expect(plan.regions.allSatisfy {
+            $0.eraseEndExclusive <= plan.preservedNVS.start
+                || $0.eraseStart >= plan.preservedNVS.endExclusive
+        })
+
+        let overlappingFiles = manifest.files.map { file in
+            file.path == "partition-table.bin"
+                ? FirmwarePayloadFile(
+                    mode: file.mode,
+                    offset: file.offset,
+                    path: file.path,
+                    sha256: file.sha256,
+                    size: 0x1001
+                )
+                : file
+        }
+        let overlappingManifest = FirmwarePayloadManifest(
+            board: manifest.board,
+            files: overlappingFiles,
+            flash: manifest.flash,
+            payloadVersion: manifest.payloadVersion,
+            preservedRanges: manifest.preservedRanges,
+            schemaVersion: manifest.schemaVersion,
+            source: manifest.source,
+            target: manifest.target
+        )
+        #expect(throws: DeviceFlashError.nvsOverlap) {
+            _ = try DeviceFlashPlan(manifest: overlappingManifest)
+        }
+        #expect(throws: DeviceFlashError.commandNotAllowed) {
+            try DeviceFlashCommandPolicy.validate(
+                [
+                    "--chip", "esp32s3", "--before", "no-reset", "--after", "no-reset",
+                    "--no-stub", "write-flash", "--force", "0x0", "/fixture/image.bin",
+                ],
+                expectedCommand: "write-flash"
+            )
+        }
+    }
+
+    @Test
+    func deviceFlashLocalReadinessValidatesPayloadAndPrivateBackupWithoutToolCalls() async throws {
+        let fixture = try makeDeviceFlashFixture("DeviceFlashReady")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let snapshot = await fixture.manager.inspectLocalReadiness()
+
+        #expect(snapshot.phase == .ready)
+        #expect(snapshot.payloadVersion == "0.2.0-m4.4a-test")
+        #expect(snapshot.backupReady)
+        #expect(fixture.runner.recordedArguments().isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.transactionRoot.path))
+    }
+
+    @Test
+    func candidateWriteUsesOneFixedWriteAndPersistsUnverifiedJournal() async throws {
+        let fixture = try makeDeviceFlashFixture("DeviceFlashWrite")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let snapshot = try await fixture.manager.writeCandidate(executableURL: fixture.executableURL)
+
+        #expect(snapshot.phase == .writeUnverified)
+        let arguments = fixture.runner.recordedArguments()
+        #expect(arguments.compactMap(deviceFlashSubcommand) == [
+            "get-security-info", "flash-id", "read-mac", "read-flash", "write-flash",
+        ])
+        let write = try #require(arguments.last)
+        #expect(write.filter { $0.hasPrefix("0x") } == ["0x0", "0x8000", "0x10000"])
+        #expect(write.contains("no-reset"))
+        #expect(DeviceFlashCommandPolicy.forbiddenArguments.allSatisfy { !write.contains($0) })
+        let journal = fixture.transactionRoot.appendingPathComponent("latest-v1.json")
+        let prewriteNVS = fixture.transactionRoot.appendingPathComponent("prewrite-nvs-v1.bin")
+        let rootMode = try #require(
+            FileManager.default.attributesOfItem(atPath: fixture.transactionRoot.path)[.posixPermissions]
+                as? NSNumber
+        ).uint16Value
+        let journalMode = try #require(
+            FileManager.default.attributesOfItem(atPath: journal.path)[.posixPermissions] as? NSNumber
+        ).uint16Value
+        let prewriteNVSMode = try #require(
+            FileManager.default.attributesOfItem(atPath: prewriteNVS.path)[.posixPermissions] as? NSNumber
+        ).uint16Value
+        #expect(rootMode == 0o700)
+        #expect(journalMode == 0o600)
+        #expect(prewriteNVSMode == 0o600)
+        #expect(try Data(contentsOf: prewriteNVS).count == 0x6000)
+        #expect(try String(contentsOf: journal, encoding: .utf8).contains("write-unverified"))
+        #expect(try String(contentsOf: journal, encoding: .utf8).contains("prewrite_nvs_sha256"))
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: fixture.transactionRoot.path)) == [
+            "latest-v1.json", "prewrite-nvs-v1.bin",
+        ])
+    }
+
+    @Test
+    func candidateVerificationReadsEveryRegionAndNVSBeforeReset() async throws {
+        let fixture = try makeDeviceFlashFixture("DeviceFlashVerify")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        _ = try await fixture.manager.writeCandidate(executableURL: fixture.executableURL)
+
+        let snapshot = try await fixture.manager.verifyCandidate(executableURL: fixture.executableURL)
+
+        #expect(snapshot.phase == .verified)
+        let allReads = fixture.runner.recordedArguments().filter { deviceFlashSubcommand($0) == "read-flash" }
+        #expect(allReads.count == 5)
+        #expect(Array(allReads.first?.suffix(3).prefix(2) ?? []) == ["0x9000", "0x6000"])
+        let verificationReads = Array(allReads.suffix(4))
+        #expect(verificationReads.map { Array($0.suffix(3).prefix(2)) } == [
+            ["0x0", "0x12"], ["0x8000", "0x12"], ["0x10000", "0x13"], ["0x9000", "0x6000"],
+        ])
+        #expect(allReads.dropLast().allSatisfy { $0.contains("no-reset") && !$0.contains("watchdog-reset") })
+        #expect(allReads.last?.contains("watchdog-reset") == true)
+        #expect(fixture.runner.recordedArguments().allSatisfy { arguments in
+            DeviceFlashCommandPolicy.forbiddenArguments.allSatisfy { forbidden in
+                !arguments.contains(forbidden)
+            }
+        })
+        #expect(Set(try FileManager.default.contentsOfDirectory(atPath: fixture.transactionRoot.path)) == [
+            "latest-v1.json", "prewrite-nvs-v1.bin",
+        ])
+    }
+
+    @Test
+    func candidateVerificationUsesImmediatePrewriteNVSSnapshotInsteadOfOlderBackup() async throws {
+        let fixture = try makeDeviceFlashFixture("DeviceFlashFreshNVS")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        fixture.runner.corruptMemory(at: 0x9000)
+
+        _ = try await fixture.manager.writeCandidate(executableURL: fixture.executableURL)
+        let snapshot = try await fixture.manager.verifyCandidate(executableURL: fixture.executableURL)
+
+        #expect(snapshot.phase == .verified)
+        let prewriteNVS = fixture.transactionRoot.appendingPathComponent("prewrite-nvs-v1.bin")
+        #expect(try Data(contentsOf: prewriteNVS).first == 0xa5)
+    }
+
+    @Test
+    func missingPrewriteNVSSnapshotRequiresRecoveryBeforeAnyVerificationToolCall() async throws {
+        let fixture = try makeDeviceFlashFixture("DeviceFlashMissingFreshNVS")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        _ = try await fixture.manager.writeCandidate(executableURL: fixture.executableURL)
+        let prewriteNVS = fixture.transactionRoot.appendingPathComponent("prewrite-nvs-v1.bin")
+        try FileManager.default.removeItem(at: prewriteNVS)
+        let callCount = fixture.runner.recordedArguments().count
+
+        #expect(await fixture.manager.inspectLocalReadiness().phase == .recoveryRequired)
+        await #expect(throws: DeviceFlashError.invalidPrewriteNVSSnapshot) {
+            _ = try await fixture.manager.verifyCandidate(executableURL: fixture.executableURL)
+        }
+        #expect(fixture.runner.recordedArguments().count == callCount)
+    }
+
+    @Test
+    func candidateMismatchBecomesRecoveryRequiredWithoutAutomaticWrite() async throws {
+        let fixture = try makeDeviceFlashFixture("DeviceFlashMismatch")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        _ = try await fixture.manager.writeCandidate(executableURL: fixture.executableURL)
+        fixture.runner.corruptMemory(at: 0)
+
+        await #expect(throws: DeviceFlashError.candidateMismatch) {
+            _ = try await fixture.manager.verifyCandidate(executableURL: fixture.executableURL)
+        }
+
+        #expect(await fixture.manager.inspectLocalReadiness().phase == .recoveryRequired)
+        #expect(fixture.runner.recordedArguments().filter { deviceFlashSubcommand($0) == "write-flash" }.count == 1)
+    }
+
+    @Test
+    func fullBackupRestoreRequiresIndependentCompleteReadback() async throws {
+        let fixture = try makeDeviceFlashFixture("DeviceFlashRestore")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        _ = try await fixture.manager.writeCandidate(executableURL: fixture.executableURL)
+        fixture.runner.corruptMemory(at: 0x10000)
+
+        let restoredPending = try await fixture.manager.restoreBackup(executableURL: fixture.executableURL)
+        #expect(restoredPending.phase == .restoreUnverified)
+        let write = try #require(
+            fixture.runner.recordedArguments().last { deviceFlashSubcommand($0) == "write-flash" }
+        )
+        #expect(write.filter { $0.hasPrefix("0x") } == ["0x0"])
+        let writeSource = try #require(write.last)
+        #expect(
+            URL(fileURLWithPath: writeSource).resolvingSymlinksInPath()
+                == fixture.backupImage.resolvingSymlinksInPath()
+        )
+
+        let restored = try await fixture.manager.verifyRestore(executableURL: fixture.executableURL)
+        #expect(restored.phase == .restored)
+        let finalRead = try #require(
+            fixture.runner.recordedArguments().last { deviceFlashSubcommand($0) == "read-flash" }
+        )
+        #expect(Array(finalRead.suffix(3).prefix(2)) == ["0x0", "0x800000"])
+        #expect(finalRead.contains("watchdog-reset"))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: fixture.transactionRoot.path) == ["latest-v1.json"])
+    }
+
+    @Test
+    func runtimePendingSendBlocksBeforeAnyDeviceToolCommand() async throws {
+        let fixture = try makeDeviceFlashFixture("DeviceFlashBusy", recordingStatus: "pending_send")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        await #expect(throws: DeviceFlashError.runtimeBusy) {
+            _ = try await fixture.manager.writeCandidate(executableURL: fixture.executableURL)
+        }
+        #expect(fixture.runner.recordedArguments().isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: fixture.transactionRoot.path))
+    }
 }
 
 private struct FixedUSBDeviceDetector: USBDeviceDetecting {
@@ -1705,8 +1979,192 @@ private final class MockDeviceToolRunner: DeviceToolRunning, @unchecked Sendable
     }
 }
 
+private final class MockDeviceFlashRunner: DeviceToolRunning, @unchecked Sendable {
+    private let lock = NSLock()
+    private var invocations: [[String]] = []
+    private var flash: Data
+    private var macAddress = "02:00:00:aa:bb:cc"
+
+    init(flash: Data) {
+        self.flash = flash
+    }
+
+    func run(
+        executableURL: URL,
+        arguments: [String],
+        workingDirectory: URL,
+        timeout: TimeInterval
+    ) throws -> DeviceToolResult {
+        lock.lock()
+        defer { lock.unlock() }
+        invocations.append(arguments)
+        switch deviceFlashSubcommand(arguments) {
+        case "get-security-info":
+            return DeviceToolResult(standardOutput: deviceSecurityFixture(), standardError: "")
+        case "flash-id":
+            return DeviceToolResult(standardOutput: deviceFlashFixture(), standardError: "")
+        case "read-mac":
+            return DeviceToolResult(standardOutput: deviceMACFixture(macAddress), standardError: "")
+        case "write-flash":
+            let commandIndex = try #require(arguments.firstIndex(of: "write-flash"))
+            var index = commandIndex + 1
+            var wroteRegion = false
+            while index + 1 < arguments.count {
+                guard arguments[index].hasPrefix("0x"),
+                      let offset = parseHex(arguments[index]) else {
+                    index += 1
+                    continue
+                }
+                let source = URL(fileURLWithPath: arguments[index + 1])
+                let data = try Data(contentsOf: source)
+                let start = Int(offset)
+                guard start >= 0, start + data.count <= flash.count else {
+                    throw DeviceFlashError.commandNotAllowed
+                }
+                flash.replaceSubrange(start..<(start + data.count), with: data)
+                wroteRegion = true
+                index += 2
+            }
+            guard wroteRegion else { throw DeviceFlashError.commandNotAllowed }
+            return DeviceToolResult(
+                standardOutput: "Wrote fixed ranges.\nHash of data verified.\n",
+                standardError: ""
+            )
+        case "read-flash":
+            let tail = Array(arguments.suffix(3))
+            guard tail.count == 3,
+                  let offset = parseHex(tail[0]),
+                  let size = parseHex(tail[1]) else {
+                throw DeviceFlashError.commandNotAllowed
+            }
+            let start = Int(offset)
+            let count = Int(size)
+            guard start >= 0, count >= 0, start + count <= flash.count else {
+                throw DeviceFlashError.commandNotAllowed
+            }
+            let output = URL(fileURLWithPath: tail[2])
+            let handle = try FileHandle(forWritingTo: output)
+            try handle.truncate(atOffset: 0)
+            try handle.write(contentsOf: flash.subdata(in: start..<(start + count)))
+            try handle.close()
+            return DeviceToolResult(
+                standardOutput: "Read \(count) bytes from \(tail[0]).\n",
+                standardError: ""
+            )
+        default:
+            throw DeviceFlashError.commandNotAllowed
+        }
+    }
+
+    func recordedArguments() -> [[String]] {
+        lock.withLock { invocations }
+    }
+
+    func corruptMemory(at offset: Int) {
+        lock.withLock {
+            guard flash.indices.contains(offset) else { return }
+            flash[offset] ^= 0xff
+        }
+    }
+
+    private func parseHex(_ value: String) -> UInt64? {
+        guard value.hasPrefix("0x") else { return nil }
+        return UInt64(value.dropFirst(2), radix: 16)
+    }
+}
+
+private struct DeviceFlashFixture {
+    let root: URL
+    let transactionRoot: URL
+    let backupImage: URL
+    let executableURL: URL
+    let runner: MockDeviceFlashRunner
+    let manager: DeviceFlashManager
+}
+
+private func makeDeviceFlashFixture(
+    _ label: String,
+    recordingStatus: String? = nil
+) throws -> DeviceFlashFixture {
+    let root = temporaryTestDirectory(label)
+    let firmwareRoot = root.appendingPathComponent("FirmwarePayload.noindex", isDirectory: true)
+    let backupRoot = root.appendingPathComponent("FirmwareBackups.noindex", isDirectory: true)
+    let backupDirectory = backupRoot.appendingPathComponent("20260815T000000Z-test", isDirectory: true)
+    let transactionRoot = root.appendingPathComponent("FirmwareTransactions.noindex", isDirectory: true)
+    let recordingFile = root.appendingPathComponent("recording-v1.json")
+    try makeFirmwarePayload(at: firmwareRoot)
+    try FileManager.default.createDirectory(
+        at: backupDirectory,
+        withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700]
+    )
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: backupRoot.path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: backupDirectory.path)
+
+    let flash = Data(repeating: 0x5a, count: 8 * 1024 * 1024)
+    let backupImage = backupDirectory.appendingPathComponent("flash-8MiB.bin")
+    try flash.write(to: backupImage)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: backupImage.path)
+    let inspection = try fixtureDeviceInspection()
+    let digest = try RuntimePayloadDigest.sha256(of: backupImage)
+    let receipt: [String: Any] = [
+        "schema_version": 1,
+        "created_at": "2026-08-15T00:00:00Z",
+        "tool": "esptool",
+        "tool_version": "5.3.1",
+        "chip": "ESP32-S3",
+        "flash_size_bytes": 8 * 1024 * 1024,
+        "flash_manufacturer_id": "ef",
+        "flash_device_id": "4017",
+        "secure_boot_enabled": false,
+        "flash_encryption_enabled": false,
+        "device_fingerprint_sha256": inspection.deviceFingerprint,
+        "image": [
+            "path": "flash-8MiB.bin",
+            "offset": "0x0",
+            "size": 8 * 1024 * 1024,
+            "sha256": digest,
+            "verification": "two-complete-reads-sha256-match",
+        ],
+    ]
+    let receiptURL = backupDirectory.appendingPathComponent("receipt-v1.json")
+    try JSONSerialization.data(withJSONObject: receipt, options: [.prettyPrinted, .sortedKeys])
+        .write(to: receiptURL)
+    try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: receiptURL.path)
+
+    if let recordingStatus {
+        let document: [String: Any] = ["active": false, "status": recordingStatus]
+        try JSONSerialization.data(withJSONObject: document).write(to: recordingFile)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: recordingFile.path)
+    }
+
+    let runner = MockDeviceFlashRunner(flash: flash)
+    let manager = DeviceFlashManager(
+        firmwareRoot: firmwareRoot,
+        backupRoot: backupRoot,
+        transactionRoot: transactionRoot,
+        recordingFile: recordingFile,
+        deviceDetector: FixedUSBDeviceDetector(candidates: [fixtureUSBDeviceCandidate()]),
+        runner: runner
+    )
+    return DeviceFlashFixture(
+        root: root,
+        transactionRoot: transactionRoot,
+        backupImage: backupImage,
+        executableURL: URL(fileURLWithPath: "/fixture/esptool"),
+        runner: runner,
+        manager: manager
+    )
+}
+
 private func deviceSubcommand(_ arguments: [String]) -> String? {
     arguments.first { ["get-security-info", "flash-id", "read-mac", "read-flash"].contains($0) }
+}
+
+private func deviceFlashSubcommand(_ arguments: [String]) -> String? {
+    arguments.first {
+        ["get-security-info", "flash-id", "read-mac", "read-flash", "write-flash"].contains($0)
+    }
 }
 
 private func fixtureUSBDeviceCandidate() -> USBDeviceCandidate {
@@ -2109,6 +2567,37 @@ private final class MockPairingTokenStore: PairingTokenStoring, @unchecked Senda
 
     func accountNames() -> [String] {
         lock.withLock { accounts.keys.sorted() }
+    }
+}
+
+private actor UnconfiguredSchemaTwoPairingSerialClient: DeviceSerialPairing {
+    private var pairAttempts = 0
+
+    func identify(portPath: String) -> DeviceIdentity {
+        DeviceIdentity(
+            deviceID: "vs-001122334455",
+            model: "M5Stack StickS3",
+            firmwareVersion: "0.2.0-m4.4a",
+            protocolVersion: 2,
+            pairingID: nil,
+            pairingSchemaVersion: 2,
+            wifiConfigured: false
+        )
+    }
+
+    func pair(
+        identity: DeviceIdentity,
+        material: PairingMaterial,
+        bridgeID: String,
+        fallbackHost: String,
+        wifiCredentials: WiFiProvisioningCredentials?,
+        portPath: String
+    ) {
+        pairAttempts += 1
+    }
+
+    func pairAttemptCount() -> Int {
+        pairAttempts
     }
 }
 

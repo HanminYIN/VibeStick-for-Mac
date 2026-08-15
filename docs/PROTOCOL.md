@@ -106,6 +106,15 @@ Bridge, and Wi-Fi values are committed together in NVS. A changed Wi-Fi credenti
 returns `restart_required: true`; the acknowledgement is sent before the device
 restarts. Identify returns only `wifi_configured`, never the SSID or password.
 
+The Mac pairing UI treats both Wi-Fi fields blank as an explicit request to preserve
+the device's existing network configuration. Supplying only one field fails locally
+without opening the serial port. If schema 2 identifies `wifi_configured: false`,
+omitting credentials fails before the paired-device registry or Keychain is staged.
+The password exists only in the current secure field and one pairing task; it is
+cleared from view state when that task starts and is never written to Mac preferences,
+logs, transaction journals, the App bundle, or the DMG. First provisioning occurs
+only after candidate readback has already established the pre-pairing NVS baseline.
+
 ## GET /health
 
 This endpoint is intentionally non-secret and supports readiness and discovery diagnostics:

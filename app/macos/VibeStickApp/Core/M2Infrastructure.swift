@@ -257,6 +257,21 @@ actor USBDeviceDetector: USBDeviceDetecting {
     }
 }
 
+struct WiFiProvisioningDraft: Equatable, Sendable {
+    let ssid: String
+    let password: String
+
+    func validatedCredentials() throws -> WiFiProvisioningCredentials? {
+        if ssid.isEmpty, password.isEmpty {
+            return nil
+        }
+        guard !ssid.isEmpty, !password.isEmpty else {
+            throw PairingError.incompleteWiFiCredentials
+        }
+        return try WiFiProvisioningCredentials(ssid: ssid, password: password)
+    }
+}
+
 struct WiFiProvisioningCredentials: Equatable, Sendable {
     let ssid: String
     let password: String
@@ -527,6 +542,11 @@ actor DevicePairingManager {
         guard identity.model == "M5Stack StickS3", identity.protocolVersion >= 2 else {
             throw PairingError.unsupportedFirmware
         }
+        if (identity.pairingSchemaVersion ?? 1) >= 2,
+           identity.wifiConfigured == false,
+           wifiCredentials == nil {
+            throw PairingError.wifiCredentialsRequired
+        }
         if wifiCredentials != nil, (identity.pairingSchemaVersion ?? 1) < 2 {
             throw PairingError.unsupportedWiFiProvisioning
         }
@@ -612,6 +632,8 @@ enum PairingError: LocalizedError {
     case responseTimedOut
     case unsupportedFirmware
     case unsupportedWiFiProvisioning
+    case wifiCredentialsRequired
+    case incompleteWiFiCredentials
     case invalidWiFiSSID
     case invalidWiFiPassword
     case deviceRejected(String)
@@ -626,6 +648,8 @@ enum PairingError: LocalizedError {
         case .responseTimedOut: "StickS3 没有响应 M2 配对协议；当前稳定固件可能尚未升级"
         case .unsupportedFirmware: "设备已连接，但当前固件不支持 M2 安全配对协议"
         case .unsupportedWiFiProvisioning: "设备固件不支持通过 USB 安全写入 Wi-Fi 配置"
+        case .wifiCredentialsRequired: "设备尚未配置 Wi-Fi；请填写 2.4 GHz Wi-Fi 名称和密码后重新配对"
+        case .incompleteWiFiCredentials: "Wi-Fi 名称和密码必须同时填写，或同时留空以保留设备现有配置"
         case .invalidWiFiSSID: "Wi-Fi 名称必须是 1 到 32 字节，且不能包含控制字符"
         case .invalidWiFiPassword: "当前 WPA2 配网只接受 8 到 63 位可打印 ASCII 密码"
         case .deviceRejected(let message): message

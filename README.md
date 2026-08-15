@@ -26,20 +26,46 @@ dynamic quota-window layout, and a passive-by-default/manual-refresh quota path.
 M3-B adds the fail-closed voice/send interaction, and M3-C adds native ASR
 provider configuration, Keychain storage, and an injection-independent test.
 
-The current M4-4C development DMG contains an offline-validated, secret-free
+The current M4-4D D0.2 development DMG contains an offline-validated, secret-free
 firmware payload and can prepare the separately downloaded Espressif tool after an
 explicit confirmation. Tool preparation validates the fixed archive and signatures
 and runs only `esptool version`. A separately confirmed M4-4C workflow then accepts
 exactly one StickS3 USB Serial/JTAG device, checks ESP32-S3 identity, 8 MiB flash,
 Secure Boot, and Flash Encryption, and preserves a private full-flash backup only
-when two complete ROM-only reads have identical SHA-256 values. Erase, write,
-device-flash verification, and recovery remain M4-4D.
+when two complete ROM-only reads have identical SHA-256 values. M4-4D adds a
+separate fixed-range writer, independent candidate readback, full-backup restore,
+independent restore readback, persistent interruption state, and four distinct
+confirmation gates. The first authorized real-device trial wrote and independently
+matched all three candidate ranges, but its NVS check exposed that the original D0
+used an older M4-4C backup as the comparison baseline. The verified 8 MiB backup
+was then fully restored, independently read back byte-for-byte, and functionally
+accepted through the original display and voice-input path. D0.1 then captured a
+private NVS snapshot immediately before the candidate write and bound its SHA-256
+to the transaction. Its separately authorized trial proved that all three firmware
+ranges and that immediate NVS snapshot matched, but the candidate could not reach
+the Bridge: the restored stock firmware had Wi-Fi compiled into its image, while
+its NVS contained pairing data but no `wifi_ssid` or `wifi_pass` keys. The original
+8 MiB image was again restored, completely read back, and accepted through a real
+voice message. D0.2 adds ephemeral 2.4 GHz Wi-Fi fields to the USB pairing UI,
+requires them before staging any Mac pairing state when schema 2 reports an
+unconfigured device, and never persists the Wi-Fi password on the Mac. Its
+separately authorized real-device run captured the immediate NVS baseline, wrote
+the three candidate ranges once, independently matched those three ranges and NVS,
+and reset only after the final read. The user then entered Wi-Fi credentials
+directly in the development App and personally submitted one USB pairing action.
+The candidate joined the Bridge and passed a real StickS3 PCM voice transcription,
+paste, blue-button confirmation, HTTP 200 confirmation, and final `sent` state.
+No credential, device identifier, local address, backup digest, or NVS digest is
+recorded in the repository.
 M3-A is sealed in local checkpoint `e2113ba`. M3-B has completed success and
 fail-closed real-device acceptance, and M3-B plus M3-C are sealed together in a
 local checkpoint after automated App/Helper/DMG verification. The combined
 runtime changes have not been deployed or published.
 M4-4C real-device inspection and double-read backup acceptance are complete.
-One-click flashing, post-write verification, and recovery remain M4-4D work.
+M4-4D D0.2 implementation, offline acceptance, candidate write/readback, first USB
+Wi-Fi provisioning, Bridge reconnection, and real blue-button voice-send acceptance
+are complete. Recovery remains available only as a separately authorized safety
+boundary and was not needed for the accepted D0.2 candidate.
 
 - [M1 achievements and validation evidence](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
 - [M2 achievements and upstream comparison](docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)
@@ -301,7 +327,7 @@ idf.py build
 
 ## Current limits
 
-- The M4-4C DMG manages an existing compatible installation and can create a separately confirmed private device backup; it does not yet erase, write, recover, or provide clean-machine acceptance.
+- The M4-4D D0.2 candidate has passed staged real-device write/readback, first-Wi-Fi pairing, Bridge reconnection, and real blue-button voice-send acceptance. The development DMG remains unpublished and does not provide clean-machine acceptance.
 - M3-B has passed controlled real-device acceptance, and M3-C has passed an explicitly authorized SiliconFlow fixed-audio GUI test without using a Mac microphone. They are sealed in one unpublished local checkpoint whose combined runtime changes have not yet been deployed.
 - The firmware targets M5Stack StickS3 only.
 - The Mac app targets Apple Silicon and macOS 15 or newer; it is ad-hoc signed and not notarized.

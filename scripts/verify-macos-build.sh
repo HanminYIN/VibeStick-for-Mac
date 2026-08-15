@@ -6,7 +6,7 @@ PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-4C.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-4D-D0.2.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -329,6 +329,8 @@ assert_m4_flashing_tool_source_contract() {
 assert_m4_firmware_payload_source_contract() {
   firmware_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M4FirmwarePayload.swift"
   pairing_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M2Infrastructure.swift"
+  app_model="$ROOT_DIR/app/macos/VibeStickApp/App/AppModel.swift"
+  connection_view="$ROOT_DIR/app/macos/VibeStickApp/Features/ConnectionAndRuntimeView.swift"
   firmware_config="$ROOT_DIR/firmware/sticks3/include/vibe_stick_config.h"
   device_config="$ROOT_DIR/firmware/sticks3/src/vibe_device_config.c"
   pairing_firmware="$ROOT_DIR/firmware/sticks3/src/vibe_usb_pairing.c"
@@ -344,7 +346,14 @@ assert_m4_firmware_payload_source_contract() {
     || ! /usr/bin/grep -F 'schema_version == 1 || schema_version == 2' "$device_config" >/dev/null \
     || ! /usr/bin/grep -F '"wifi_ssid"' "$device_config" >/dev/null \
     || ! /usr/bin/grep -F '\"pairing_schema_version\":2' "$pairing_firmware" >/dev/null \
-    || ! /usr/bin/grep -F 'struct WiFiProvisioningCredentials' "$pairing_source" >/dev/null; then
+    || ! /usr/bin/grep -F 'struct WiFiProvisioningCredentials' "$pairing_source" >/dev/null \
+    || ! /usr/bin/grep -F 'struct WiFiProvisioningDraft' "$pairing_source" >/dev/null \
+    || ! /usr/bin/grep -F 'identity.wifiConfigured == false' "$pairing_source" >/dev/null \
+    || ! /usr/bin/grep -F 'throw PairingError.wifiCredentialsRequired' "$pairing_source" >/dev/null \
+    || ! /usr/bin/grep -F 'wifiCredentials: wifiCredentials' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F 'SecureField("Wi-Fi 密码"' "$connection_view" >/dev/null \
+    || ! /usr/bin/grep -F '.privacySensitive()' "$connection_view" >/dev/null \
+    || ! /usr/bin/grep -F 'wifiPassword = ""' "$connection_view" >/dev/null; then
     printf '%s\n' "FAIL: the M4-4A distributable firmware, USB provisioning, or payload contract is incomplete" >&2
     exit 1
   fi
@@ -354,7 +363,11 @@ assert_m4_firmware_payload_source_contract() {
     printf '%s\n' "FAIL: M4-4A payload preparation contains device access or flashing behavior" >&2
     exit 1
   fi
-  printf '%s\n' "PASS: M4-4A prepares secret-free firmware and schema-v2 USB provisioning without device access"
+  if /usr/bin/grep -E '@Published[^[:cntrl:]]*(wifiSSID|wifiPassword)' "$app_model" >/dev/null; then
+    printf '%s\n' "FAIL: D0.2 must not retain Wi-Fi credentials in AppModel state" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: M4-4A/D0.2 keeps secret-free firmware and fail-closed, ephemeral schema-v2 Wi-Fi provisioning"
 }
 
 assert_m4_device_backup_source_contract() {
@@ -386,6 +399,49 @@ assert_m4_device_backup_source_contract() {
     exit 1
   fi
   printf '%s\n' "PASS: M4-4C pins unique-device inspection, ROM-only commands, double-read verification, and private backup"
+}
+
+assert_m4_device_flash_source_contract() {
+  flash_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M4DeviceFlasher.swift"
+  backup_source="$ROOT_DIR/app/macos/VibeStickApp/Core/M4DeviceBackup.swift"
+  app_model="$ROOT_DIR/app/macos/VibeStickApp/App/AppModel.swift"
+  section_views="$ROOT_DIR/app/macos/VibeStickApp/Features/SectionViews.swift"
+  project_file="$ROOT_DIR/app/macos/VibeStick.xcodeproj/project.pbxproj"
+
+  if [ ! -f "$flash_source" ] \
+    || ! /usr/bin/grep -F 'M4DeviceFlasher.swift in Sources' "$project_file" >/dev/null \
+    || ! /usr/bin/grep -F 'FirmwareTransactions.noindex' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F 'prewrite-nvs-v1.bin' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F 'prewrite_nvs_sha256' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F 'persistPrewriteNVSSnapshot' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F 'validatedPrewriteNVSSnapshotDigest' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F 'static let sectorSize: UInt64 = 0x1000' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F 'manifest.preservedRanges == [FirmwarePayloadValidator.preservedNVS]' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F '"write-flash", "--flash-size", "keep"' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F '"0x0", backupURL.path' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F '"--after", resetAfterCommand ? "watchdog-reset" : "no-reset"' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F 'Hash of data verified' "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F 'candidateFirmwareWriteConfirmationPresented' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F 'candidateFirmwareVerificationConfirmationPresented' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F 'deviceRestoreConfirmationPresented' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F 'deviceRestoreVerificationConfirmationPresented' "$app_model" >/dev/null \
+    || ! /usr/bin/grep -F '写入 M4-4D 候选固件？' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F '独立读回验证候选固件？' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F '从 M4-4C 完整备份恢复设备？' "$section_views" >/dev/null \
+    || ! /usr/bin/grep -F '独立验证完整恢复？' "$section_views" >/dev/null; then
+    printf '%s\n' "FAIL: the M4-4D fixed-write, independent-verification, recovery, or confirmation contract is incomplete" >&2
+    exit 1
+  fi
+
+  if ! /usr/bin/grep -F '"erase-flash", "erase-region", "--erase-all", "--force", "--encrypt"' \
+    "$flash_source" >/dev/null \
+    || ! /usr/bin/grep -F '不会自动重试、验证或恢复' "$section_views" >/dev/null \
+    || /usr/bin/grep -E '"(write-flash|erase-flash|erase-region|verify-flash|write-mem|write-flash-status|load-ram)"' \
+      "$backup_source" >/dev/null; then
+    printf '%s\n' "FAIL: M4-4D does not preserve the no-standalone-erase, no-auto-retry, or M4-4C isolation boundary" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: M4-4D pins immediate prewrite NVS capture, fixed writes, separate readback, full restore, persistent recovery state, and four confirmations"
 }
 
 assert_menu_bar_icon() {
@@ -488,6 +544,10 @@ assert_no_forbidden_files() {
     -name '*.pyc' -o \
     -name 'Recordings' -o \
     -name 'recordings' -o \
+    -name 'FirmwareBackups.noindex' -o \
+    -name 'FirmwareTransactions.noindex' -o \
+    -name 'latest-v1.json' -o \
+    -name 'prewrite-nvs-v1.bin' -o \
     -name '__pycache__' -o \
     -name '.pytest_cache' -o \
     -name '.venv' -o \
@@ -783,6 +843,7 @@ assert_m4_install_source_contract
 assert_m4_flashing_tool_source_contract
 assert_m4_firmware_payload_source_contract
 assert_m4_device_backup_source_contract
+assert_m4_device_flash_source_contract
 "$ROOT_DIR/scripts/build-macos-app.sh"
 assert_binary "$APP_BINARY" "VibeStick for Mac"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"

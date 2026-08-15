@@ -18,7 +18,8 @@ M4 is split into independently accepted stages:
    of the pinned flashing tool.
 6. M4-4C: separately authorized device identity/security inspection and private
    full-flash backup.
-7. M4-4D: separately authorized erase/write verification and recovery.
+7. M4-4D: fixed-range write, independent readback, full-backup recovery, and
+   independent recovery readback, with each real-device step separately authorized.
 8. M4-5: legacy migration, redacted diagnostics, and clean-machine acceptance.
 
 ## M4-1 mutation boundary
@@ -258,8 +259,8 @@ those values.
 - App and mounted-DMG gates validate both the Python and Swift-compatible manifest
   contract and permit `.bin` files only in the exact firmware payload directory.
 - M4-4B extraction/tool validation, M4-4C device identity/security inspection and
-  private full-flash backup, and M4-4D flash/verification/recovery each remain a
-  separately authorized stage.
+  private full-flash backup, and every real-device M4-4D write/readback/recovery
+  step each remain separately authorized.
 
 Current local acceptance evidence (2026-08-15): 173 Python tests and 56 Swift
 tests passed; the ESP-IDF 5.5.1 distributable build, Release App/helpers,
@@ -406,4 +407,235 @@ comparison, or recovery commands; those remain M4-4D.
   bytes, the independent on-disk digest matched the redacted receipt, directory
   and file modes were `0700`/`0600`, and no partial directory remained. No device
   fingerprint, private image digest, or local backup-instance path is recorded
-  here. M4-4D remains separately authorized and unopened.
+  here. The separately authorized M4-4D D1-D4 run and the subsequent D0.1
+  correction are recorded below.
+
+## M4-4D D0.1 fixed-write and recovery boundary
+
+M4-4D is implemented in a source file and state machine separate from the M4-4C
+reader. The M4-4C source whitelist remains unchanged and continues to reject every
+write, erase, comparison, RAM-load, and recovery command. App launch, navigation,
+local readiness inspection, and build/DMG smoke tests do not enumerate USB devices,
+open a serial path, or execute `esptool`.
+
+Local readiness first validates the embedded schema-1 payload, all file modes,
+sizes and SHA-256 values, and at least one complete M4-4C backup. The backup root
+and each backup directory must be ordinary non-symlink directories with mode
+`0700`; each directory must contain exactly `flash-8MiB.bin` and `receipt-v1.json`
+with mode `0600`. The receipt, image size, digest, ESP32-S3/8 MiB geometry, disabled
+security flags, tool version, flash IDs, device fingerprint, and double-read method
+must all agree before any device workflow can begin.
+
+The candidate plan accepts exactly the payload files and offsets already fixed by
+M4-4A: bootloader at `0x0`, partition table at `0x8000`, and application at
+`0x10000`. Each non-empty file range is expanded to its actual 4 KiB erase-sector
+envelope. Any envelope that overlaps another candidate envelope, falls outside the
+8 MiB flash, or touches NVS `0x9000..<0xf000` blocks the transaction. The candidate
+command is one fixed `write-flash` invocation with flash size/mode/frequency kept
+from the device, standard SPI connection, no progress output, ROM-only `--no-stub`,
+and reset-before/reset-after both set to `no-reset`. There is no standalone
+`erase-flash` or `erase-region` step. Force, encryption, diff/trust/skip modes,
+tool-level `verify-flash`, RAM loading, and flash-status writes are forbidden.
+
+Immediately before any real-device phase, the App requires a healthy managed
+Bridge, no recording, and no overlapping tool/backup/flash action; the executor
+also reads the private recording state and blocks `recording`, `transcribing`, or
+`pending_send` before launching the tool. The pinned prepared executable is fully
+revalidated again. Device preflight then requires exactly one supported USB
+candidate and reruns the M4-4C security, flash-ID, and MAC-derived fingerprint
+inspection without resetting. The current fingerprint and flash IDs must select
+the same validated backup that existed before the candidate write.
+
+Tool completion and the fixed `Hash of data verified` output create only a
+`write-unverified` journal phase. They are not final acceptance. A second explicit
+confirmation is required to reconnect to the same device, read each candidate
+range independently, compare every SHA-256 with the payload, then read NVS and
+compare it with the private NVS snapshot captured immediately before the candidate
+write. The first three reads leave the device in ROM mode; only the final NVS read
+uses a watchdog reset. Success becomes `verified`, but still requires functional
+real-device acceptance outside this transaction.
+
+D0.1 makes that comparison baseline transactional. After local, runtime, tool,
+device, and matching-backup gates pass, D1 first reads exactly `0x6000` bytes from
+NVS `0x9000` without resetting the device. It atomically persists the result as
+`prewrite-nvs-v1.bin` with mode `0600` in the private transaction root, independently
+recalculates its SHA-256, and binds that digest into `latest-v1.json` before issuing
+the candidate `write-flash`. A missing, malformed, symlinked, wrongly permissioned,
+or digest-mismatched snapshot makes D2 recovery-required before any tool command.
+This corrects D0's unsafe assumption that an older full-flash backup necessarily
+represented NVS at the moment immediately before the candidate write.
+
+Recovery has its own destructive confirmation. It repeats all local and device
+identity checks, then sends one fixed `write-flash` pair from `0x0` to the matching,
+validated 8 MiB M4-4C image and leaves the device in ROM mode. Tool completion
+creates only `restore-unverified`. A fourth confirmation is required for a complete
+8 MiB independent readback and SHA-256 comparison with the recovery source; only
+that read uses a watchdog reset and can produce `restored`. Recovery still requires
+post-reset functional acceptance.
+
+The latest operation and phase are atomically persisted in
+`~/Library/Application Support/VibeStick/FirmwareTransactions.noindex/latest-v1.json`.
+The directory is `0700` and journal is `0600`; device fingerprints and backup,
+payload, or prewrite-NVS digests are recorded, but raw MAC, Wi-Fi, and pairing
+secrets are not placed in the journal. The one device-derived byte range retained
+by this transaction is the 24 KiB private NVS snapshot above; it may contain Wi-Fi
+or pairing material and therefore must never enter Git, the App/DMG, diagnostics,
+or acceptance logs. Temporary reads use private per-operation directories and
+`0600` files and are removed on return. Starting a full restore first persists the
+`full-restore` journal and then removes the snapshot before writing. An interrupted
+temporary path, orphaned or invalid snapshot, incomplete journal, write/readback
+mismatch, NVS change, tool failure, or lost completion evidence becomes a
+recovery-required state. The App never automatically retries a write, starts
+verification, restores a backup, or guesses a target device.
+
+## M4-4D D0.1 acceptance and evidence
+
+- Hostless tests use an in-memory 8 MiB flash model and temporary private backup;
+  they cover sector envelopes and NVS rejection, local readiness without a tool
+  call, the immediate private NVS snapshot and journal binding, proof that D2 uses
+  this snapshot instead of an older backup, invalid-snapshot recovery before any
+  tool call, the exact three-offset candidate write, persistent `write-unverified`
+  state, three-region plus NVS readback/reset order, mismatch-to-recovery behavior,
+  snapshot removal on restore, one-pair full restore plus complete independent
+  readback, private modes, forbidden arguments, and `pending_send` blocking before
+  any command.
+- Source gates require the separate executor, exact payload/restore vectors,
+  forbidden argument set, persistent private transaction state, four UI
+  confirmations, and continued absence of mutation names from M4-4C.
+- App and mounted-DMG gates reject private backups, transaction directories and
+  journals. Launch smoke may inspect local payload/backup readiness but cannot
+  click a device action, run `esptool`, or change Bridge/HUD process identities.
+- D0.1 authorizes only repository source, tests, documentation, and offline build
+  acceptance. It does not authorize new serial access, real erase/write/readback,
+  recovery, flashing, main-App installation/replacement, or Bridge/HUD/Paste
+  restart. Any corrected-candidate real-device phase needs a new, explicit
+  authorization.
+
+Current D0 evidence (2026-08-15): 173 Python tests and 71 hostless Swift tests
+passed, including the in-memory 8 MiB flash transactions. Release App, Bridge,
+HUD and Paste builds, architecture/minimum-OS checks, payload manifests, ad-hoc
+signatures, fresh-window GUI smoke, and mounted-DMG content/smoke checks passed.
+The `0.2.0 (7)` D0 DMG is 2,847,311 bytes with SHA-256
+`89f2c824ef820b12f29d7a6973249385dd29dc85f5be35ad5c22858561f3e7c4`.
+Neither the App nor DMG contains a downloaded/extracted tool, private backup,
+transaction journal, or device-derived identifier. GUI smoke preserved the live
+Bridge/HUD process identities. No serial access or real firmware command occurred.
+
+Separately authorized D1-D4 evidence (2026-08-15): D1 wrote only the three fixed
+candidate ranges and left the device in ROM mode. D2 independently read all three
+ranges and matched them to the payload, then correctly stopped in
+`recovery-required` when NVS differed from the older M4-4C backup used by D0 as its
+baseline. No automatic retry or recovery occurred. D3 revalidated the device and
+private backup, then wrote the matching validated 8 MiB image once from `0x0`.
+D4 independently read the complete 8 MiB and matched the recovery source, then
+reset the device. The user subsequently accepted the original display and sent a
+voice-input message through the restored firmware. Private fingerprints, image
+digests, NVS bytes, and local backup-instance paths are intentionally omitted.
+
+D0.1 corrects the NVS baseline as described above. Its initial offline evidence
+(2026-08-15) included 173 Python tests and 73 hostless Swift tests.
+Release App, Bridge, HUD and Paste builds, source contracts, architecture/minimum-
+OS checks, payload manifests, ad-hoc signatures, fresh-window GUI smoke, and
+mounted-DMG content/smoke checks passed. The `0.2.0 (8)` D0.1 DMG is 2,852,368
+bytes with SHA-256
+`344b8f1768c0ef87d9599f99c0bef195fd86c162dbf0498fd32bd6ec403a6979`.
+The private backup, transaction journal, and NVS snapshot are absent from both App
+and DMG. GUI smoke preserved Bridge/HUD process identities. No main App was
+installed or replaced, no managed component was restarted, no serial path was
+accessed, and no firmware command was issued during D0.1.
+
+The later, separately authorized D0.1 device run captured the immediate NVS
+snapshot, wrote the three candidate ranges once, and independently read back all
+three ranges plus NVS. Every comparison matched. Functional acceptance still
+failed because the candidate could not reach the Bridge: read-only diagnosis found
+pairing and Bridge values in NVS but no `wifi_ssid` or `wifi_pass`; the restored
+stock image had supplied Wi-Fi at compile time. A separately authorized D3/D4 then
+wrote the validated M4-4C 8 MiB image once, independently read the complete image
+back with a matching digest, and reset the device. The user accepted the original
+display and sent a real voice-input message with the device confirmation button.
+
+## M4-4D D0.2 first-Wi-Fi provisioning boundary
+
+D0.2 changes the Mac pairing surface, not the D1/D2 Flash transaction. The
+Connection page has an SSID field and a `SecureField` for the current WPA2
+password. Both values blank mean preserve the device's existing Wi-Fi; exactly one
+blank is invalid. Validation uses the firmware's 1-32-byte UTF-8 SSID and 8-63-byte
+printable-ASCII password limits. Editing these fields never opens a serial port.
+
+The draft is converted into immutable credentials only when the user explicitly
+starts USB pairing. On accepted submission, the View clears its SSID and password
+state immediately. AppModel does not publish or persist either value; the password
+exists only in the secure field and one pairing task and must never enter Mac
+preferences, logs, transaction journals, diagnostics, tests, the App, or the DMG.
+
+After identify, a schema-2 identity with `wifi_configured:false` and no supplied
+credentials throws `wifiCredentialsRequired` before resolving pairing material,
+updating the paired-device registry, staging a Keychain item, or sending the pair
+command. Supplying credentials to schema 1 remains unsupported. A schema-1 device,
+or a configured schema-2 device with both fields blank, retains the compatibility
+payload that does not alter stored Wi-Fi.
+
+The real-device order is strict:
+
+1. D1 may capture prewrite NVS and write the fixed candidate ranges only after its
+   own authorization.
+2. D2 must compare candidate ranges and the pre-pairing NVS snapshot, then reset.
+3. First Wi-Fi provisioning is a new normal-firmware USB pairing mutation with a
+   new authorization. It must not run before D2 or its intended NVS change would
+   invalidate the D2 preservation proof.
+4. Network discovery, Bridge authentication, display, voice, and confirmation-send
+   acceptance remain a separate functional gate. D3/D4 recovery is never inferred
+   from a pairing or functional failure.
+
+The initial D0.2 repository authorization covered only source, tests,
+documentation, and offline build acceptance. It did not authorize serial access,
+pairing, Wi-Fi transmission, candidate write/readback, recovery, main-App
+installation, service restart, or Git publication. Every later device phase was
+separately authorized.
+
+The `0.2.0 (9)` D0.2 candidate passed 173 Python tests, 75 Swift tests, the
+fail-closed/ephemeral-Wi-Fi source contract, Release App/Bridge/HUD/Paste builds,
+arm64 and macOS 15 deployment checks, payload digests, ad-hoc signatures, built-App
+GUI smoke, and mounted-DMG content and GUI smoke. The DMG is 2,867,457 bytes with
+SHA-256 `029d651794e3a73d32ad04d50bf30313c8406437c822ca1f6bb59e6a329bd761`.
+Neither the App nor DMG contains Wi-Fi credentials, tool archives, extracted tools,
+private device backups, NVS snapshots, transaction directories, or journals. The
+smoke checks did not change the Bridge or HUD process identity. The installed main
+App remained `0.2.0 (3)`; this initial offline phase did not access serial, pair,
+transmit Wi-Fi credentials, run a firmware command, restart Bridge/HUD/Paste, or
+perform Git publication.
+
+## M4-4D D0.2 real-device acceptance
+
+The later device acceptance preserved the required phase separation:
+
+1. Separately authorized D1 revalidated the unique StickS3, pinned tool, candidate
+   payload, and matching M4-4C private recovery source. It captured exactly 24 KiB
+   of prewrite NVS with mode `0600`, independently bound its digest into the
+   private journal, issued one three-range write at `0x0`, `0x8000`, and `0x10000`,
+   and stopped at `write-unverified` without reset, retry, or independent readback.
+2. Separately authorized D2 revalidated the same device, read the three candidate
+   ranges and NVS independently, matched every candidate digest and the immediate
+   NVS snapshot, persisted `candidate-verification/verified`, and reset only after
+   the final NVS read.
+3. Separately authorized P0 launched the repository-built `0.2.0 (9)` App without
+   installation and performed read-only USB enumeration and identify. The normal
+   firmware reported protocol 2, pairing schema 2, and `wifi_configured:false`;
+   no pair command, registry update, or Keychain update occurred in P0.
+4. The user entered the 2.4 GHz credentials directly into the App's secure pairing
+   fields and personally submitted one pair/provision action. The App updated the
+   private Mac device registry and Keychain as designed, the device restarted, and
+   the candidate authenticated to the existing Bridge over Wi-Fi.
+5. Functional acceptance used real StickS3 PCM audio, the configured ASR path,
+   Paste injection, and the user's physical blue-button confirmation. The Bridge
+   returned HTTP 200 for the confirmation request, persisted the session from
+   `pending_send` to `sent`, and continued to report the candidate online.
+
+No recovery was needed. The installed main App remained `0.2.0 (3)`; the candidate
+App ran only from the repository build. Bridge and HUD retained the same process
+identities and were not restarted. Repository evidence excludes the SSID, Wi-Fi
+password, device and Bridge identifiers, serial path, local address, private backup
+and NVS digests, and transcript text. No add, commit, push, tag, or Release operation
+was performed. The documentation-only closeout then reran 173 Python tests and 75
+Swift tests, plus shell syntax, diff-format, and targeted redaction checks, without
+serial access or a device tool invocation.

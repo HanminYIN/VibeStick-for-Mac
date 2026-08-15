@@ -25,6 +25,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var runtimeSnapshot = RuntimeSnapshot.waiting
     @Published private(set) var flashingToolSnapshot = FlashingToolSnapshot.checking()
     @Published private(set) var deviceBackupSnapshot = DeviceBackupSnapshot.idle
+    @Published private(set) var deviceFlashSnapshot = DeviceFlashSnapshot.checking
     @Published private(set) var configurationSummary = LegacyConfigurationSummary.empty
     @Published private(set) var keychainSummary = KeychainSummary.empty
     @Published private(set) var voiceInteractionSummary = VoiceInteractionSummary.empty
@@ -39,6 +40,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var runtimeInstallInProgress = false
     @Published private(set) var flashingToolActionInProgress = false
     @Published private(set) var deviceBackupActionInProgress = false
+    @Published private(set) var deviceFlashActionInProgress = false
     @Published private(set) var deviceConfigurationSaveInProgress = false
     @Published private(set) var asrSettingsSaveInProgress = false
     @Published var presentedMessage: AppMessage?
@@ -48,12 +50,17 @@ final class AppModel: ObservableObject {
     @Published var flashingToolRemovalConfirmationPresented = false
     @Published var deviceInspectionConfirmationPresented = false
     @Published var deviceBackupConfirmationPresented = false
+    @Published var candidateFirmwareWriteConfirmationPresented = false
+    @Published var candidateFirmwareVerificationConfirmationPresented = false
+    @Published var deviceRestoreConfirmationPresented = false
+    @Published var deviceRestoreVerificationConfirmationPresented = false
 
     private let bridgeClient: BridgeClient
     private let runtimeManager: RuntimeServiceManager
     private let runtimeInstaller: RuntimeInstaller
     private let flashingToolManager: FlashingToolManager
     private let deviceBackupManager: DeviceBackupManager
+    private let deviceFlashManager: DeviceFlashManager
     private let configurationInspector: ConfigurationInspector
     private let preferencesStore: PreferencesStore
     private let loginItemController: LoginItemController
@@ -77,6 +84,7 @@ final class AppModel: ObservableObject {
         runtimeInstaller: RuntimeInstaller = RuntimeInstaller(),
         flashingToolManager: FlashingToolManager = FlashingToolManager(),
         deviceBackupManager: DeviceBackupManager = DeviceBackupManager(),
+        deviceFlashManager: DeviceFlashManager = DeviceFlashManager(),
         configurationInspector: ConfigurationInspector = ConfigurationInspector(),
         preferencesStore: PreferencesStore = PreferencesStore(),
         loginItemController: LoginItemController = LoginItemController(),
@@ -92,6 +100,7 @@ final class AppModel: ObservableObject {
         self.runtimeInstaller = runtimeInstaller
         self.flashingToolManager = flashingToolManager
         self.deviceBackupManager = deviceBackupManager
+        self.deviceFlashManager = deviceFlashManager
         self.configurationInspector = configurationInspector
         self.preferencesStore = preferencesStore
         self.loginItemController = loginItemController
@@ -108,7 +117,7 @@ final class AppModel: ObservableObject {
             ?? "0.2.0-dev"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "local"
-        return "\(version) (\(build)) · M4-4C"
+        return "\(version) (\(build)) · M4-4D"
     }
 
     func start() {
@@ -126,6 +135,7 @@ final class AppModel: ObservableObject {
             configuration.launchAtLogin = await loginItemController.isEnabled()
             await refresh(forcePermissionCheck: true)
             await refreshFlashingToolStatus()
+            await refreshDeviceFlashReadiness()
             scheduleRefreshLoop()
         }
     }
@@ -193,26 +203,41 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func pairDetectedDevice() {
-        guard case .ready(let candidate) = pairingPhase else { return }
+    @discardableResult
+    func pairDetectedDevice(wifiSSID: String = "", wifiPassword: String = "") -> Bool {
+        guard case .ready(let candidate) = pairingPhase else { return false }
         guard bridgeSnapshot.isM2PairingReady else {
             presentedMessage = AppMessage(
                 title: "暂不写入配对密钥",
                 message: "当前运行的 Bridge 尚未载入 M2 协议。请先安装或启动经过验证的 M2 Bridge，再执行 USB 配对；现有固件与旧 token 保持不变。"
             )
-            return
+            return false
         }
+        let wifiCredentials: WiFiProvisioningCredentials?
+        do {
+            wifiCredentials = try WiFiProvisioningDraft(
+                ssid: wifiSSID,
+                password: wifiPassword
+            ).validatedCredentials()
+        } catch {
+            presentedMessage = AppMessage(title: "Wi-Fi 配置未就绪", message: error.localizedDescription)
+            return false
+        }
+        let provisionsWiFi = wifiCredentials != nil
         pairingPhase = .pairing
         Task {
             do {
                 let identity = try await devicePairingManager.pair(
                     candidate: candidate,
-                    fallbackHost: configuration.manualBridgeAddress
+                    fallbackHost: configuration.manualBridgeAddress,
+                    wifiCredentials: wifiCredentials
                 )
                 pairingPhase = .paired(identity)
                 presentedMessage = AppMessage(
                     title: "安全配对完成",
-                    message: "设备身份与专属密钥已写入；明文密钥未进入配置文件。Bridge 将通过 Bonjour 自动发现，手动地址只作回退。"
+                    message: provisionsWiFi
+                        ? "设备身份、专属密钥和 Wi-Fi 已通过 USB 一次提交；Wi-Fi 密码与明文配对密钥均未写入 Mac 配置文件。设备将重启并通过 Bonjour 查找 Bridge。"
+                        : "设备身份与专属密钥已写入，设备现有 Wi-Fi 保持不变；明文密钥未进入配置文件。Bridge 将通过 Bonjour 自动发现，手动地址只作回退。"
                 )
                 await refresh()
             } catch {
@@ -220,6 +245,7 @@ final class AppModel: ObservableObject {
                 presentedMessage = AppMessage(title: "配对未完成", message: error.localizedDescription)
             }
         }
+        return true
     }
 
     func setDeviceModule(_ module: DeviceModule, enabled: Bool) {
@@ -431,7 +457,7 @@ final class AppModel: ObservableObject {
     }
 
     func performServiceAction(_ action: ServiceAction) {
-        guard !serviceActionInProgress else { return }
+        guard !serviceActionInProgress, !deviceFlashActionInProgress else { return }
         serviceActionInProgress = true
 
         Task {
@@ -464,6 +490,7 @@ final class AppModel: ObservableObject {
     }
 
     func requestRuntimeInstall() {
+        guard !deviceFlashActionInProgress else { return }
         let plan = RuntimeMaintenancePlanner.make(from: runtimeSnapshot)
         guard plan.allowsPayloadInstall else {
             presentedMessage = AppMessage(
@@ -476,7 +503,7 @@ final class AppModel: ObservableObject {
     }
 
     func confirmRuntimeInstall() {
-        guard !runtimeInstallInProgress else { return }
+        guard !runtimeInstallInProgress, !deviceFlashActionInProgress else { return }
         runtimeInstallConfirmationPresented = false
         runtimeInstallInProgress = true
 
@@ -514,17 +541,20 @@ final class AppModel: ObservableObject {
     }
 
     func requestFlashingToolRefresh() {
-        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress else { return }
         Task { await refreshFlashingToolStatus() }
     }
 
     func requestFlashingToolDownload() {
-        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress else { return }
         flashingToolDownloadConfirmationPresented = true
     }
 
     func confirmFlashingToolDownload() {
-        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress else { return }
         flashingToolDownloadConfirmationPresented = false
         flashingToolActionInProgress = true
         flashingToolSnapshot = .checking(flashingToolSnapshot.descriptor)
@@ -548,19 +578,22 @@ final class AppModel: ObservableObject {
     }
 
     func requestFlashingToolRemoval() {
-        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress else { return }
         flashingToolRemovalConfirmationPresented = true
     }
 
     func requestFlashingToolPreparation() {
         guard !flashingToolActionInProgress,
               !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress,
               flashingToolSnapshot.phase == .archiveReady else { return }
         flashingToolPreparationConfirmationPresented = true
     }
 
     func confirmFlashingToolPreparation() {
-        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress else { return }
         flashingToolPreparationConfirmationPresented = false
         flashingToolActionInProgress = true
         flashingToolSnapshot = .checking(flashingToolSnapshot.descriptor)
@@ -584,7 +617,8 @@ final class AppModel: ObservableObject {
     }
 
     func confirmFlashingToolRemoval() {
-        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress else { return }
         flashingToolRemovalConfirmationPresented = false
         flashingToolActionInProgress = true
 
@@ -614,12 +648,14 @@ final class AppModel: ObservableObject {
     func requestDeviceInspection() {
         guard !flashingToolActionInProgress,
               !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress,
               flashingToolSnapshot.phase == .ready else { return }
         deviceInspectionConfirmationPresented = true
     }
 
     func confirmDeviceInspection() {
-        guard !flashingToolActionInProgress, !deviceBackupActionInProgress else { return }
+        guard !flashingToolActionInProgress, !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress else { return }
         deviceInspectionConfirmationPresented = false
         deviceBackupActionInProgress = true
         deviceBackupSnapshot = .inspecting
@@ -648,6 +684,7 @@ final class AppModel: ObservableObject {
     func requestDeviceBackup() {
         guard !flashingToolActionInProgress,
               !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress,
               flashingToolSnapshot.phase == .ready,
               deviceBackupSnapshot.phase == .ready,
               deviceBackupSnapshot.inspection != nil else { return }
@@ -657,6 +694,7 @@ final class AppModel: ObservableObject {
     func confirmDeviceBackup() {
         guard !flashingToolActionInProgress,
               !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress,
               let expectedInspection = deviceBackupSnapshot.inspection else { return }
         deviceBackupConfirmationPresented = false
         deviceBackupActionInProgress = true
@@ -675,6 +713,7 @@ final class AppModel: ObservableObject {
                     executableURL: executableURL
                 )
                 deviceBackupSnapshot = .complete(receipt)
+                await refreshDeviceFlashReadiness()
                 presentedMessage = AppMessage(
                     title: "完整备份已验证",
                     message: "同一设备的两次 8 MiB 完整读取具有相同 SHA-256。已保留一份权限受限的私有备份与脱敏回执；没有擦除或写入设备。"
@@ -689,6 +728,161 @@ final class AppModel: ObservableObject {
             }
             deviceBackupActionInProgress = false
         }
+    }
+
+    func requestDeviceFlashRefresh() {
+        guard deviceOperationIsIdle else { return }
+        Task { await refreshDeviceFlashReadiness() }
+    }
+
+    func requestCandidateFirmwareWrite() {
+        guard deviceFlashPreflightIsReady,
+              [.ready, .verified, .restored].contains(deviceFlashSnapshot.phase) else { return }
+        candidateFirmwareWriteConfirmationPresented = true
+    }
+
+    func confirmCandidateFirmwareWrite() {
+        guard deviceFlashPreflightIsReady,
+              [.ready, .verified, .restored].contains(deviceFlashSnapshot.phase),
+              let payloadVersion = deviceFlashSnapshot.payloadVersion else { return }
+        candidateFirmwareWriteConfirmationPresented = false
+        deviceFlashActionInProgress = true
+        deviceFlashSnapshot = .writing(payloadVersion: payloadVersion)
+
+        Task {
+            do {
+                let executableURL = try await flashingToolManager.revalidatedExecutableURL()
+                deviceFlashSnapshot = try await deviceFlashManager.writeCandidate(
+                    executableURL: executableURL
+                )
+                presentedMessage = AppMessage(
+                    title: "候选固件已写入，尚未独立验证",
+                    message: "已在写入命令前即时保存 NVS 私有快照，并只写入 0x0、0x8000、0x10000 三个固定范围；没有执行独立全片擦除。设备仍停在下载模式。必须另行确认读回验证，才能形成写入验收结论。"
+                )
+            } catch {
+                await presentDeviceFlashFailure(error, title: "候选写入未完成")
+            }
+            deviceFlashActionInProgress = false
+        }
+    }
+
+    func requestCandidateFirmwareVerification() {
+        guard deviceFlashPreflightIsReady,
+              deviceFlashSnapshot.phase == .writeUnverified else { return }
+        candidateFirmwareVerificationConfirmationPresented = true
+    }
+
+    func confirmCandidateFirmwareVerification() {
+        guard deviceFlashPreflightIsReady,
+              deviceFlashSnapshot.phase == .writeUnverified,
+              let payloadVersion = deviceFlashSnapshot.payloadVersion else { return }
+        candidateFirmwareVerificationConfirmationPresented = false
+        deviceFlashActionInProgress = true
+        deviceFlashSnapshot = .verifying(payloadVersion: payloadVersion)
+
+        Task {
+            do {
+                let executableURL = try await flashingToolManager.revalidatedExecutableURL()
+                deviceFlashSnapshot = try await deviceFlashManager.verifyCandidate(
+                    executableURL: executableURL
+                )
+                presentedMessage = AppMessage(
+                    title: "候选固件读回一致",
+                    message: "三个固定固件范围均与载荷摘要一致，NVS 与紧邻写入前保存的私有快照一致。设备已复位；仍需单独进行真实设备功能验收。"
+                )
+            } catch {
+                await presentDeviceFlashFailure(error, title: "候选验证未通过")
+            }
+            deviceFlashActionInProgress = false
+        }
+    }
+
+    func requestDeviceRestore() {
+        guard deviceFlashPreflightIsReady,
+              deviceFlashSnapshot.backupReady,
+              [.ready, .writeUnverified, .verified, .recoveryRequired, .restoreUnverified, .restored]
+                .contains(deviceFlashSnapshot.phase) else { return }
+        deviceRestoreConfirmationPresented = true
+    }
+
+    func confirmDeviceRestore() {
+        guard deviceFlashPreflightIsReady,
+              deviceFlashSnapshot.backupReady else { return }
+        deviceRestoreConfirmationPresented = false
+        deviceFlashActionInProgress = true
+        deviceFlashSnapshot = .restoring(payloadVersion: deviceFlashSnapshot.payloadVersion)
+
+        Task {
+            do {
+                let executableURL = try await flashingToolManager.revalidatedExecutableURL()
+                deviceFlashSnapshot = try await deviceFlashManager.restoreBackup(
+                    executableURL: executableURL
+                )
+                presentedMessage = AppMessage(
+                    title: "完整备份已写回，尚未独立验证",
+                    message: "已把同一设备的已验证 8 MiB 原始镜像写回 0x0。设备仍停在下载模式；必须另行确认完整读回验证。"
+                )
+            } catch {
+                await presentDeviceFlashFailure(error, title: "恢复未完成")
+            }
+            deviceFlashActionInProgress = false
+        }
+    }
+
+    func requestDeviceRestoreVerification() {
+        guard deviceFlashPreflightIsReady,
+              deviceFlashSnapshot.phase == .restoreUnverified else { return }
+        deviceRestoreVerificationConfirmationPresented = true
+    }
+
+    func confirmDeviceRestoreVerification() {
+        guard deviceFlashPreflightIsReady,
+              deviceFlashSnapshot.phase == .restoreUnverified else { return }
+        deviceRestoreVerificationConfirmationPresented = false
+        deviceFlashActionInProgress = true
+        deviceFlashSnapshot = .verifyingRestore(payloadVersion: deviceFlashSnapshot.payloadVersion)
+
+        Task {
+            do {
+                let executableURL = try await flashingToolManager.revalidatedExecutableURL()
+                deviceFlashSnapshot = try await deviceFlashManager.verifyRestore(
+                    executableURL: executableURL
+                )
+                presentedMessage = AppMessage(
+                    title: "恢复镜像读回一致",
+                    message: "完整 8 MiB 读回与 M4-4C 原始备份摘要一致。设备已复位；仍需单独进行恢复后的真实设备功能验收。"
+                )
+            } catch {
+                await presentDeviceFlashFailure(error, title: "恢复验证未通过")
+            }
+            deviceFlashActionInProgress = false
+        }
+    }
+
+    private var deviceOperationIsIdle: Bool {
+        !flashingToolActionInProgress && !deviceBackupActionInProgress && !deviceFlashActionInProgress
+    }
+
+    private var deviceFlashPreflightIsReady: Bool {
+        deviceOperationIsIdle
+            && flashingToolSnapshot.phase == .ready
+            && bridgeSnapshot.isHealthy
+            && runtimeSnapshot.bridge.phase == .healthy
+            && !runtimeSnapshot.isRecordingActive
+    }
+
+    private func refreshDeviceFlashReadiness() async {
+        guard !deviceFlashActionInProgress else { return }
+        deviceFlashSnapshot = await deviceFlashManager.inspectLocalReadiness()
+    }
+
+    private func presentDeviceFlashFailure(_ error: Error, title: String) async {
+        let local = await deviceFlashManager.inspectLocalReadiness()
+        deviceFlashSnapshot = local.phase == .ready
+            ? .failure(error, payloadVersion: local.payloadVersion)
+            : local
+        presentedMessage = AppMessage(title: title, message: error.localizedDescription)
+        await refreshFlashingToolStatus()
     }
 
     func setShowMenuBarItem(_ enabled: Bool) {

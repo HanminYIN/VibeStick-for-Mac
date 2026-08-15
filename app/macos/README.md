@@ -10,7 +10,7 @@ plus [M3-A achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M3
 [M4 installation and recovery contract](../../docs/design/m4/M4_INSTALLATION_RECOVERY_CONTRACT.md),
 for the upstream boundary, implemented scope, real-device acceptance, and deferred work.
 
-## M1 foundation through M4-4C device backup
+## M1 foundation through M4-4D D0.2 provisioning contract
 
 The M1 app intentionally manages the existing stable installation instead of replacing it:
 
@@ -22,6 +22,7 @@ The M1 app intentionally manages the existing stable installation instead of rep
 - Stores new non-secret preferences in `config-v1.json` with mode `0600` and provides a Keychain storage boundary for later migrations.
 - Provides M2 device configuration controls, local paired-device status, strict StickS3 USB detection, and explicit USB pair/re-pair actions.
 - Refuses to write a new pairing key unless the running Bridge reports protocol 2 and a valid Bridge ID, protecting the installed M1 runtime from a token mismatch.
+- Accepts optional 2.4 GHz Wi-Fi credentials only in the current USB-pairing view and task. Both fields blank preserve an existing device configuration; one blank field is rejected. A schema-2 device that reports `wifi_configured: false` is rejected before registry or Keychain staging unless complete credentials were supplied.
 - Shows a live 135 × 240 Codex Focus preview whose project-name visibility and fixed name use the same normalized M2 configuration delivered to the device.
 - Configures SiliconFlow, Groq, OpenAI-compatible, or a local ASR command; API Keys are stored only in Keychain.
 - Generates a fixed temporary audio fixture and tests the selected provider without accessing a Mac microphone or invoking Paste, the clipboard, Return, or the M3-B send session.
@@ -29,10 +30,22 @@ The M1 app intentionally manages the existing stable installation instead of rep
 - Downloads the pinned Espressif `esptool` 5.3.1 Apple Silicon archive only after explicit confirmation and verifies HTTPS, exact size, and SHA-256.
 - After a second explicit confirmation, validates the exact archive listing, inner file digests, thin-arm64 executables, Espressif Developer ID signatures, and the offline `esptool version` command before transactionally preparing a private tool directory.
 - After separate device confirmations, accepts exactly one StickS3 USB Serial/JTAG candidate, checks ESP32-S3 identity, 8 MiB Flash and disabled security features with ROM-only commands, and keeps one private full-flash image only when two complete reads have the same SHA-256.
+- Provides a separate M4-4D executor that checks the payload, sector envelopes, private backup and runtime idle state, captures a private NVS snapshot immediately before a fixed three-range write, and keeps candidate verification, full-image restore, and restore verification as separate persisted phases with their own confirmation.
 
 First launch does not run `scripts/install.sh`, rebuild helpers, modify `.env`, alter firmware, or re-sign the installed Paste app. Closing or quitting the control center does not stop background services.
 
-The M4-4C control center is not yet a firmware flasher. Its development bundle contains a secret-free, offline-validated StickS3 payload. App launch and page navigation do not open a serial port. The device inspection and backup buttons each require their own confirmation and a manually entered download mode. M4-4C permits only `get-security-info`, `flash-id`, `read-mac`, and `read-flash`, always with `--no-stub`; it never erases, writes, verifies a candidate firmware image, or changes Bridge/HUD. Backups stay under the user's private VibeStick support directory and are never embedded in the App/DMG. Flashing and recovery remain M4-4D.
+M4-4C remains an isolated read-only component: it permits only `get-security-info`, `flash-id`, `read-mac`, and `read-flash`, always with `--no-stub`. M4-4D adds write/recovery capability in a different source file and UI flow. It writes only the validated payload at `0x0`, `0x8000`, and `0x10000`, after checking 4 KiB erase-sector envelopes do not touch NVS `0x9000..<0xf000`; the normal path never issues a standalone full erase. D0.1 first reads that 24 KiB NVS range into `prewrite-nvs-v1.bin`, stores it with mode `0600` under the private transaction root, and binds its SHA-256 into the journal before starting `write-flash`. Tool-internal write verification is not accepted as the final result: candidate ranges and NVS are read back only after a new confirmation, with NVS compared to this immediate snapshot rather than an older full backup. The authorized D0.1 trial passed those comparisons but stayed offline because the stock backup had no Wi-Fi keys in NVS. D0.2 therefore keeps D2 unchanged and performs first Wi-Fi provisioning only afterward, through a separately authorized normal-firmware USB pairing action. Recovery writes the matching validated 8 MiB M4-4C image and requires another separately confirmed complete readback. Failures persist a recovery-required state and never auto-retry, auto-verify, auto-pair, or auto-restore. App launch, page navigation, local readiness refresh, and Wi-Fi draft editing do not open a serial port.
+
+The separately authorized D0.2 device acceptance followed that order exactly. D1
+captured the private prewrite NVS snapshot and issued one three-range write; D2
+independently matched all three ranges and NVS, persisted `verified`, and reset only
+after the final read. A read-only normal-firmware identify then reported pairing
+schema 2 and an unconfigured Wi-Fi state. The user entered credentials directly in
+the development App and personally submitted one USB pair/provision action. The
+candidate came online through the existing Bridge and completed a real StickS3 PCM
+voice transcription, paste, blue-button confirmation, HTTP 200 response, and final
+`sent` state. Repository evidence omits credentials, identifiers, addresses, and
+private image/NVS digests. Recovery was not needed.
 
 If a healthy Bridge is already running outside the installed LaunchAgent, the control center reports it as externally managed and keeps service controls read-only. This avoids creating a second process on port 8765. Stop and restart are also blocked while a recording or transcription is active.
 
@@ -60,7 +73,7 @@ Build the development DMG with:
 scripts/build-macos-dmg.sh
 ```
 
-The result is `.build/macos.noindex/VibeStick-for-Mac-M4-4C.dmg`. This development DMG contains the M4-2 verified runtime payload, the M4-3 pinned downloader, the M4-4A secret-free firmware payload, M4-4B tool validation, and M4-4C read-only device-backup logic. It does not contain the downloaded archive, extracted `esptool`, ESP-IDF, or any device backup. Opening it does not install, download, extract, execute a tool, restart services, access USB, or flash firmware.
+The result is `.build/macos.noindex/VibeStick-for-Mac-M4-4D-D0.2.dmg`. This development DMG contains the M4-2 verified runtime payload, the M4-3 pinned downloader, the M4-4A secret-free firmware payload, M4-4B tool validation, M4-4C read-only device-backup logic, the corrected M4-4D D0.1 transaction implementation, and D0.2's ephemeral first-Wi-Fi pairing UI. It does not contain the downloaded archive, extracted `esptool`, ESP-IDF, any device backup, NVS snapshot, transaction journal, SSID, or Wi-Fi password. Opening it does not install, download, extract, execute a tool, restart services, access USB, pair, or flash firmware.
 
 Run the complete local acceptance chain with:
 

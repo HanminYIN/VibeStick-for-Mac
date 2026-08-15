@@ -792,7 +792,7 @@ struct UpdatesAndRecoveryView: View {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "更新与恢复",
-                    subtitle: "M4-4C 可在独立确认后检查设备并建立私有完整备份；擦除、写入与恢复仍未开放。",
+                    subtitle: "M4-4D D0.2 补齐首次 Wi-Fi 安全配网，并保留 D0.1 的即时 NVS 与恢复门禁。",
                     milestone: nil
                 )
 
@@ -891,7 +891,11 @@ struct UpdatesAndRecoveryView: View {
                             model.requestFlashingToolRefresh()
                         }
                         .buttonStyle(.bordered)
-                        .disabled(model.flashingToolActionInProgress || model.deviceBackupActionInProgress)
+                        .disabled(
+                            model.flashingToolActionInProgress
+                                || model.deviceBackupActionInProgress
+                                || model.deviceFlashActionInProgress
+                        )
                     }
 
                     Text(model.flashingToolSnapshot.detail)
@@ -951,7 +955,7 @@ struct UpdatesAndRecoveryView: View {
                     }
 
                     Label(
-                        "M4-4C 的设备检查与备份在下方单独确认；刷写仍属于之后的 M4-4D。",
+                        "M4-4C 设备检查与备份、M4-4D 写入与恢复均在下方逐步确认。",
                         systemImage: "arrow.uturn.backward.circle"
                     )
                         .font(.caption)
@@ -1023,19 +1027,111 @@ struct UpdatesAndRecoveryView: View {
                             model.flashingToolSnapshot.phase != .ready
                                 || model.flashingToolActionInProgress
                                 || model.deviceBackupActionInProgress
+                                || model.deviceFlashActionInProgress
                         )
                         if model.deviceBackupSnapshot.phase == .ready {
                             Button("建立完整备份…") {
                                 model.requestDeviceBackup()
                             }
                             .buttonStyle(.borderedProminent)
-                            .disabled(model.flashingToolActionInProgress || model.deviceBackupActionInProgress)
+                            .disabled(
+                                model.flashingToolActionInProgress
+                                    || model.deviceBackupActionInProgress
+                                    || model.deviceFlashActionInProgress
+                            )
                         }
                     }
 
                     Label(
-                        "M4-4C 白名单只有 get-security-info、flash-id、read-mac 和 read-flash；M4-4D 未开放。",
+                        "此卡仍保持 M4-4C 只读白名单；M4-4D 的写入命令位于独立执行器与独立确认流程中。",
                         systemImage: "lock.shield"
+                    )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                StatusCard(
+                    title: "StickS3 固件写入与恢复",
+                    subtitle: "固定三个候选范围；写入、独立验证、完整恢复、恢复验证各需一次确认",
+                    systemImage: "externaldrive.badge.exclamationmark",
+                    tone: deviceFlashTone
+                ) {
+                    HStack {
+                        PhasePill(text: deviceFlashLabel, tone: deviceFlashTone)
+                        Spacer()
+                        Button("本地复核") {
+                            model.requestDeviceFlashRefresh()
+                        }
+                        .buttonStyle(.bordered)
+                        .disabled(
+                            model.flashingToolActionInProgress
+                                || model.deviceBackupActionInProgress
+                                || model.deviceFlashActionInProgress
+                        )
+                        if model.deviceFlashActionInProgress {
+                            ProgressView()
+                                .controlSize(.small)
+                        }
+                    }
+
+                    Text(model.deviceFlashSnapshot.detail)
+                        .foregroundStyle(.secondary)
+
+                    if let payloadVersion = model.deviceFlashSnapshot.payloadVersion {
+                        Label("候选载荷 · \(payloadVersion)", systemImage: "shippingbox")
+                    }
+                    Label("写入范围 · 0x0 bootloader · 0x8000 partition table · 0x10000 app", systemImage: "square.stack.3d.up")
+                        .font(.caption.monospaced())
+                    Label("保护范围 · NVS 0x9000..<0xf000；按 0x1000 扇区边界预检", systemImage: "lock.shield")
+                    Label("验证基准 · 写入命令前即时读取 0x6000 字节 NVS，私有保存并绑定事务摘要", systemImage: "clock.badge.checkmark")
+                        .font(.caption.monospaced())
+                    Label("正常路径不执行独立全片擦除；任何失败都不会自动重试、自动恢复或猜测设备。", systemImage: "exclamationmark.shield")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    Divider()
+                    HStack {
+                        if [.ready, .verified, .restored].contains(model.deviceFlashSnapshot.phase) {
+                            Button("写入候选固件…") {
+                                model.requestCandidateFirmwareWrite()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        if model.deviceFlashSnapshot.phase == .writeUnverified {
+                            Button("独立验证候选…") {
+                                model.requestCandidateFirmwareVerification()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        if model.deviceFlashSnapshot.backupReady,
+                           [.ready, .writeUnverified, .verified, .recoveryRequired, .restoreUnverified, .restored]
+                            .contains(model.deviceFlashSnapshot.phase) {
+                            Button("从完整备份恢复…", role: .destructive) {
+                                model.requestDeviceRestore()
+                            }
+                            .buttonStyle(.bordered)
+                        }
+                        if model.deviceFlashSnapshot.phase == .restoreUnverified {
+                            Button("独立验证恢复…") {
+                                model.requestDeviceRestoreVerification()
+                            }
+                            .buttonStyle(.borderedProminent)
+                        }
+                        Spacer()
+                    }
+                    .disabled(
+                        model.flashingToolSnapshot.phase != .ready
+                            || !model.bridgeSnapshot.isHealthy
+                            || model.runtimeSnapshot.bridge.phase != .healthy
+                            || model.runtimeSnapshot.isRecordingActive
+                            || model.flashingToolActionInProgress
+                            || model.deviceBackupActionInProgress
+                            || model.deviceFlashActionInProgress
+                    )
+
+                    Label(
+                    "当前 D0.2 已完成逐项授权的候选写入/读回、首次 Wi-Fi 配网和真实语音蓝键发送验收；任何新的设备写入、恢复或发布仍必须获得新的逐项授权。",
+                        systemImage: "hammer"
                     )
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -1106,6 +1202,54 @@ struct UpdatesAndRecoveryView: View {
             Text("请再次让同一设备进入下载模式。确认后会复查身份与安全状态，再用 ROM-only read-flash 完整读取两遍；只有两份 SHA-256 一致才保留一份。备份含完整设备内容，可能包括 Wi-Fi 和配对信息，仅保存到权限 0700/0600 的本机私有目录。不会擦除或写入设备。")
         }
         .confirmationDialog(
+            "写入 M4-4D 候选固件？",
+            isPresented: $model.candidateFirmwareWriteConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("只写入三个固定范围", role: .destructive) {
+                model.confirmCandidateFirmwareWrite()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请让已建立 M4-4C 完整备份的同一设备进入下载模式。确认后会重新核对设备身份、安全状态、载荷摘要与扇区边界，先即时读取并私密保存 NVS 快照，再只写入 0x0、0x8000、0x10000 三个范围。写入可能使设备无法启动；不会执行独立全片擦除，也不会自动重试、验证或恢复。")
+        }
+        .confirmationDialog(
+            "独立读回验证候选固件？",
+            isPresented: $model.candidateFirmwareVerificationConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("读回候选范围与 NVS") {
+                model.confirmCandidateFirmwareVerification()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("设备应继续停在下载模式。确认后会重新核对同一设备，逐项读回三个固件范围并与候选摘要比较，同时把 NVS 与紧邻候选写入前保存的私有快照比较；最后才复位设备。此步骤不写入 Flash，也不代替真实功能验收。")
+        }
+        .confirmationDialog(
+            "从 M4-4C 完整备份恢复设备？",
+            isPresented: $model.deviceRestoreConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("写回已验证的 8 MiB 镜像", role: .destructive) {
+                model.confirmDeviceRestore()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("请让原设备进入下载模式。确认后会重新核对设备指纹、Flash ID、备份权限与摘要，再将原始 8 MiB 镜像写回 0x0。此操作会覆盖设备全部 Flash 内容；不会自动执行恢复验证，失败也不会自动重试。")
+        }
+        .confirmationDialog(
+            "独立验证完整恢复？",
+            isPresented: $model.deviceRestoreVerificationConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("完整读回 8 MiB 并比较") {
+                model.confirmDeviceRestoreVerification()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("设备应继续停在下载模式。确认后会重新核对同一设备，完整读回 8 MiB 并与恢复源 SHA-256 比较，随后复位设备。此步骤不写入 Flash，也不代替恢复后的真实功能验收。")
+        }
+        .confirmationDialog(
             "移除本地烧录工具缓存？",
             isPresented: $model.flashingToolRemovalConfirmationPresented,
             titleVisibility: .visible
@@ -1158,6 +1302,33 @@ struct UpdatesAndRecoveryView: View {
         case .idle, .inspecting, .backingUp: .neutral
         case .downloadModeRequired: .inactive
         case .blocked, .failed: .warning
+        }
+    }
+
+    private var deviceFlashLabel: String {
+        switch model.deviceFlashSnapshot.phase {
+        case .checking: "正在本地检查"
+        case .ready: "本地门禁就绪"
+        case .writing: "正在写入"
+        case .writeUnverified: "写入待独立验证"
+        case .verifying: "正在验证候选"
+        case .verified: "候选读回一致"
+        case .recoveryRequired: "需要人工恢复决定"
+        case .restoring: "正在恢复"
+        case .restoreUnverified: "恢复待独立验证"
+        case .verifyingRestore: "正在验证恢复"
+        case .restored: "恢复读回一致"
+        case .blocked: "本地门禁阻止"
+        case .failed: "操作失败"
+        }
+    }
+
+    private var deviceFlashTone: HealthTone {
+        switch model.deviceFlashSnapshot.phase {
+        case .ready, .verified, .restored: .healthy
+        case .checking, .writing, .verifying, .restoring, .verifyingRestore: .neutral
+        case .writeUnverified, .restoreUnverified: .inactive
+        case .recoveryRequired, .blocked, .failed: .warning
         }
     }
 

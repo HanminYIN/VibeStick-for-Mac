@@ -5,6 +5,8 @@ struct ConnectionAndRuntimeView: View {
     @State private var isConfirmingStop = false
     @State private var isConfirmingRestart = false
     @State private var manualBridgeAddress = ""
+    @State private var wifiSSID = ""
+    @State private var wifiPassword = ""
 
     var body: some View {
         ScrollView {
@@ -59,6 +61,9 @@ struct ConnectionAndRuntimeView: View {
         .navigationTitle("连接与后台")
         .onAppear {
             manualBridgeAddress = model.configuration.manualBridgeAddress ?? ""
+        }
+        .onDisappear {
+            wifiPassword = ""
         }
         .toolbar {
             ToolbarItem {
@@ -141,10 +146,40 @@ struct ConnectionAndRuntimeView: View {
                 .disabled(pairingBusy)
 
                 Button(pairingButtonTitle) {
-                    model.pairDetectedDevice()
+                    if model.pairDetectedDevice(wifiSSID: wifiSSID, wifiPassword: wifiPassword) {
+                        wifiSSID = ""
+                        wifiPassword = ""
+                    }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(!canPair || pairingBusy || !model.bridgeSnapshot.isM2PairingReady)
+                .disabled(
+                    !canPair
+                        || pairingBusy
+                        || !model.bridgeSnapshot.isM2PairingReady
+                        || wifiValidationMessage != nil
+                )
+            }
+
+            Divider()
+            VStack(alignment: .leading, spacing: 8) {
+                Text("首次 Wi-Fi 配置")
+                    .font(.subheadline.weight(.semibold))
+                TextField("2.4 GHz Wi-Fi 名称（SSID）", text: $wifiSSID)
+                    .disabled(pairingBusy)
+                SecureField("Wi-Fi 密码", text: $wifiPassword)
+                    .privacySensitive()
+                    .disabled(pairingBusy)
+                if let wifiValidationMessage {
+                    Label(wifiValidationMessage, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                } else {
+                    Text(wifiDraftIsEmpty
+                        ? "两项均留空会保留设备已有 Wi-Fi；全新候选固件首次配对时必须填写。密码只用于本次 USB 配对，不会保存到 Mac 配置。"
+                        : "将与设备专属密钥一起通过 USB 提交；当前固件仅支持 WPA2 的 8–63 位可打印 ASCII 密码。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             Divider()
@@ -198,8 +233,25 @@ struct ConnectionAndRuntimeView: View {
     }
 
     private var pairingButtonTitle: String {
+        if !wifiDraftIsEmpty { return "安全配对并配置 Wi-Fi" }
         guard model.bridgeDevices?.devices.isEmpty == false else { return "安全配对" }
         return "重新配对"
+    }
+
+    private var wifiDraftIsEmpty: Bool {
+        wifiSSID.isEmpty && wifiPassword.isEmpty
+    }
+
+    private var wifiValidationMessage: String? {
+        do {
+            _ = try WiFiProvisioningDraft(
+                ssid: wifiSSID,
+                password: wifiPassword
+            ).validatedCredentials()
+            return nil
+        } catch {
+            return error.localizedDescription
+        }
     }
 
     private var permissionCard: some View {
