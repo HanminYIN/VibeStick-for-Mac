@@ -10,7 +10,7 @@ plus [M3-A achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M3
 [M4 installation and recovery contract](../../docs/design/m4/M4_INSTALLATION_RECOVERY_CONTRACT.md),
 for the upstream boundary, implemented scope, real-device acceptance, and deferred work.
 
-## M1 foundation through M4-4D D0.2 provisioning contract
+## M1 foundation through 0.2.0 RC 1
 
 The M1 app intentionally manages the existing stable installation instead of replacing it:
 
@@ -53,7 +53,8 @@ If a healthy Bridge is already running outside the installed LaunchAgent, the co
 
 - `VibeStickForMac`: Swift 6 control center.
 - `VibeStickForMacTests`: hostless model, parsing, persistence, redaction, and lifecycle tests.
-- `VibeStickBridge`, `VibeStickHUD`, `VibeStickPaste`: compatibility build targets for the existing helpers. These remain in Swift 5 language mode while the control center uses Swift 6 strict concurrency.
+- `VibeStickBridge`: native Swift state, quota, HTTP/Bonjour, pairing/configuration, recording, ASR, HUD, and Paste coordinator.
+- `VibeStickHUD`, `VibeStickPaste`: native UI and Accessibility helpers. All helper targets remain in Swift 5 language mode while the control center uses Swift 6 strict concurrency.
 
 Every target has an explicit `MACOSX_DEPLOYMENT_TARGET` of 15.0. The helper app names remain human-readable while their internal executables retain the stable `VibeStickBridge`, `VibeStickHUD`, and `VibeStickPaste` names. Verify the actual Mach-O load command rather than relying only on `Info.plist`.
 
@@ -65,15 +66,31 @@ Open `VibeStick.xcodeproj` in Xcode and choose the `VibeStickForMac` scheme, or 
 scripts/build-macos-app.sh
 ```
 
-The ad-hoc-signed development app is written to `.build/macos.noindex/VibeStick for Mac.app` so macOS does not list build artifacts as installed apps.
+The ad-hoc-signed candidate App is written to the selected
+`VIBESTICK_BUILD_ROOT` (or `.build/macos.noindex` by default). Release scripts
+unregister intermediate build products from Launch Services immediately after
+compilation; they do not launch or install them.
 
-Build the development DMG with:
+Build the RC DMG with:
 
 ```sh
 scripts/build-macos-dmg.sh
 ```
 
-The result is `.build/macos.noindex/VibeStick-for-Mac-M4-4D-D0.2.dmg`. This development DMG contains the M4-2 verified runtime payload, the M4-3 pinned downloader, the M4-4A secret-free firmware payload, M4-4B tool validation, M4-4C read-only device-backup logic, the corrected M4-4D D0.1 transaction implementation, and D0.2's ephemeral first-Wi-Fi pairing UI. It does not contain the downloaded archive, extracted `esptool`, ESP-IDF, any device backup, NVS snapshot, transaction journal, SSID, or Wi-Fi password. Opening it does not install, download, extract, execute a tool, restart services, access USB, pair, or flash firmware.
+The result is `VibeStick-for-Mac-0.2.0-rc.1.dmg` under the selected build root.
+It contains the native three-component runtime payload, secret-free firmware,
+license inventory, and existing M4 gated maintenance flows. It does not contain
+Python, a downloaded `esptool`, ESP-IDF, device backups, NVS snapshots,
+transaction journals, configuration, logs, recordings, SSIDs, or passwords.
+Opening it does not install helpers, execute a firmware tool, access USB, pair,
+or flash.
+
+The accepted firmware images and their 21 audited notices are tracked under
+`release/firmware/sticks3/0.2.0-m4.4a` and `release/licenses/firmware`. A normal
+clean source/tag App or DMG build verifies and copies those inputs, so it does
+not need a prior local App, ESP-IDF, or ignored managed-components tree. A real
+firmware rebuild remains a separate maintainer-only operation behind
+`VIBESTICK_ALLOW_FIRMWARE_REBUILD=1`.
 
 Run the complete local acceptance chain with:
 
@@ -81,11 +98,16 @@ Run the complete local acceptance chain with:
 scripts/verify-macos-build.sh
 ```
 
-This rebuilds and verifies the app and helper compatibility targets, signs and executes the hostless Swift tests, creates the DMG, mounts it read-only, and checks its exact content boundary. Tests can also be run from Xcode with the `VibeStickForMac` scheme's Test action.
+This rebuilds and verifies the App and native helpers, runs hostless Swift tests,
+creates the DMG, mounts it read-only, and checks its exact content and license
+boundary. Run the retained Python compatibility suite separately as shown in the
+root README; GitHub Actions runs both jobs. Set
+`VIBESTICK_RUN_LAUNCH_SMOKE=0` for an acceptance run that must not launch the
+candidate.
 
-## Existing helpers
+## Native helpers
 
-- `VibeStickBridge/main.swift` launches the current Python Bridge runtime.
+- `VibeStickBridge/main.swift` assembles and starts the native Swift Bridge.
 - `VibeStickHUD/main.swift` renders the recording and transcription HUD.
 - `VibeStickPaste/main.swift` performs paste and optional Return through Accessibility.
 

@@ -93,11 +93,23 @@ class AudioMetrics:
 class RecordingController:
     """project-owned push-to-talk session boundary."""
 
-    def __init__(self, path: Path, *, pending_send_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        pending_send_path: Path | None = None,
+        managed_asr: dict[str, Any] | None = None,
+        managed_asr_api_key: str = "",
+        managed_send_mode: str | None = None,
+    ) -> None:
         self.path = path
-        self.transcriber = TranscriptionAdapter()
+        self.transcriber = TranscriptionAdapter(
+            managed_asr=managed_asr,
+            managed_asr_api_key=managed_asr_api_key,
+        )
         self.paste_injector = MacPasteInjector()
         self.audio_recorder = MacMicRecorder()
+        self.managed_send_mode = managed_send_mode
         self.pending_send = PendingSendCoordinator(
             pending_send_path or path.with_name("pending-send-v1.json")
         )
@@ -109,7 +121,10 @@ class RecordingController:
         requested_session_id = _requested_session_id(request)
         session_id = requested_session_id or uuid.uuid4().hex
         interaction_version = _voice_interaction_version(request)
-        send_mode = _configured_send_mode(interaction_version)
+        send_mode = _configured_send_mode(
+            interaction_version,
+            managed_send_mode=self.managed_send_mode,
+        )
         recording_transition = self.pending_send.begin_recording(session_id=session_id)
         self.session = RecordingSession(
             session_id=session_id,
@@ -538,7 +553,13 @@ def _bounded_interaction_version(raw: object) -> int:
     return max(1, min(SUPPORTED_VOICE_INTERACTION_VERSION, raw))
 
 
-def _configured_send_mode(interaction_version: int) -> str:
+def _configured_send_mode(
+    interaction_version: int,
+    *,
+    managed_send_mode: str | None = None,
+) -> str:
+    if managed_send_mode is not None:
+        return _clean_send_mode(managed_send_mode)
     if interaction_version < SUPPORTED_VOICE_INTERACTION_VERSION:
         return SEND_MODE_AUTO_SEND if _env_bool("VIBE_STICK_AUTO_ENTER", default=False) else SEND_MODE_PASTE_ONLY
     configured = os.environ.get("VIBE_STICK_SEND_MODE", "").strip().lower().replace("-", "_")

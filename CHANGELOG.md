@@ -1,5 +1,83 @@
 # Changelog
 
+## v0.2.0-rc.1 (release candidate)
+
+First GitHub pre-release candidate for VibeStick for Mac. The App version is
+`0.2.0 (10)` and supports Apple Silicon Macs running macOS 15 or newer.
+
+### Added
+
+- A fully native Swift Bridge for state observation, account-wide Codex quota,
+  opt-in Claude quota, device pairing/configuration, voice recording, OpenAI-compatible or local
+  ASR, HUD state, Paste delivery, and Bonjour/HTTP protocol v2.
+- A native Swift runtime-payload manifest generator and verifier.
+- Offline project, font, firmware-component, C runtime, and GCC runtime license
+  notices inside the App bundle.
+- Bilingual RC installation, privacy, recovery, and known-limitations notes.
+
+### Changed
+
+- The distributed App now contains only native arm64 Bridge/HUD/Paste
+  components. It neither bundles Python source nor searches for Homebrew,
+  Xcode, `/usr/bin/python3`, or another external interpreter at install time.
+- Runtime upgrades remove the old Python runtime from the active support path
+  while preserving it in the transaction rollback backup.
+- The source developer installer and `dev.sh` build the native Bridge target.
+- The main App and all three helpers share version `0.2.0 (10)` and a macOS
+  15.0 minimum.
+- The Bridge health route now bypasses serialized provider/session observation,
+  so App state refreshes cannot starve installation or liveness checks; all
+  state-changing routes remain ordered.
+- The App and Bridge declare Local Network and `_vibestick._tcp` Bonjour use,
+  while legacy LaunchAgents associate their network access with the main App.
+- Firmware payload builds reuse a previously validated source identity or an
+  explicitly supplied audited identity; release scripts do not inspect Git.
+
+### Security and privacy
+
+- Managed configuration remains fail-closed: a present but invalid managed
+  document never falls back to legacy `.env` credentials.
+- Bridge and ASR secrets remain in fixed Keychain accounts; recordings and
+  transcripts are not persisted in provider state or diagnostic output.
+- Managed startup uses the fixed Apple `/usr/bin/security` client already
+  covered by the Keychain item ACL and reports only bounded failure categories.
+- Diagnostic preview and local export remain separate explicit actions, with
+  no upload or telemetry.
+- Firmware download, preparation, USB access, backup, write, verification, and
+  recovery remain separate confirmation gates.
+
+### Known RC limitations
+
+- The candidate is ad-hoc signed, not Developer ID signed or notarized. macOS
+  may require Control-click → Open and a Local Network confirmation on first
+  launch. A stable Developer ID identity remains preferable before public
+  distribution.
+- A second clean Mac or external clean boot environment was unavailable, so
+  clean-machine first-install and rollback acceptance remains unexecuted, not
+  passed.
+- This local RC build is intentionally stopped before Git commit, push, tag,
+  GitHub pre-release creation, or artifact upload.
+- Intel Macs and macOS 14 or older are unsupported.
+
+### Validation
+
+- Native Bridge behavior is covered with injected tests for protocol routing,
+  persistence, provider observation, quota transport, ASR, voice delivery,
+  production configuration, and runtime installation/rollback.
+- 269 hostless Swift tests in 21 suites and 194 retained Python compatibility
+  tests pass.
+- The trusted M4-5K firmware payload and its audited notices are tracked release
+  inputs, so a clean source/tag snapshot no longer depends on ignored build or
+  ESP-IDF directories. CI now includes hostless Swift on `macos-15` arm64.
+- The 3,546,767-byte DMG has SHA-256
+  `6cd183a4c65cfc6eab632ff401fb67316d11e38e1b180dd65d1ea103f282599c`.
+- The authorized local upgrade installed payload `0.2.0-rc.1-native`, preserved
+  Paste identity, and passed 40/40 Bridge health probes while the main App
+  performed three forced state refreshes.
+- Architectures, minimum OS, versions, signatures, manifests, licenses,
+  forbidden-file boundaries, trusted firmware identity, and read-only mounted
+  contents pass the completed local acceptance record.
+
 ## v0.2.0-m3a (unreleased)
 
 M3-A Codex Focus interface checkpoint for the independently maintained VibeStick for Mac derivative.

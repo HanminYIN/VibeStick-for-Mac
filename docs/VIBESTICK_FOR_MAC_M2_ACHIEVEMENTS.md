@@ -10,7 +10,7 @@
 >
 > 上游项目：[GaryGaryyy/VibeStick](https://github.com/GaryGaryyy/VibeStick)
 >
-> 独立维护：[HanminYIN/VibeStick](https://github.com/HanminYIN/VibeStick)
+> 独立维护：[HanminYIN/VibeStick-for-Mac](https://github.com/HanminYIN/VibeStick-for-Mac)
 
 ## 1. 阶段结论
 

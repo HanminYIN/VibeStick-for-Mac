@@ -1,0 +1,45 @@
+{
+  "board": "M5Stack StickS3",
+  "files": [
+    {
+      "mode": 420,
+      "offset": 0,
+      "path": "bootloader.bin",
+      "sha256": "d70177e42e12eb7f66d61dd3ddc3b3e71b03c053de21ed23e90971ee6c15d7e2",
+      "size": 21056
+    },
+    {
+      "mode": 420,
+      "offset": 32768,
+      "path": "partition-table.bin",
+      "sha256": "73c0b5c3e5fcba3a151cc70c453c93dd5f4798899e7f2f8cca76da1f32ffc501",
+      "size": 3072
+    },
+    {
+      "mode": 420,
+      "offset": 65536,
+      "path": "vibe-stick.bin",
+      "sha256": "064131114db98b2670d30e0aebfe4fdf58b647e204bfbd0d420dbeaee865f436",
+      "size": 1827456
+    }
+  ],
+  "flash": {
+    "frequency": "80m",
+    "mode": "dio",
+    "size": 8388608
+  },
+  "payloadVersion": "0.2.0-m4.4a",
+  "preservedRanges": [
+    {
+      "endExclusive": 61440,
+      "name": "nvs",
+      "start": 36864
+    }
+  ],
+  "schemaVersion": 1,
+  "source": {
+    "digest": "48beb17a4e18e18bbf387dafed2112d96107f9b000dec5337faeef7561498546",
+    "revision": "62a621086d56321cf220f526a64b60cf6251bec1"
+  },
+  "target": "esp32s3"
+}

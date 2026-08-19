@@ -1,7 +1,7 @@
 # VibeStick for Mac 二次开发 Roadmap
 
-> 状态：M1 至 M3-C、M4-0 至 M4-3 已本地封存；M4-4A/B 已完成本机自动验收及授权的真实工具准备，等待检查点封存，尚未访问设备或发布
-> 更新日期：2026-08-15
+> 状态：0.2.0 RC 1 原生 Swift Bridge 已通过隔离 App/DMG 放行和本机事务安装/稳态验收；M4-5K 基线与产物保留不覆盖，全新环境验收因条件不足明确跳过且不得视为通过，Git/GitHub 发布仍为独立门禁
+> 更新日期：2026-08-19
 > 开发分支：vibestick-for-mac
 > M1 稳定基线：92f8a0b03a2246eecb20ba49b2491c0efd9f137c
 > M2 稳定基线：8ced6ebd609df18996631491c4b9163432d5a2df
@@ -17,7 +17,7 @@
 项目来源与工作基线：
 
 - 原项目：https://github.com/GaryGaryyy/VibeStick
-- 独立维护仓库：https://github.com/HanminYIN/VibeStick（当前仍在上游 Fork network 中）
+- 独立维护仓库：https://github.com/HanminYIN/VibeStick-for-Mac（已脱离上游 Fork network，保留 upstream 来源与完整历史）
 - 开发分支：vibestick-for-mac
 - 原项目 main 保持不变，不向上游自动提交个人化改动。
 
@@ -687,6 +687,52 @@ M4-4D D0.2 候选 `0.2.0 (9)` 已通过 173 项 Python、75 项 Swift、首次 W
 
 随后使用者直接在仓库构建的 `0.2.0 (9)` App 安全输入框中填写 2.4 GHz Wi-Fi 凭据，并亲自提交一次 USB 配对/首次配网；App 按契约更新 Mac 私有设备登记与 Keychain，设备重启后通过 Wi-Fi 回连现有 Bridge。最终功能验收使用真实 StickS3 PCM 音频：完成既有 ASR 转写、Paste 注入和使用者本人蓝键确认，Bridge 的确认请求返回 HTTP 200，落盘状态从 `pending_send` 转为 `sent`，设备保持局域网在线。整个真机流程未安装或替换主 App，未重启 Bridge/HUD/Paste；D0.2 不需要恢复。版本库不记录 SSID、密码、设备/Bridge 标识、串口、本机地址、私有备份/NVS 摘要或语音正文，也没有执行 add、commit、push、tag 或 Release。Closeout 在不访问串口的前提下再次通过 173 项 Python、75 项 Swift、脚本语法、文档格式与定向脱敏扫描。
 
+M4-5A 先冻结剩余安装恢复契约，不开放真实迁移或诊断操作。新增的纯规划层只接收调用方提供的脱敏类别与布尔事实：旧版迁移会把后台组件、Bridge/ASR 凭据、ASR 设置、Agent Provider、项目显示、语音发送、声音偏好和辅助功能权限分别建模；未知运行时归属或活动语音任务会失败关闭，导入与后台激活保持两次授权。诊断计划只允许固定结构化摘要及未来经过脱敏器处理的有限日志片段，原始配置、Keychain、设备登记、录音、日志、固件备份和事务文件均为禁止来源。全新 Mac 基线明确为没有 Homebrew、Xcode、外部 Python 或 ESP-IDF，并要求分发 App 使用逐文件校验的自包含 arm64 Python 运行时。M4-5A 的测试夹具完全虚构，不读取本机文件、Keychain、进程、网络或设备。经第二项独立授权，M4-5A 已通过 173 项 Python 与 82 项 hostless Swift 测试，并完成 Release App/Bridge/HUD/Paste、arm64 与 macOS 15 最低版本、载荷清单、秘密排除、ad-hoc 签名及只读挂载 DMG 的离线验收。沿用 `0.2.0 (9)` 元数据的本轮 DMG 为 `2,865,116` 字节，SHA-256 为 `04c93603562a692b872b5a132fa8cbd347c2520caae6ed14d45e6f7eeac43997`。由于现有 App 启动会读取本机支持目录、Keychain、运行时和 USB 摘要，本轮没有启动构建 App 或 DMG App；GUI 烟测留在第三项“真实只读旧版检查”授权之后。没有安装或替换主 App，没有重启 Bridge/HUD/Paste，也没有访问串口、设备、配对、网络配置或固件工具。
+
+M4-5B 在不接入真实 Mac 和 App 启动路径的前提下实现迁移事务协调层：调用方只能提供已经脱敏的检查证据与显式授权的受管目标；协调器要求确认类别完全一致，紧邻事务前进行第二次预检，并依次执行私有回滚准备、版本化 Keychain 暂存、非秘密配置暂存、Paste 身份保留、完整验证、原子提交和旧版回退保留。验证结果必须证明回滚权限私有、秘密使用新版本化账号、旧 Keychain 未动、非秘密配置没有混入秘密且 Paste 身份保持不变，否则在提交前失败并回滚。任何事务步骤失败只执行一次恢复与暂存清理，不自动重试；成功回执明确记录没有删除旧数据、没有重启后台且运行时激活仍未授权。生产目标没有默认真实文件、Keychain、进程、网络或设备适配器，UI 也没有暴露迁移入口。9 项新增虚构测试连同既有测试组成 91 项 hostless Swift 测试，全部通过；测试未读取真实配置或 Keychain、未启动 App、未安装、未迁移，也未访问 USB/串口或设备。
+
+M4-5C 增加仍然无法触达真实 Mac 的离线适配器和 `managed-runtime-v1.json` 契约。Swift 事务存储强制根目录位于系统临时目录，拒绝复用已有事务目录，只接受注入式凭据仓库；回滚目录为 0700、文件为 0600，配置提交前会拒绝任何选中秘密的字节。Bridge 与 ASR 凭据只允许引用固定服务下的新版本化账号 `bridge-token-v1`、`asr-api-key-v1`，旧账号、任意账号、重复或不同版本引用均失败关闭。Bridge Python 包新增匹配的纯解析器，但只接收内存文档和注入式凭据读取器，没有文件、subprocess 或 Keychain 实现，也没有接入真实 Bridge 启动路径。5 项新增 Python 契约测试与 8 项新增 Swift 虚构测试通过，完整结果为 178 项 Python、99 项 hostless Swift（4 个套件）。随后隔离构建的 Release 主 App、Bridge、HUD 与 Paste 均为 arm64、最低 macOS 15.0；`0.2.0 (9)` App 的深度 ad-hoc 签名、两类载荷清单、Paste 身份指纹、图标、M4-5C 解析器封装、固件范围及私有/开发文件排除均通过。DMG 校验通过并只读挂载，根目录仅有 App 和 `/Applications` 链接，挂载后的签名、版本、架构、清单和文件排除再次通过，未启动任何可执行文件。本轮 DMG 为 `2,900,641` 字节，SHA-256 为 `7071af850f5607f41f31a72aaee9505402707a5cd5475260c16ece40dd1f08ff`。本轮没有读取真实配置或 Keychain，没有启动候选 App、激活或重启 Bridge/HUD/Paste、导出诊断、安装、访问设备或执行 Git 操作；真实文件/Keychain 适配器、真实迁移、运行时激活与 UI 入口仍是后续独立门禁。
+
+M4-5D 新增生产能力可编译但尚未接线的 filesystem/Keychain 适配器。生产事务根固定来自 VibeStick Application Support，并把每次事务约束在 `MigrationTransactions.noindex` 下的新安全标识；Foundation 客户端拒绝越界路径和已有符号链接组件，事务目录/文件固定为 0700/0600，配置提交及回滚恢复使用原子写。版本化 Keychain vault 只允许固定服务下的 `bridge-token-v1` 与 `asr-api-key-v1`，使用 add-only 写入；已有账号失败关闭而不覆盖，回滚只删除本事务成功创建的账号，删除失败仍保留重试依据。真实客户端未接入 AppModel、UI、Bridge 启动或运行时管理。9 项新增 hostless 测试全部使用纯内存文件系统、纯内存 generic-password 客户端和虚构路径/秘密，完整结果为 178 项 Python、108 项 Swift（5 个套件）；工程语法、Swift 6 严格并发编译及静态禁用面扫描通过。随后隔离构建的 `0.2.0 (9)` Release 主 App、Bridge、HUD 与 Paste 均为 arm64、最低 macOS 15.0；深度 ad-hoc 签名、组件固定身份、两类载荷清单、Paste 身份指纹、图标、M4-5C 解析器字节一致、M4-5D 生产符号封装、固件三文件范围及私有/开发文件排除全部通过。DMG 校验通过并只读挂载，根目录仅有 App 和 `/Applications` 链接，挂载后的签名、版本、架构、清单、M4-5D 封装及文件范围再次通过，未启动任何可执行文件。本轮 DMG 为 `2,906,724` 字节，SHA-256 为 `260ac1a4486e1ad7eb4eaed268b92ec46e53a1792ffdbf994b7b6479976992dc`。本轮没有调用生产适配器，没有读取或写入真实 Application Support/Keychain，也没有读取本机秘密头文件、启动 App、执行迁移、激活或重启后台、导出诊断、安装、访问设备或执行 Git 操作。真实迁移仍为第 4 道独立授权，运行时激活仍为第 5 道。
+
+M4-5E 把固定旧版发现、脱敏预览、迁移载荷映射和 M4-5D 生产事务通过一个显式入口接通，但入口仍未接入 AppModel、UI、启动路径、Bridge 或运行时管理。文件读取范围固定为 VibeStick Application Support 下的 `.env`、`config-v1.json`、`device-config-v1.json` 与 `recording.json`，拒绝越界、符号链接、非普通文件、超限及读取期间大小变化；Keychain 范围固定为既有服务下的 `bridge-token` 与 `asr-api-key`。发现预览只检查 Keychain 项是否存在，不读取凭据内容，且只返回类别和权限/归属/活动语音等脱敏布尔事实。调用方必须精确确认全部类别和受管目标；之后新会话才会执行两次完整预检并映射内存载荷，第二次预检与确认状态完全一致后才允许创建生产事务。任何变化都在工厂创建和写入前失败，运行时激活仍保持独立。9 项新增测试完全使用注入式虚构文件、凭据、运行时与事务存储，完整结果为 178 项 Python、117 项 Swift（6 个套件）；工程 plist、Swift 6 编译、测试禁用面及 App/UI 未接线扫描通过。初始实现门禁没有调用真实 reader/store，也没有读取或写入本机配置/Keychain、启动 App、执行迁移或运行时激活、导出诊断、构建 Release/DMG、安装、访问设备或执行 Git 操作。
+
+随后经单独授权完成 M4-5E 离线 Release 验收：主 App、Bridge、HUD 与 Paste 均为 arm64、最低 macOS 15.0，App 保持 `0.2.0 (9)`；主 Release 目标确实编译并生成 M4-5E 对象，链接结果保留双预检 prepared-session 协调符号，同时静态扫描仍确认 App/UI/启动路径没有显式入口调用点。深度 ad-hoc 签名、固定 Helper 要求、两类载荷清单、M4-5C 解析器字节一致、Paste 身份指纹、图标、固件三文件范围和私有/运行时/测试/开发文件排除全部通过。固件缓存只在清单有效且不含秘密头文件的源码摘要与当前源码、缓存清单三方一致后复用，本轮没有读取本机秘密头文件。DMG 校验通过并只读挂载，根目录仅有 App 与 `/Applications` 链接；挂载后重复通过签名、版本、架构、最低系统、清单、解析器、M4-5E 协调符号、图标、固件范围与文件排除检查，未启动任何可执行文件，随后已卸载。本轮 DMG 为 `2,911,227` 字节，SHA-256 为 `37f8b53afb902039592eacaf3ff36c54b0ea31f3f790d48969b920795a4156cd`。本轮仍没有调用生产 reader/store、读取或写入真实配置/Keychain、执行迁移或运行时激活、导出诊断、安装、访问设备或执行 Git 操作；真实发现/迁移和运行时激活继续逐门授权。
+
+M4-5F 把 M4-5E 入口接入高级设置中的显式迁移卡片，但 App 启动、自动刷新和后台任务都不会创建入口或触发发现。初始状态只显示“检查可迁移的旧版设置”；用户点击后才延迟创建生产入口并请求受限发现。显式运行时事实读取只做后台归属与活动语音预检，不启动 Paste 权限探针；辅助功能权限留给后续独立检查。UI 只保存和显示旧版设置类别、文件存在/权限布尔值、阻断原因、受管目标和成功回执布尔值，不保存路径、密钥、身份值或底层错误文本。未知后台归属或活动语音工作会失败关闭；无阻断时，用户仍须逐项勾选全部发现类别和精确受管目标，才能打开独立的最终确认对话框。确认后才调用 M4-5E 迁移入口，入口仍会执行两次完整预检；完成状态明确显示旧资料未删除、后台未重启且运行时激活需要另行授权。取消确认不会调用迁移，失败或重置后必须重新显式检查。10 项新增测试全部使用注入式虚构 operation、builder、预览、运行时快照、回执、错误和秘密哨兵，证明初始化零调用、外部运行时失败关闭、显式发现、脱敏状态、精确范围、可取消二次确认、阻断、错误脱敏、零运行时激活和重试新发现；完整结果为 127 项 Swift（7 个套件）及 178 项 Python 全部通过。主 App Debug 目标和测试目标均离线编译通过，工程 plist 与启动零发现静态扫描通过，未启动 App。本轮没有调用生产入口或真实 reader/store，没有读取或写入真实配置/Keychain，没有执行真实迁移、运行时激活、诊断导出、Release/DMG 构建、安装、设备访问或 Git 操作。
+
+随后经单独授权完成 M4-5F 离线 Release 验收。隔离目录中的主 App、Bridge、HUD 与 Paste 均为 arm64、最低 macOS 15.0，App 保持 `0.2.0 (9)`；主 Release 目标生成 `M4MigrationUIFlow.o`，链接二进制包含显式 UI flow、延迟生产 builder、M4-5E 入口和双预检会话符号。App 深度 ad-hoc 签名、三个组件的固定 designated requirement、两类载荷清单、Bridge `managed_runtime.py` 字节一致、Paste 身份指纹、图标、精确三镜像固件范围和私有/运行时/测试/开发文件排除全部通过。固件缓存只在清单有效、当前非秘密源码摘要与缓存摘要一致、且全部四个载荷文件与上一轮已验收 M4-5E 载荷逐字节一致后复用；没有读取本机秘密头文件，也没有调用 Git。DMG 自身校验通过；只读挂载标志为 `read-only`，根目录仅有 App 与 `/Applications` 链接，挂载后再次通过签名、版本、架构、最低系统、载荷、M4-5F 符号、固件范围与禁用面检查，未执行任何镜像内可执行文件，随后成功卸载并清理挂载点。完整测试再次通过 127 项 Swift 与 178 项 Python。本轮 DMG 位于 `.build/macos.noindex/M4-5F-Offline/VibeStick-for-Mac-M4-5F.dmg`，大小为 `2,950,894` 字节，SHA-256 为 `ec9b799a97bacecf3cb410b7703d324977a31c4b330558354e59b9d5722c8e77`。本轮没有启动 App/Helper，没有调用生产迁移入口或读取真实配置/Keychain，没有执行发现、迁移、运行时激活、诊断导出、安装、后台重启、设备访问或 Git 操作。
+
+M4-5G 为 ASR 冲突增加一个失败关闭的脱敏分支：只有“当前 App 配置”和“旧 `.env` 配置”同时存在且内容不一致时，发现预览才携带固定的两项来源枚举；UI 只显示这两个名称和冲突说明，不保存或展示供应方参数、端点、模型、本地命令、密钥或映射后的配置值。冲突时没有默认来源，用户未明确选择其中一项就不能进入最终确认；无冲突时反而拒绝额外来源选择。选定来源会被绑定到两次新鲜预检，每次准备结果都必须回报同一来源；第二次预检若改变来源，会在生产事务工厂创建和任何写操作之前失败。5 项新增 Swift 测试完全使用虚构文件、模拟 Keychain、模拟运行时、注入式 operation 与内存事务存储，覆盖发现脱敏、两种来源映射、无选择拒绝、双预检绑定、第二次来源漂移拒绝和 UI 明确选择。完整结果为 132 项 Swift（7 个套件）与 178 项 Python 全部通过；测试目标和主 App Debug 目标离线编译通过，工程 plist、显式调用点与 UI 禁用面扫描通过，未启动 App。本轮没有调用生产 reader/store，没有读取或写入真实配置/Keychain，没有执行真实发现、迁移、运行时激活、诊断导出、Release/DMG 构建、安装、后台重启、设备访问或 Git 操作。
+
+随后经单独授权完成 M4-5G 离线 Release 验收。隔离目录中的主 App、Bridge、HUD 与 Paste 均为 thin arm64、最低 macOS 15.0，App 保持 `0.2.0 (9)`；主 Release 中间产物包含 `M4LiveMigrationEntry.o` 与 `M4MigrationUIFlow.o`，链接二进制保留准备会话及显式 ASR 来源选择符号和三段脱敏界面文本。App 深度 ad-hoc 签名、三个组件固定 designated requirement、运行时与固件清单、Bridge `managed_runtime.py` 字节一致、Paste 身份指纹、App/菜单栏图标、精确三镜像固件范围及私有/运行时/测试/开发文件排除全部通过。固件缓存仅在当前非秘密源码摘要、缓存摘要、缓存清单一致，且三个镜像与清单均同上一轮已验收 M4-5F App 逐字节一致后复用；没有读取本机秘密头文件或调用 Git。DMG 校验通过，以只读、无浏览方式挂载后确认文件系统为 `read-only`，根目录仅有 App 与 `/Applications` 链接；镜像内 App 重复通过版本、架构、最低系统、签名、组件身份、两类清单、解析器、M4-5G 符号/文本、图标、固件范围和禁用面检查，未执行任何二进制，随后成功卸载并清理挂载点。完整测试再次通过 132 项 Swift 与 178 项 Python。本轮 DMG 位于 `.build/macos.noindex/M4-5G-Offline/VibeStick-for-Mac-M4-5G.dmg`，大小为 `2,963,095` 字节，SHA-256 为 `bb7889cc4029c69038381a219e2cd35bd2725da8a5a76744c564410b4d214a98`。本轮没有启动 App/Helper，没有调用生产迁移入口或读取真实配置/Keychain，没有执行真实发现、迁移、运行时激活、诊断导出、安装、后台重启、设备访问或 Git 操作。
+
+M4-5H 修正迁移后“配置与密钥”卡片把旧版未版本化账户误称为新钥匙串的状态语义。旧版 `.env`、`bridge-token` 与 `asr-api-key` 继续只作为兼容状态显示；新的受管摘要只接受 `managed-runtime-v1.json` 中通过版本校验的固定引用，并通过一个只有 `contains`、没有密钥读取方法的窄 Keychain 接口检查对应凭据是否存在。受管配置读取器只接受私有权限的普通小型文件，缺失、非法、权限过宽或读取失败分别归纳为固定脱敏状态；摘要和 UI 均不携带完整路径、账户值、配置参数或秘密。迁移成功回调只触发一次受管状态刷新，不调用完整 App 刷新，因此不会顺带检查 USB、激活运行时或控制后台组件。高级设置把“旧版兼容状态”和“迁移后受管状态”分区显示；两个固定 v1 引用均存在时分别显示受管 Bridge 凭据与受管语音凭据“已保存”。在 M4-5G 最终确认框明细增强后的 133 项基线上，M4-5H 新增 6 项 Swift 测试，全部使用临时目录、虚构配置、模拟 Keychain 和注入式完成回调，完整结果为 139 项 Swift（7 个套件）与 178 项 Python 全部通过；主 App Debug 目标完整编译，工程 plist、UI 禁用值与临时残留扫描通过。构建过程没有启动 App/Helper；隔离 Debug App 的自动 Launch Services 登记已按精确路径清理。本轮没有读取或写入本机真实配置/Keychain，没有改变既有迁移资料，没有执行真实迁移、运行时激活、诊断导出、Release/DMG 构建、安装、后台重启、设备访问或 Git 操作。
+
+M4-5I 把版本化受管配置接入 Bridge 启动边界，但本实现门禁没有启动或激活真实运行时。Bridge 包装器先只检查固定位置的 `managed-runtime-v1.json`：存在时只设置非秘密的受管选择标记且绝不加载旧 `.env`；不存在时才保留原有兼容加载路径。该选择在进入 Python 前冻结，文件随后消失或从兼容模式中突然出现都会失败关闭。Python 读取器使用 no-follow 文件描述符，只接受私有权限、普通、非空、至多 1 MiB 且读取前后身份、大小与修改时间稳定的文件；Keychain 读取器只允许固定服务下的 `bridge-token-v1` 与 `asr-api-key-v1`，命令参数不含秘密，输出只保留在进程内存。受管文档会验证 schema、固定引用、ASR、Agent、项目显示、语音发送和声音偏好；Bridge 凭据为空或为已知占位值、云 ASR 凭据缺失、配置无效或读取失败都会在创建服务器前以固定脱敏错误停止，不会回退旧 `.env` 或未版本化 Keychain。经验证的 Bridge token、Agent 来源、ASR 设置/密钥、语音发送模式和项目显示通过构造参数注入既有消费者；声音偏好保留在只读解析模型中，不转写为环境变量或文件。15 项新增测试全部使用临时目录、虚构配置、模拟 Keychain/运行时与模拟启动，完整结果为 193 项 Python 和 139 项 hostless Swift（7 个套件）全绿；Bridge Debug 产物为 arm64、最低 macOS 15.0，主 App 测试目标与 Bridge 均离线编译通过。静态检查确认新版本化密钥没有环境变量写入、配置落盘、日志或错误文本出口，运行时载荷构建会自动包含新增 Python 模块。本轮没有读取或写入本机真实配置/Keychain，没有启动 App/Helper 或 Bridge，没有执行真实运行时激活、安装、后台重启、诊断导出、下载、设备访问或 Git 操作；Release App/DMG 与真实激活继续逐门授权。
+
+随后经单独授权完成 M4-5I 离线 Release 验收。隔离目录中的主 App、Bridge、HUD 与 Paste 均为 thin arm64、最低 macOS 15.0，App 保持 `0.2.0 (9)`；App 深度 ad-hoc 签名、三个组件固定 designated requirement、运行时与固件清单、Bridge Python 源码逐文件一致、M4-5I 受管选择编译标记、App/菜单栏图标、Paste 身份指纹、精确三镜像固件范围和私有/测试/开发文件排除全部通过。固件缓存只在当前非秘密源码摘要与缓存摘要一致，且缓存四个载荷文件同上一轮已验收 M4-5H App 逐字节一致后复用；本轮没有读取本机秘密头文件、重建固件或调用 Git。DMG 校验通过，以只读、无浏览方式挂载后确认文件系统为 `read-only`，根目录仅有 App 与 `/Applications` 链接；镜像内 App 再次通过版本、架构、最低系统、签名、组件身份、两类清单、源码/固件载荷一致、M4-5I 编译标记与禁止文件范围检查，未执行任何镜像内程序，随后成功卸载并清理挂载点。完整测试再次通过 193 项 Python 与 139 项 Swift。本轮 DMG 位于 `.build/macos.noindex/M4-5I-Offline/VibeStick-for-Mac-M4-5I.dmg`，大小为 `2,978,616` 字节，SHA-256 为 `f2a7dd52286ceec5b6a7fb84d801e7ee99ac7f532537ef60b3f72a8f758e6548`。本轮没有启动 App/Helper/Bridge，没有读取真实配置或 Keychain，没有执行真实运行时激活、安装、后台重启、诊断导出、下载、设备访问或 Git 操作。
+
+M4-5J 把 M4-5A 的诊断规划契约实现为显式、本地且失败关闭的脱敏导出事务，但本门禁没有接入真实证据读取或用户界面。固定 schema 只允许 App/macOS/架构、Bridge/HUD/Paste 健康与签名布尔值、LaunchAgent 脱敏状态、Bridge 健康枚举，以及脱敏后的迁移/运行时回执摘要；可选日志仅限 Bridge/HUD，由逐行脱敏器覆盖 Wi-Fi、Authorization/凭据、语音正文、设备/Bridge/session 标识、端点、完整路径、MAC/IP、UUID、邮箱和长 token，并同时限制单行、来源行数和总字节数。预览清单固定列出每个相对路径、来源类别和字节数，明确原始日志与自动上传均为 false；导出必须同时获得用户选择目的地事实和完全一致的清单确认。Foundation 事务只接受调用方给出的本地目的地，拒绝根目录、符号链接、越界、已有 staging/final，使用同目录 0700 私有暂存、0600 文件、逐文件精确复验和原子移动发布，失败则清理 staging 而不产生可用诊断包。生产 filesystem 工厂已经编译接线，但没有 App 启动或 UI 调用点。
+
+10 项新增 Swift 测试全部使用临时目录、虚构结构化摘要/日志、模拟运行时证据和模拟 filesystem，覆盖全部脱敏类别、JSON 键、无日志零读取、日志限长、非法元数据失败关闭、私有权限与精确字节、确认门禁、回滚清理、不覆盖和符号链接拒绝；完整结果为 149 项 Swift（8 个套件）与 193 项 Python 全部通过。主 App Debug 和测试目标在 Swift 6 下离线编译，工程 plist、启动零调用点、禁止运行时 API、私密值和临时残留扫描通过。没有读取本机真实配置、Keychain、日志、录音、设备登记、迁移事务、固件备份或身份值，没有启动 App/Helper，没有执行真实诊断预览/导出、上传、运行时控制、安装、设备访问或 Git 操作。离线 Release/DMG、生产证据读取器、GUI 接线和真实本地预览/导出继续逐门授权。
+
+随后经单独授权完成 M4-5J 离线 Release 验收。隔离目录中的主 App、Bridge、HUD 与 Paste 均为 thin arm64、最低 macOS 15.0，App 保持 `0.2.0 (9)`；主 Release 中间产物包含 `M4DiagnosticExport.o`，链接二进制保留 M4-5J 诊断导出事务符号。App 深度 ad-hoc 签名、三个组件固定 designated requirement、运行时与固件清单、全部 Bridge Python 源码逐文件一致、Paste 身份指纹、App 图标、精确三镜像固件范围及私有/日志/录音/事务/测试/开发文件排除全部通过。固件载荷只在当前非秘密源码摘要与上一轮已验收 M4-5I 清单一致后复用，清单与三个镜像均逐字节一致；没有读取本机秘密头文件、重建固件或调用 Git。DMG 校验通过，以只读、无浏览方式挂载后确认文件系统为 `read-only`，根目录仅有 App 与 `/Applications` 链接；镜像内 App 再次通过版本、架构、最低系统、签名、组件身份、两类清单、Python 源码、M4-5J 链接符号、固件范围与禁用文件检查，未执行任何镜像内程序，随后成功卸载并清理挂载点。完整测试再次通过 149 项 Swift（8 个套件）与 193 项 Python。本轮 DMG 位于 `.build/macos.noindex/M4-5J-Offline/VibeStick-for-Mac-M4-5J.dmg`，大小为 `2,981,164` 字节，SHA-256 为 `48207ff56ac7e7339d08c1a0d73bcd7ed8daff85e95bcbace5742582414eafd9`。本轮没有启动 App/Helper，没有读取真实配置、Keychain、日志、录音、设备登记、迁移事务、固件备份或身份值，没有执行真实诊断预览/导出、上传、运行时控制、安装、设备访问或 Git 操作；生产证据读取器、GUI 接线和真实本地预览/导出仍为后续独立门禁。
+
+M4-5K 把 M4-5J 的本地事务接入显式诊断界面和固定范围的生产只读证据边界，但本门禁只编译接线，没有调用生产适配器。结构化摘要来自 AppModel 已持有的脱敏内存状态，只保留版本、系统、架构、组件/LaunchAgent 布尔状态、Bridge 健康枚举及脱敏迁移/运行时回执；Bridge/HUD/Paste 签名检查只返回固定组件布尔值。可选日志只允许支持目录直属的 `bridge.log`、`bridge.err.log`、`hud.log` 和 `hud.err.log`，拒绝根目录或最终文件符号链接及非普通文件，使用 no-follow 文件描述符读取每文件尾部至多 16 KiB、100 行且总计至多 200 行，并在读取前后核对设备、inode、大小、ctime 与 mtime；内容继续经过 M4-5J 的逐行脱敏和 32 KiB 总输出上限。
+
+高级设置中的诊断卡启动时保持零调用。用户必须先显式决定是否包含脱敏日志摘录，再点击生成预览；界面只显示固定 schema、相对包内路径、来源类别和字节数。之后单独选择本地文件夹，完整目的地始终保留为私有状态；只有再次打开并确认列出条目数、总字节数、日志范围、无原始日志和无自动上传的确认框，才会把已冻结的清单交给 M4-5J 原子事务。取消选择或确认均零写入，错误只显示固定脱敏类别。12 项新增测试全部使用临时目录、虚构日志、模拟运行时、模拟 filesystem/签名/目的地和注入式操作，验证初始化零调用、显式预览、日志选择冻结、固定四源和双重限长、符号链接拒绝、身份/底层错误丢弃、目的地不公开、二次确认与单次导出；完整结果为 161 项 Swift（9 个套件）和 193 项 Python 全绿，主 App Debug 与测试目标离线编译、工程 plist 和禁用面扫描通过。本轮没有启动 App/Helper，没有调用生产适配器，没有读取本机真实配置、Keychain、日志、录音、设备登记、迁移事务、固件备份或身份值，没有执行真实诊断预览/导出、上传、运行时控制、Release/DMG 构建、安装、设备访问或 Git 操作。
+
+随后经单独授权完成 M4-5K 离线 Release 验收。隔离目录中的主 App、Bridge、HUD 与 Paste 均为 thin arm64、最低 macOS 15.0，App 保持 `0.2.0 (9)`；App 和三个固定组件签名、designated requirement、运行时与固件清单、全部 Bridge Python 源码、Paste 身份指纹、App/菜单栏图标和精确三镜像固件范围均通过检查。Release 中间产物与最终二进制保留 `M4DiagnosticExport`、`M4DiagnosticUIFlow`、生产只读日志适配器和显式预览/目的地/确认流程符号。固件只在当前非秘密源码摘要、缓存摘要和上一轮已验收 M4-5J 清单摘要完全一致，且四个载荷文件逐字节一致后复用；没有读取本机秘密头文件、重建固件或调用 Git。运行时同步产生的空 `__pycache__` 目录在打包中被发现并删除，重新生成清单和签名后，私密配置、日志、录音、设备登记、迁移/固件事务、备份、测试及开发文件排除全部通过。
+
+DMG 自身校验通过，以只读、`nobrowse` 方式挂载后确认文件系统为 `read-only`，根目录仅有 App 与 `/Applications` 链接；镜像内 App 再次通过版本、架构、最低系统、深度签名、固定组件身份、两类载荷清单、M4-5K 链接符号、源码/固件身份、图标、精确固件范围和禁用面检查，未执行任何镜像内程序，随后成功卸载并清理挂载点。完整测试再次通过 161 项 Swift（9 个套件）与 193 项 Python。本轮 DMG 位于 `.build/macos.noindex/M4-5K-Offline/VibeStick-for-Mac-M4-5K.dmg`，大小为 `3,137,499` 字节，SHA-256 为 `960769a7c9b9ec42586c3ddb4c7b2ad9993a8cac047707da7531930fcf28c450`。本轮没有启动 App/Helper，没有调用生产诊断适配器，没有读取本机真实配置、Keychain、日志、录音、设备登记、迁移事务、固件备份或身份值，没有执行真实诊断预览/导出、上传、运行时控制、安装、设备访问或 Git 操作；真实 GUI 预览/本地导出、安装和发布仍为后续独立门禁。
+
+随后经逐项独立授权完成 M4-5K 本机真实诊断闭环。候选 App 只在高级设置中执行一次日志选项关闭的真实脱敏预览；冻结清单为 schema 1，共 3 个结构化条目、923 字节：`runtime-v1.json` 420 字节、`summary-v1.json` 411 字节、`system-v1.json` 92 字节，既不包含原始日志或脱敏日志摘录，也不自动上传。另经本地导出授权，在 `.build/macos.noindex/M4-5K-Real-Diagnostic-Export` 私有目录中写出一个 `.vibediagnostics` 包；包内仅有清单和上述 3 个 JSON 文件，目录权限为 `0700`、文件权限为 `0600`，无符号链接或日志文件，JSON 均可解析且清单字节数与实际文件完全一致，定向禁止值扫描无命中。没有公开目的地完整路径、包名随机标识或任何结构化证据值。
+
+再经独立安装授权，将既有 `/Applications/VibeStick for Mac.app` `0.2.0 (3)` 的验证副本和原件都保留到 `.build/macos.noindex/M4-5K-Install-Backup`，候选 App 先在同卷隐藏位置完成版本、架构、签名和内容一致性复验，再以原子重命名替换主 App。最终安装项为 `0.2.0 (9)`、thin arm64、最低 macOS 15.0，深度签名有效且与候选目录树完全一致；隐藏暂存、旧版和失败残留均不存在。替换过程未自动启动主 App，既有 Bridge/HUD 的进程身份、PID 和启动时间保持不变，Paste 未触发。随后单独授权的安装后 GUI 烟测只启动最终主 App 并查看首页与高级设置：界面正常显示 `VibeStick for Mac 0.2.0 (9) · M4-5K`，诊断日志选项仍关闭；未生成第二次预览、刷新状态、选择目的地、导出、迁移、申请权限、控制 Helper 或访问设备，Bridge/HUD 状态仍未变化。
+
+严格的全新环境安装与恢复验收因当前没有第二台全新 Mac，也没有可用的外置启动系统条件，经用户决定在本阶段明确跳过。该项属于环境受限的未执行项，既不是失败，也不得记为通过；因此仍不能声称已经验证全新环境首次安装、自包含运行时激活或故障恢复。上述本机闭环没有访问 USB/设备，没有读取 Keychain、录音、设备登记、迁移事务、固件备份或身份值，没有安装/重启 Helper，没有执行 Git 或发布操作；发布仍需另行授权，并必须披露全新环境验收缺口。
+
 - 一键下载并校验烧录组件。
 - 自动识别端口和设备模式。
 - 安装、验证、备份、恢复和回退。
@@ -856,3 +902,75 @@ R1 包含 M1 至 M4，不包含智能审批也必须能够稳定日用。
 - [当前架构](ARCHITECTURE.md)
 - [当前协议](PROTOCOL.md)
 - [第三方审计](THIRD_PARTY_AUDIT.md)
+
+## 23. 0.2.0 RC 1 原生 Swift Bridge
+
+2026-08-19 的 RC 收口把分发运行时从内嵌 Python 源码改为原生 Swift Bridge。
+普通用户安装 DMG 后不再需要 Python、Homebrew、Xcode 或仓库依赖；运行时载荷
+只包含具名 Bridge、HUD 与 Paste 三个 arm64 App，旧 `runtime` 目录仅作为升级
+事务中的移除/回退对象，不再是新载荷的一部分。
+
+原生 Bridge 保持协议 v2、Bonjour、每设备鉴权与配置 revision/ACK、Codex 和
+Claude 状态、Codex 账户级/会话额度、默认关闭的 Claude OAuth 用量、StickS3
+PCM 与 Mac 录音兼容、云端或本地命令 ASR、HUD、Paste 与蓝键确认发送。生产
+路径继续使用固定 Keychain 引用、限长无符号链接文件读取、私有原子持久化和
+fail-closed 受管配置；Claude 凭据只在用户显式开启用量后解析，token 与原始
+响应均不进入 Bridge HTTP 状态、日志、缓存或诊断。
+
+运行时载荷清单改由原生 Swift/CryptoKit 生成与验证。Release App 额外携带项目
+MIT、NOTICE、字体及固件链接组件/工具链许可证清单。RC 版本统一为 `0.2.0
+(10)`，最低 macOS 15.0，目标为 thin arm64。隔离放行不得启动候选 App 或
+Helper；只允许编译、hostless 测试、签名/架构/最低系统/清单/禁用面检查、DMG
+校验与只读挂载检查。
+
+全新环境首次安装及故障回退仍因缺少第二台干净 Mac 或外置干净启动环境而未
+执行，既不得记为失败，也不得记为通过。Git commit、push、tag、GitHub
+Pre-release 创建和 DMG 上传全部停留在本地 RC 验收之后，必须另行授权。
+
+同日的最终隔离放行完整通过：App、Bridge、HUD 与 Paste 均为 `0.2.0 (10)`、
+thin arm64、最低 macOS 15.0，严格深度 ad-hoc 签名、原生运行时清单、25 份离线
+许可证/NOTICE、图标、禁止文件面和精确固件范围均通过。运行时载荷仅含三个
+原生 App 与 Swift/CryptoKit 清单，Python 载荷文件数为零。最终发布前回归为
+269 项 Swift（21 个套件）和 194 项 Python。GitHub Actions 已补入固定
+`macos-15` arm64 的 hostless Swift 作业；其本地等价门禁已从隔离源码快照通过，
+首次托管运行仍等待后续单独授权的 push。固件三镜像与清单同 M4-5K 已验收载荷
+逐字节一致，现固定保存于 `release/firmware/sticks3/0.2.0-m4.4a`，21 份审计
+许可文本保存于 `release/licenses/firmware`。构建门会校验清单同当前非秘密固件
+源码摘要一致并默认禁止重建，因此 tag 快照不再依赖被忽略的旧 App、ESP-IDF 或
+managed-components 目录，也未读取本机秘密头文件。
+
+最终 DMG 经校验并以只读、`nobrowse` 方式挂载复验；根目录仅有 App 与
+`/Applications` 链接，未运行镜像内程序，随后卸载且无残留挂载或隔离构建路径
+的 Launch Services 登记。产物为
+`.build/macos.noindex/RC1-FinalSnapshot/VibeStick-for-Mac-0.2.0-rc.1.dmg`，大小
+`3,546,767` 字节，SHA-256 为
+`6cd183a4c65cfc6eab632ff401fb67316d11e38e1b180dd65d1ea103f282599c`。M4-5K
+DMG 仍为 `3,137,499` 字节且 SHA-256 保持
+`960769a7c9b9ec42586c3ddb4c7b2ad9993a8cac047707da7531930fcf28c450`。
+
+隔离放行后又经本机更新授权完成真实安装闭环。最初的原生 Bridge 启动故障分
+别定位为旧 Keychain ACL 对直接 Security.framework 调用的拒绝，以及 macOS 15
+本地网络隐私对 Bonjour/NWListener 的等待。生产读取器改用固定 Apple
+`/usr/bin/security` 客户端并只保留稳定脱敏错误码；App 与 Bridge 增加非空本地
+网络用途、`_vibestick._tcp`，legacy LaunchAgent 增加主 App
+`AssociatedBundleIdentifiers`，安装验证窗口延长至 120 秒。使用者亲自完成
+Keychain 与本地网络系统提示；实际配置和固定 Keychain 账号仅用于正常启动，
+原始秘密未输出、未由探针保留，也未写入文档。
+
+随后又发现 App `/state` 刷新的 provider/session 观察会在串行 HTTP 队列上短暂
+阻塞 `/health`。新增独立串行普通路由队列，继续保持状态、录音和配置操作有序，
+同时让健康路由不等待慢观察；对应回归测试进入 269 项完整套件。最终
+`/Applications` 主 App 与安装 Bridge 均同候选逐字节一致，App、Bridge、HUD、
+Paste 全部为 `0.2.0 (10)`、thin arm64、最低 macOS 15.0、严格签名有效；Bridge
+与 HUD 正在运行，安装回执为 `installed / 0.2.0-rc.1-native`，Paste 身份和辅助
+功能授权保留。主 App 连续强制刷新 3 次期间，Bridge `/health` 40/40 成功。
+本机闭环没有读取日志、调用生产诊断适配器、访问 USB/设备或执行固件与 Git
+操作；全新环境首次安装/故障回退仍是未执行缺口。完整证据见
+`docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md`。
+
+最终候选重新替换本机 App 并通过 App 内事务重新安装
+`0.2.0-rc.1-native` 后，旧 App 与运行时均保留私有可回退副本，Bridge/HUD
+重新加载，Paste 构建身份与辅助功能授权保留。GUI 明确显示 `0.2.0 (10) · RC
+1`，首页连续刷新三次仍为全部就绪，高级设置仍未生成诊断预览且日志选项关闭，
+USB 卡仍为尚未检查；随后 40/40 并发健康探针通过。本轮没有生成或导出诊断包，
+没有打开 USB/设备路径，也没有执行任何 Git 写入或 GitHub 操作。

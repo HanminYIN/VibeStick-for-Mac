@@ -568,19 +568,64 @@ struct LegacyConfigurationSummary: Equatable, Sendable {
     )
 }
 
-struct KeychainSummary: Equatable, Sendable {
+struct LegacyKeychainSummary: Equatable, Sendable {
     let bridgeTokenStored: Bool
     let asrKeyStored: Bool
 
-    static let empty = KeychainSummary(
+    static let empty = LegacyKeychainSummary(
         bridgeTokenStored: false,
         asrKeyStored: false
     )
 }
 
+enum M4ManagedRuntimeConfigurationState: Equatable, Sendable {
+    case notConfigured
+    case validated
+    case invalid
+    case unavailable
+}
+
+enum M4ManagedCredentialState: Equatable, Sendable {
+    case notReferenced
+    case stored
+    case missing
+    case unavailable
+}
+
+struct M4ManagedRuntimeSummary: Equatable, Sendable {
+    let configurationState: M4ManagedRuntimeConfigurationState
+    let bridgeCredentialState: M4ManagedCredentialState
+    let asrCredentialState: M4ManagedCredentialState
+
+    static let empty = M4ManagedRuntimeSummary(
+        configurationState: .notConfigured,
+        bridgeCredentialState: .notReferenced,
+        asrCredentialState: .notReferenced
+    )
+
+    var hasStoredReferencedCredentials: Bool {
+        let states = [bridgeCredentialState, asrCredentialState]
+            .filter { $0 != .notReferenced }
+        return !states.isEmpty && states.allSatisfy { $0 == .stored }
+    }
+
+    var requiresAttention: Bool {
+        switch configurationState {
+        case .invalid, .unavailable:
+            return true
+        case .notConfigured:
+            return false
+        case .validated:
+            return [bridgeCredentialState, asrCredentialState].contains {
+                $0 == .missing || $0 == .unavailable
+            }
+        }
+    }
+}
+
 struct ConfigurationInspection: Equatable, Sendable {
     let legacy: LegacyConfigurationSummary
-    let keychain: KeychainSummary
+    let legacyKeychain: LegacyKeychainSummary
     let voice: VoiceInteractionSummary
 }
 

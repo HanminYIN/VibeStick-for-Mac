@@ -15,12 +15,20 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>0.1.4</string>
+	<string>0.2.0</string>
     <key>CFBundleVersion</key>
-    <string>1</string>
+	<string>10</string>
     <key>LSBackgroundOnly</key>
     <true/>
-    <key>LSMinimumSystemVersion</key>
-    <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>LSMinimumSystemVersion</key>
+	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>VibeStick uses the Mac microphone only while you hold the configured voice button.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>VibeStick connects this Mac to your StickS3 on the local network and advertises the Bridge for device discovery.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_vibestick._tcp</string>
+	</array>
 </dict>
 </plist>

@@ -507,19 +507,19 @@ struct VoiceAndSendView: View {
                         TextField("语言（可选，例如 zh）", text: languageBinding)
                             .textFieldStyle(.roundedBorder)
                         SecureField(
-                            model.keychainSummary.asrKeyStored ? "输入新 Key 可替换钥匙串中的现有 Key" : "API Key",
+                            model.legacyKeychainSummary.asrKeyStored ? "输入新 Key 可替换钥匙串中的现有 Key" : "API Key",
                             text: $apiKey
                         )
                         .textFieldStyle(.roundedBorder)
 
                         HStack {
                             Label(
-                                model.keychainSummary.asrKeyStored ? "钥匙串中已有语音 Key" : "钥匙串中尚无语音 Key",
-                                systemImage: model.keychainSummary.asrKeyStored ? "checkmark.shield.fill" : "key.slash"
+                                model.legacyKeychainSummary.asrKeyStored ? "钥匙串中已有语音 Key" : "钥匙串中尚无语音 Key",
+                                systemImage: model.legacyKeychainSummary.asrKeyStored ? "checkmark.shield.fill" : "key.slash"
                             )
-                            .foregroundStyle(model.keychainSummary.asrKeyStored ? .green : .secondary)
+                            .foregroundStyle(model.legacyKeychainSummary.asrKeyStored ? .green : .secondary)
                             Spacer()
-                            if model.keychainSummary.asrKeyStored {
+                            if model.legacyKeychainSummary.asrKeyStored {
                                 Button("移除 Key", role: .destructive) {
                                     model.deleteASRAPIKey()
                                 }
@@ -1407,36 +1407,69 @@ struct AdvancedSettingsView: View {
             VStack(alignment: .leading, spacing: 22) {
                 pageHeader(
                     title: "高级设置",
-                    subtitle: "M1 建立安全存储和诊断基础，不迁移现有密钥。",
+                    subtitle: "分别显示旧版兼容状态与迁移后的受管状态，所有内容保持脱敏。",
                     milestone: nil
                 )
 
                 StatusCard(
                     title: "配置与密钥",
-                    subtitle: "旧配置继续生效，控制中心只显示摘要",
+                    subtitle: "旧版账户与版本化受管凭据分开显示",
                     systemImage: "key.fill",
-                    tone: model.configurationSummary.legacyFileIsOverexposed ? .warning : .neutral
+                    tone: configurationCardTone
                 ) {
+                    Text("旧版兼容状态")
+                        .font(.subheadline.weight(.semibold))
                     configurationSummaryRow(
-                        "现有配置文件",
+                        "旧版配置文件",
                         value: model.configurationSummary.legacyFileExists ? "已找到" : "未找到",
                         tone: model.configurationSummary.legacyFileExists ? .healthy : .inactive
                     )
                     configurationSummaryRow(
-                        "现有配置包含密钥",
+                        "旧版配置包含密钥",
                         value: model.configurationSummary.containsLegacySecrets ? "是（内容已隐藏）" : "否",
                         tone: model.configurationSummary.containsLegacySecrets ? .neutral : .inactive
                     )
                     configurationSummaryRow(
-                        "新钥匙串中的 Bridge Token",
-                        value: model.keychainSummary.bridgeTokenStored ? "已保存" : "尚未迁移",
-                        tone: model.keychainSummary.bridgeTokenStored ? .healthy : .warning
+                        "旧版 Bridge Token",
+                        value: model.legacyKeychainSummary.bridgeTokenStored ? "已保存（保留）" : "未找到",
+                        tone: model.legacyKeychainSummary.bridgeTokenStored ? .neutral : .inactive
                     )
                     configurationSummaryRow(
-                        "新钥匙串中的语音 Key",
-                        value: model.keychainSummary.asrKeyStored ? "已保存" : "尚未迁移",
-                        tone: model.keychainSummary.asrKeyStored ? .healthy : .warning
+                        "旧版语音 Key",
+                        value: model.legacyKeychainSummary.asrKeyStored ? "已保存（保留）" : "未找到",
+                        tone: model.legacyKeychainSummary.asrKeyStored ? .neutral : .inactive
                     )
+
+                    Divider()
+
+                    Text("迁移后受管状态")
+                        .font(.subheadline.weight(.semibold))
+                    configurationSummaryRow(
+                        "受管运行时配置",
+                        value: managedConfigurationPresentation.value,
+                        tone: managedConfigurationPresentation.tone
+                    )
+                    configurationSummaryRow(
+                        "受管 Bridge 凭据",
+                        value: managedCredentialPresentation(
+                            model.managedRuntimeSummary.bridgeCredentialState
+                        ).value,
+                        tone: managedCredentialPresentation(
+                            model.managedRuntimeSummary.bridgeCredentialState
+                        ).tone
+                    )
+                    configurationSummaryRow(
+                        "受管语音凭据",
+                        value: managedCredentialPresentation(
+                            model.managedRuntimeSummary.asrCredentialState
+                        ).value,
+                        tone: managedCredentialPresentation(
+                            model.managedRuntimeSummary.asrCredentialState
+                        ).tone
+                    )
+                    Text("这里只验证受管配置引用与对应凭据是否存在，不显示账户名、参数、路径或密钥内容。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
 
                     if model.configurationSummary.legacyFileIsOverexposed {
                         Label("现有 .env 的读取权限较宽。M1 仅提示，不会自动修改。", systemImage: "exclamationmark.triangle.fill")
@@ -1452,13 +1485,17 @@ struct AdvancedSettingsView: View {
                         .foregroundStyle(.secondary)
                 }
 
+                LegacyMigrationCard(flow: model.legacyMigrationFlow)
+
+                DiagnosticExportCard(flow: model.diagnosticFlow)
+
                 StatusCard(
                     title: "关于这个开发版",
                     subtitle: "VibeStick for Mac \(model.appVersion)",
                     systemImage: "hammer.fill",
                     tone: .inactive
                 ) {
-                    Text("这是 M4-3 本地开发版：保留已验收的 Codex Focus、语音发送和原生 ASR 配置，并增加固定版本烧录工具的按需安全下载。当前稳定安装的 Bridge、HUD、Paste、主 App 与真机固件都不会被自动替换。")
+                    Text("这是 VibeStick for Mac 0.2.0 RC 1：Bridge 已迁移为原生 Swift，保留 Codex Focus、语音发送、显式迁移与受管运行时。诊断预览只在主动点击后生成，诊断包只写入用户选择的本地文件夹，不包含原始日志，也不会自动上传。安装后台组件或操作设备仍需逐项确认。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -1467,6 +1504,38 @@ struct AdvancedSettingsView: View {
             .frame(maxWidth: 920, alignment: .leading)
         }
         .navigationTitle("高级设置")
+    }
+
+    private var configurationCardTone: HealthTone {
+        if model.configurationSummary.legacyFileIsOverexposed
+            || model.managedRuntimeSummary.requiresAttention {
+            return .warning
+        }
+        if model.managedRuntimeSummary.configurationState == .validated,
+           model.managedRuntimeSummary.hasStoredReferencedCredentials {
+            return .healthy
+        }
+        return .neutral
+    }
+
+    private var managedConfigurationPresentation: (value: String, tone: HealthTone) {
+        switch model.managedRuntimeSummary.configurationState {
+        case .notConfigured: ("尚未建立", .inactive)
+        case .validated: ("已验证", .healthy)
+        case .invalid: ("需要检查", .warning)
+        case .unavailable: ("暂无法确认", .warning)
+        }
+    }
+
+    private func managedCredentialPresentation(
+        _ state: M4ManagedCredentialState
+    ) -> (value: String, tone: HealthTone) {
+        switch state {
+        case .notReferenced: ("未由受管配置引用", .inactive)
+        case .stored: ("已保存", .healthy)
+        case .missing: ("已引用，但未找到", .warning)
+        case .unavailable: ("暂无法确认", .warning)
+        }
     }
 
     private func configurationSummaryRow(
@@ -1484,6 +1553,463 @@ struct AdvancedSettingsView: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct DiagnosticExportCard: View {
+    @ObservedObject var flow: M4DiagnosticUIFlow
+
+    var body: some View {
+        StatusCard(
+            title: "导出脱敏诊断包",
+            subtitle: "启动时不会生成预览；本地导出需要选择目录并再次确认",
+            systemImage: "doc.badge.gearshape.fill",
+            tone: tone
+        ) {
+            content
+        }
+        .alert(
+            "确认导出脱敏诊断包？",
+            isPresented: Binding(
+                get: { flow.isAwaitingFinalConfirmation },
+                set: { _ in }
+            )
+        ) {
+            Button("导出到已选择的文件夹") {
+                Task { await flow.confirmExport() }
+            }
+            Button("取消", role: .cancel) {
+                flow.cancelFinalConfirmation()
+            }
+        } message: {
+            if let summary = flow.finalConfirmationSummary {
+                Text(summary.redactedMessage)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch flow.state {
+        case .idle:
+            Text("只有点击下方按钮后才读取固定结构化摘要；可选日志只读取 Bridge/HUD 的有限尾部，并在进入预览前逐行脱敏。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Toggle(
+                "包含经过逐行脱敏的 Bridge/HUD 日志摘录",
+                isOn: Binding(
+                    get: { flow.includesRedactedLogs },
+                    set: { flow.setIncludesRedactedLogs($0) }
+                )
+            )
+            Text("不会包含原始日志、配置、钥匙串、录音、设备登记、事务文件、固件备份或完整本地路径。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("生成脱敏预览") {
+                Task { await flow.preparePreview() }
+            }
+            .buttonStyle(.borderedProminent)
+
+        case .preparing:
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("正在生成脱敏预览…")
+                    .font(.subheadline.weight(.semibold))
+            }
+            Text("尚未选择保存目录，也不会在此阶段写出诊断包。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+        case let .reviewing(review):
+            previewContent(review)
+            Button(review.destinationSelected ? "重新选择本地文件夹…" : "选择本地文件夹…") {
+                Task { await flow.selectDestination() }
+            }
+            if review.destinationSelected {
+                Label("已选择本地文件夹（路径保持隐藏）", systemImage: "folder.badge.checkmark")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.green)
+            }
+            Button("复核并准备导出…") {
+                _ = flow.requestFinalConfirmation()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(!review.destinationSelected)
+            Button("清除本次预览") {
+                flow.reset()
+            }
+            .buttonStyle(.borderless)
+
+        case let .awaitingFinalConfirmation(review):
+            previewContent(review)
+            Label("等待最终确认；尚未写入文件", systemImage: "checkmark.shield.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+
+        case let .exporting(preview):
+            previewContent(
+                M4DiagnosticUIReview(preview: preview, destinationSelected: true)
+            )
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("正在创建并验证私有本地诊断包…")
+                    .font(.subheadline.weight(.semibold))
+            }
+            Text("不会上传，也不会控制 Bridge、HUD 或 Paste。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+        case let .completed(receipt):
+            Label("脱敏诊断包已保存", systemImage: "checkmark.seal.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.green)
+            diagnosticRow("文件夹名称", value: receipt.bundleName)
+            diagnosticRow("包内文件", value: "\(receipt.entryCount) 项")
+            diagnosticRow("私有权限", value: receipt.privatePermissionsValidated ? "已验证" : "未确认")
+            diagnosticRow("原始日志", value: receipt.includesRawLogs ? "包含" : "不包含")
+            diagnosticRow("自动上传", value: receipt.uploaded ? "是" : "否")
+            Button("返回诊断预览") {
+                flow.reset()
+            }
+
+        case let .failed(failure):
+            Label(
+                failure == .previewFailed ? "无法生成脱敏预览" : "诊断包未导出",
+                systemImage: "exclamationmark.shield.fill"
+            )
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.orange)
+            Text("操作已安全停止；这里不会显示底层路径、日志原文或错误详情。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("返回并重试") {
+                flow.reset()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func previewContent(_ review: M4DiagnosticUIReview) -> some View {
+        diagnosticRow("固定 schema", value: "\(review.preview.schemaVersion)")
+        diagnosticRow("预览条目", value: "\(review.preview.entries.count) 项")
+        diagnosticRow("预计内容", value: "\(review.preview.totalByteCount) 字节")
+        diagnosticRow(
+            "脱敏日志摘录",
+            value: review.preview.includesRedactedLogExcerpts ? "包含" : "不包含"
+        )
+        diagnosticRow("原始日志", value: review.preview.includesRawLogs ? "包含" : "不包含")
+        diagnosticRow("自动上传", value: review.preview.uploadsAutomatically ? "是" : "否")
+
+        Divider()
+
+        Text("预览清单")
+            .font(.subheadline.weight(.semibold))
+        ForEach(review.preview.entries, id: \.relativePath) { entry in
+            VStack(alignment: .leading, spacing: 2) {
+                Text(entry.relativePath)
+                    .font(.caption.monospaced().weight(.semibold))
+                Text("\(sourceTitle(entry.source)) · \(entry.byteCount) 字节")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        Text("清单只显示诊断包内的固定相对路径，不显示来源文件或本机保存路径。")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+    }
+
+    private var tone: HealthTone {
+        switch flow.state {
+        case .idle: .inactive
+        case .preparing, .reviewing, .exporting: .neutral
+        case .awaitingFinalConfirmation, .failed: .warning
+        case .completed: .healthy
+        }
+    }
+
+    private func diagnosticRow(_ title: String, value: String) -> some View {
+        LabeledContent(title) {
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+        }
+        .font(.subheadline)
+    }
+
+    private func sourceTitle(_ source: M4DiagnosticSourceKind) -> String {
+        switch source {
+        case .appMetadata: "App 元数据"
+        case .operatingSystemMetadata: "系统元数据"
+        case .componentHealth: "组件健康摘要"
+        case .signatureStatus: "签名摘要"
+        case .launchAgentStatus: "后台状态摘要"
+        case .bridgeHealth: "Bridge 健康摘要"
+        case .migrationReceiptSummary: "迁移回执摘要"
+        case .runtimeInstallReceiptSummary: "运行时回执摘要"
+        case .redactedLogExcerpt: "逐行脱敏日志摘录"
+        case .rawEnvironment, .rawPreferences, .rawDeviceRegistry, .rawRecording,
+             .rawLog, .keychainValue, .firmwareBackup, .firmwareTransaction:
+            "禁止来源"
+        }
+    }
+}
+
+private struct LegacyMigrationCard: View {
+    @ObservedObject var flow: M4LegacyMigrationUIFlow
+
+    var body: some View {
+        StatusCard(
+            title: "迁移旧版设置",
+            subtitle: "启动时不会检查；只有点击后才进行受限发现",
+            systemImage: "arrow.triangle.2.circlepath.circle.fill",
+            tone: tone
+        ) {
+            content
+        }
+        .alert(
+            "确认执行配置迁移？",
+            isPresented: Binding(
+                get: { flow.isAwaitingFinalConfirmation },
+                set: { _ in }
+            )
+        ) {
+            Button("执行配置迁移", role: .destructive) {
+                Task { await flow.executeMigration() }
+            }
+            Button("取消", role: .cancel) {
+                flow.cancelFinalConfirmation()
+            }
+        } message: {
+            if let summary = flow.finalConfirmationSummary {
+                Text(summary.redactedMessage)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        switch flow.state {
+        case .idle:
+            Text("这里不会随 App 启动自动发现，也不会在后台读取旧配置或钥匙串。需要迁移时，请主动开始一次脱敏检查。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button("检查可迁移的旧版设置") {
+                Task { await flow.startDiscovery() }
+            }
+            .buttonStyle(.borderedProminent)
+
+        case .discovering:
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("正在生成脱敏摘要…")
+                    .font(.subheadline.weight(.semibold))
+            }
+            Text("摘要只包含设置类别、阻断原因和权限状态，不显示路径或密钥内容。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+        case let .reviewing(review, selection):
+            reviewContent(review: review, selection: selection, canEdit: true)
+
+        case let .awaitingFinalConfirmation(review, selection):
+            reviewContent(review: review, selection: selection, canEdit: false)
+            Label("等待最终确认", systemImage: "checkmark.shield.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.orange)
+
+        case .migrating:
+            HStack(spacing: 10) {
+                ProgressView()
+                    .controlSize(.small)
+                Text("正在二次预检并执行配置迁移…")
+                    .font(.subheadline.weight(.semibold))
+            }
+            Text("运行时激活不属于本步骤，不会启动或重启后台组件。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+        case let .completed(receipt):
+            Label("配置迁移已完成", systemImage: "checkmark.seal.fill")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.green)
+            migrationResultRow("已迁移类别", value: "\(receipt.categories.count) 项")
+            migrationResultRow("旧版回退资料", value: receipt.legacyFallbackRetained ? "已保留" : "未确认")
+            migrationResultRow("旧版项目删除", value: receipt.legacyItemsDeleted ? "是" : "否")
+            migrationResultRow("后台组件重启", value: receipt.runtimeRestarted ? "是" : "否")
+            migrationResultRow(
+                "运行时激活",
+                value: receipt.runtimeActivationRequired ? "需要另行授权" : "不需要"
+            )
+            Button("返回迁移检查") {
+                flow.reset()
+            }
+
+        case let .failed(failure):
+            Label(
+                failure == .discoveryFailed ? "无法完成脱敏检查" : "配置迁移未完成",
+                systemImage: "exclamationmark.shield.fill"
+            )
+            .font(.subheadline.weight(.semibold))
+            .foregroundStyle(.orange)
+            Text(failureDetail(failure))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Button("返回并重试") {
+                flow.reset()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func reviewContent(
+        review: M4LegacyMigrationUIReview,
+        selection: M4LegacyMigrationUISelection,
+        canEdit: Bool
+    ) -> some View {
+        migrationResultRow(
+            "旧版配置文件",
+            value: review.legacyFileExists ? "已发现（内容隐藏）" : "未发现"
+        )
+        if review.legacyFileExists {
+            migrationResultRow(
+                "旧版文件权限",
+                value: review.legacyFilePermissionsArePrivate ? "仅当前用户" : "范围较宽"
+            )
+        }
+
+        if !review.asrConfigurationSources.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("ASR 配置来源冲突")
+                    .font(.subheadline.weight(.semibold))
+                Text("当前 App 与旧 .env 都有设置，但内容不一致。这里只显示来源名称；请选择迁移时采用哪一份。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(review.asrConfigurationSources, id: \.rawValue) { source in
+                    Button {
+                        flow.setASRConfigurationSource(source)
+                    } label: {
+                        Label(
+                            M4LegacyMigrationUICopy.asrConfigurationSourceTitle(source),
+                            systemImage: selection.asrConfigurationSource == source
+                                ? "checkmark.circle.fill"
+                                : "circle"
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canEdit)
+                }
+                Text("不会显示供应方参数、端点、模型、本地命令或密钥内容。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+
+            Divider()
+        }
+
+        if !review.blockers.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("当前不能迁移")
+                    .font(.subheadline.weight(.semibold))
+                ForEach(review.blockers, id: \.rawValue) { blocker in
+                    Label(blockerTitle(blocker), systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                }
+            }
+        } else if review.categories.isEmpty {
+            Text("没有发现需要迁移的旧版设置。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("逐项确认要迁移的类别")
+                    .font(.subheadline.weight(.semibold))
+                ForEach(review.categories, id: \.rawValue) { category in
+                    Toggle(
+                        M4LegacyMigrationUICopy.categoryTitle(category),
+                        isOn: Binding(
+                            get: { selection.categories.contains(category) },
+                            set: { flow.setCategory(category, selected: $0) }
+                        )
+                    )
+                    .disabled(!canEdit)
+                }
+            }
+
+            Divider()
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("逐项确认受管写入目标")
+                    .font(.subheadline.weight(.semibold))
+                ForEach(review.requiredTargets, id: \.rawValue) { target in
+                    Toggle(
+                        M4LegacyMigrationUICopy.ownedTargetTitle(target),
+                        isOn: Binding(
+                            get: { selection.ownedTargets.contains(target) },
+                            set: { flow.setOwnedTarget(target, selected: $0) }
+                        )
+                    )
+                    .disabled(!canEdit)
+                }
+            }
+
+            Label("旧版文件与旧钥匙串项目会保留", systemImage: "archivebox.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Label("本步骤不启动、不重启后台组件", systemImage: "pause.circle.fill")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if canEdit {
+                Button("复核并准备迁移…") {
+                    _ = flow.requestFinalConfirmation()
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!selection.exactlyConfirms(review))
+            }
+        }
+
+        if canEdit {
+            Button("清除本次检查结果") {
+                flow.reset()
+            }
+            .buttonStyle(.borderless)
+        }
+    }
+
+    private var tone: HealthTone {
+        switch flow.state {
+        case .idle: .inactive
+        case .discovering, .reviewing, .migrating: .neutral
+        case .awaitingFinalConfirmation, .failed: .warning
+        case .completed: .healthy
+        }
+    }
+
+    private func migrationResultRow(_ title: String, value: String) -> some View {
+        LabeledContent(title) {
+            Text(value)
+                .font(.subheadline.weight(.semibold))
+        }
+        .font(.subheadline)
+    }
+
+    private func blockerTitle(_ blocker: M4LegacyMigrationBlocker) -> String {
+        switch blocker {
+        case .unknownRuntimeOwner: "后台组件归属无法安全确认"
+        case .activeVoiceWork: "仍有语音录制、识别或待发送工作"
+        }
+    }
+
+    private func failureDetail(_ failure: M4LegacyMigrationUIFailure) -> String {
+        switch failure {
+        case .discoveryFailed:
+            "未显示底层路径或错误详情。请先保持现有服务不变，再返回重试。"
+        case .migrationFailed:
+            "事务已安全停止；未显示底层路径或密钥信息。请保留旧版资料并重新检查。"
+        }
     }
 }
 

@@ -5,6 +5,165 @@ import Testing
 
 struct VibeStickAppTests {
     @Test
+    func automaticRefreshNeverEnumeratesUSB() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("VibeStickApp/App/AppModel.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        let refreshStart = try #require(text.range(of: "    func refresh(forcePermissionCheck:"))
+        let refreshEnd = try #require(
+            text.range(of: "    func refreshManagedRuntimeStatus", range: refreshStart.upperBound..<text.endIndex)
+        )
+        let automaticRefresh = text[refreshStart.lowerBound..<refreshEnd.lowerBound]
+        let explicitStart = try #require(text.range(of: "    func detectUSBDevice()"))
+        let explicitEnd = try #require(
+            text.range(of: "    @discardableResult", range: explicitStart.upperBound..<text.endIndex)
+        )
+        let explicitDetection = text[explicitStart.lowerBound..<explicitEnd.lowerBound]
+
+        #expect(!automaticRefresh.contains("usbDeviceDetector"))
+        #expect(explicitDetection.contains("usbDeviceDetector.detect()"))
+    }
+
+    @Test
+    func appModelRoutesASRStartupAndSaveThroughManagedSettingsBoundary() throws {
+        let source = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("VibeStickApp/App/AppModel.swift")
+        let text = try String(contentsOf: source, encoding: .utf8)
+        let start = try #require(text.range(of: "    func start()"))
+        let startEnd = try #require(
+            text.range(of: "    func requestRefresh", range: start.upperBound..<text.endIndex)
+        )
+        let save = try #require(text.range(of: "    func saveASRConfiguration"))
+        let saveEnd = try #require(
+            text.range(of: "    func deleteASRAPIKey", range: save.upperBound..<text.endIndex)
+        )
+
+        #expect(text[start.lowerBound..<startEnd.lowerBound]
+            .contains("managedASRSettingsStore.loadConfigurationIfManaged()"))
+        #expect(text[save.lowerBound..<saveEnd.lowerBound]
+            .contains("managedASRSettingsStore.saveIfManaged"))
+    }
+
+    @Test
+    func runtimeInstallerAllowsTimeForLocalNetworkPermissionHandoff() {
+        let verificationMilliseconds =
+            RuntimeLaunchAgentInstallController.serviceVerificationAttempts
+            * RuntimeLaunchAgentInstallController.serviceVerificationIntervalMilliseconds
+        #expect(verificationMilliseconds >= 120_000)
+    }
+
+    @Test
+    func freshRuntimeBootstrapCreatesPrivateManagedBridgeCredentialAndRollsBackOwnedState() async throws {
+        let root = temporaryTestDirectory("FreshRuntimeBootstrap")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let supportDirectory = root.appendingPathComponent("Support", isDirectory: true)
+        let vault = FictionalRuntimeBootstrapCredentialVault()
+        let fictionalToken = Data("fixture-bridge-token-with-32-bytes-minimum".utf8)
+        let bootstrapper = RuntimeFreshInstallConfigurationBootstrapper(
+            supportDirectory: supportDirectory,
+            credentialVault: vault,
+            tokenGenerator: { fictionalToken }
+        )
+
+        let receipt = try await bootstrapper.prepareIfNeeded()
+        let configurationURL = supportDirectory.appendingPathComponent("managed-runtime-v1.json")
+        let configurationData = try Data(contentsOf: configurationURL)
+        let configuration = try JSONDecoder().decode(
+            M4ManagedRuntimeConfiguration.self,
+            from: configurationData
+        ).validated()
+        let bridgeReference = M4VersionedCredentialReference.managed(.bridgeToken)
+        let permissions = try #require(
+            try FileManager.default.attributesOfItem(atPath: configurationURL.path)[.posixPermissions]
+                as? NSNumber
+        ).intValue & 0o777
+
+        #expect(receipt.createdManagedConfiguration)
+        #expect(receipt.createdBridgeCredential)
+        #expect(configuration.credentialReferences == [bridgeReference])
+        #expect(configuration.agentProvider == "auto")
+        #expect(configuration.voiceDelivery?.sendMode == "paste_only")
+        #expect(!configurationData.contains(fictionalToken))
+        #expect(permissions == 0o600)
+        #expect(await vault.read(bridgeReference) == fictionalToken)
+
+        try await bootstrapper.rollback(receipt)
+
+        #expect(!FileManager.default.fileExists(atPath: configurationURL.path))
+        #expect(await vault.read(bridgeReference) == nil)
+        #expect(await vault.legacyAccountsRemainUntouched())
+    }
+
+    @Test
+    func managedASRSettingsSaveUpdatesOnlyManagedDocumentAndFixedCredential() async throws {
+        let root = temporaryTestDirectory("ManagedASRSettings")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let configurationURL = root.appendingPathComponent("managed-runtime-v1.json")
+        let bridgeReference = M4VersionedCredentialReference.managed(.bridgeToken)
+        let asrReference = M4VersionedCredentialReference.managed(.asrAPIKey)
+        let original = try M4ManagedRuntimeConfiguration(
+            schemaVersion: M4ManagedRuntimeConfiguration.currentSchemaVersion,
+            credentialReferences: [bridgeReference],
+            asr: nil,
+            agentProvider: "auto",
+            projectPresentation: nil,
+            voiceDelivery: M4ManagedVoiceDelivery(sendMode: "paste_only"),
+            soundEnabled: nil
+        ).validated()
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try JSONEncoder().encode(original).write(to: configurationURL)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: configurationURL.path
+        )
+        let client = FictionalManagedASRGenericPasswordClient(items: [
+            bridgeReference: Data("fixture-bridge-secret".utf8),
+        ])
+        let store = M4ManagedASRSettingsStore(
+            configurationURL: configurationURL,
+            credentialClient: client
+        )
+        let fictionalASRKey = "fixture-managed-asr-secret"
+        let requested = try ASRConfiguration.preset(.groq).validated()
+
+        #expect(try await store.saveIfManaged(requested, apiKey: fictionalASRKey))
+
+        let savedData = try Data(contentsOf: configurationURL)
+        let saved = try JSONDecoder().decode(
+            M4ManagedRuntimeConfiguration.self,
+            from: savedData
+        ).validated()
+        let permissions = try #require(
+            try FileManager.default.attributesOfItem(atPath: configurationURL.path)[.posixPermissions]
+                as? NSNumber
+        ).intValue & 0o777
+        #expect(saved.asr?.provider == "groq")
+        #expect(saved.asr?.model == requested.model)
+        #expect(saved.credentialReferences == [bridgeReference, asrReference])
+        #expect(!savedData.contains(Data(fictionalASRKey.utf8)))
+        #expect(permissions == 0o600)
+        #expect(await client.value(for: bridgeReference) == Data("fixture-bridge-secret".utf8))
+        #expect(await client.value(for: asrReference) == Data(fictionalASRKey.utf8))
+        #expect(try await store.loadConfigurationIfManaged() == requested)
+
+        let lookup = try await store.storedAPIKeyIfManaged()
+        #expect(lookup.isManaged)
+        #expect(lookup.apiKey == fictionalASRKey)
+        #expect(try await store.deleteAPIKeyIfManaged())
+        #expect(await client.value(for: asrReference) == nil)
+
+        await client.resetReadReferences()
+        var local = ASRConfiguration.preset(.localCommand)
+        local.localCommand = "/usr/bin/fixture-transcriber"
+        #expect(try await store.saveIfManaged(local, apiKey: ""))
+        #expect(await client.readReferences.isEmpty)
+    }
+
+    @Test
     func decodesCurrentBridgePayload() throws {
         let data = Data(
             """
@@ -683,14 +842,153 @@ struct VibeStickAppTests {
         #expect(result.legacy.voiceSendMode == .confirm)
         #expect(result.legacy.containsLegacySecrets)
         #expect(result.legacy.legacyFileIsOverexposed)
-        #expect(result.keychain.bridgeTokenStored)
-        #expect(!result.keychain.asrKeyStored)
+        #expect(result.legacyKeychain.bridgeTokenStored)
+        #expect(!result.legacyKeychain.asrKeyStored)
         #expect(result.voice.status == "send_failed")
         #expect(result.voice.pasted)
         #expect(result.voice.interactionVersion == 2)
         #expect(result.voice.sendMode == .confirm)
         #expect(result.voice.title == "安全停止：未发送")
         #expect(result.voice.detail.contains("没有按 Return"))
+    }
+
+    @Test
+    func managedRuntimeStatusDoesNotQueryKeychainWithoutAConfiguration() async {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeStick-M4-5H-Absent-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let checker = MockManagedCredentialPresenceChecker(present: [])
+        let inspector = M4ManagedRuntimeStatusInspector(
+            configurationReader: M4FoundationManagedRuntimeConfigurationReader(
+                fileURL: directory.appendingPathComponent("fictional-managed-runtime.json")
+            ),
+            credentialPresenceChecker: checker
+        )
+
+        let result = await inspector.inspect()
+
+        #expect(result == .empty)
+        #expect(await checker.checkedReferences.isEmpty)
+    }
+
+    @Test
+    func managedRuntimeStatusValidatesReferencesAndQueriesOnlyPresence() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeStick-M4-5H-Stored-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("fictional-managed-runtime.json")
+        let configuration = m4HManagedRuntimeConfigurationFixture()
+        try JSONEncoder().encode(configuration).write(to: file)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: file.path
+        )
+        let expectedReferences = Set(configuration.credentialReferences)
+        let checker = MockManagedCredentialPresenceChecker(present: expectedReferences)
+        let inspector = M4ManagedRuntimeStatusInspector(
+            configurationReader: M4FoundationManagedRuntimeConfigurationReader(fileURL: file),
+            credentialPresenceChecker: checker
+        )
+
+        let result = await inspector.inspect()
+
+        #expect(result.configurationState == .validated)
+        #expect(result.bridgeCredentialState == .stored)
+        #expect(result.asrCredentialState == .stored)
+        #expect(result.hasStoredReferencedCredentials)
+        #expect(!result.requiresAttention)
+        let checkedReferences = await checker.checkedReferences
+        #expect(Set(checkedReferences) == expectedReferences)
+    }
+
+    @Test
+    func managedRuntimeStatusReportsAMissingReferencedCredentialWithoutReadingIt() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeStick-M4-5H-Missing-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("fictional-managed-runtime.json")
+        let configuration = m4HManagedRuntimeConfigurationFixture()
+        try JSONEncoder().encode(configuration).write(to: file)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: file.path
+        )
+        let checker = MockManagedCredentialPresenceChecker(
+            present: [.managed(.asrAPIKey)]
+        )
+        let inspector = M4ManagedRuntimeStatusInspector(
+            configurationReader: M4FoundationManagedRuntimeConfigurationReader(fileURL: file),
+            credentialPresenceChecker: checker
+        )
+
+        let result = await inspector.inspect()
+
+        #expect(result.configurationState == .validated)
+        #expect(result.bridgeCredentialState == .missing)
+        #expect(result.asrCredentialState == .stored)
+        #expect(!result.hasStoredReferencedCredentials)
+        #expect(result.requiresAttention)
+    }
+
+    @Test
+    func managedRuntimeStatusFailsClosedAndKeepsInvalidInputOutOfTheSummary() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeStick-M4-5H-Invalid-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("fictional-managed-runtime.json")
+        let privateValue = "fixture-private-value-must-not-escape"
+        let privatePath = "/fictional/private/location"
+        try Data(
+            "{\"schemaVersion\":99,\"private\":\"\(privateValue)\",\"path\":\"\(privatePath)\"}".utf8
+        ).write(to: file)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600],
+            ofItemAtPath: file.path
+        )
+        let checker = MockManagedCredentialPresenceChecker(present: [])
+        let inspector = M4ManagedRuntimeStatusInspector(
+            configurationReader: M4FoundationManagedRuntimeConfigurationReader(fileURL: file),
+            credentialPresenceChecker: checker
+        )
+
+        let result = await inspector.inspect()
+        let reflected = String(reflecting: result)
+
+        #expect(result.configurationState == .invalid)
+        #expect(result.bridgeCredentialState == .notReferenced)
+        #expect(result.asrCredentialState == .notReferenced)
+        #expect(await checker.checkedReferences.isEmpty)
+        #expect(!reflected.contains(privateValue))
+        #expect(!reflected.contains(privatePath))
+        #expect(!reflected.contains("bridge-token-v1"))
+        #expect(!reflected.contains("asr-api-key-v1"))
+    }
+
+    @Test
+    func managedRuntimeReaderRejectsAnOverexposedFictionalFileBeforeKeychainChecks() async throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VibeStick-M4-5H-Permissions-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("fictional-managed-runtime.json")
+        try JSONEncoder().encode(m4HManagedRuntimeConfigurationFixture()).write(to: file)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o644],
+            ofItemAtPath: file.path
+        )
+        let checker = MockManagedCredentialPresenceChecker(present: [])
+        let inspector = M4ManagedRuntimeStatusInspector(
+            configurationReader: M4FoundationManagedRuntimeConfigurationReader(fileURL: file),
+            credentialPresenceChecker: checker
+        )
+
+        let result = await inspector.inspect()
+
+        #expect(result.configurationState == .unavailable)
+        #expect(await checker.checkedReferences.isEmpty)
     }
 
     @Test
@@ -981,7 +1279,7 @@ struct VibeStickAppTests {
         try makeRuntimePayload(at: root)
         _ = try RuntimePayloadValidator.validate(root: root)
 
-        let main = root.appendingPathComponent("runtime/bridge/src/vibe_stick/__main__.py")
+        let main = root.appendingPathComponent("Components.noindex/VibeStick Bridge.app/Contents/MacOS/VibeStickBridge")
         try Data("tampered".utf8).write(to: main)
         #expect(throws: RuntimeInstallError.self) {
             try RuntimePayloadValidator.validate(root: root)
@@ -1000,14 +1298,14 @@ struct VibeStickAppTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try makeRuntimePayload(at: root)
         try FileManager.default.createSymbolicLink(
-            at: root.appendingPathComponent("runtime/link"),
-            withDestinationURL: root.appendingPathComponent("runtime/bridge")
+            at: root.appendingPathComponent("Components.noindex/link"),
+            withDestinationURL: root.appendingPathComponent("Components.noindex/VibeStick Bridge.app")
         )
         #expect(throws: RuntimeInstallError.self) {
             try RuntimePayloadValidator.validate(root: root)
         }
 
-        try FileManager.default.removeItem(at: root.appendingPathComponent("runtime/link"))
+        try FileManager.default.removeItem(at: root.appendingPathComponent("Components.noindex/link"))
         let manifestURL = root.appendingPathComponent(RuntimePayloadValidator.manifestName)
         var manifest = try JSONDecoder().decode(
             RuntimePayloadManifest.self,
@@ -1103,16 +1401,27 @@ struct VibeStickAppTests {
         let installer = RuntimeInstaller(
             layout: fixture.layout,
             payloadRoot: fixture.payload,
-            serviceController: controller
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
         )
 
         let receipt = try await installer.install()
 
-        #expect(try String(contentsOf: fixture.layout.runtimeDirectory.appendingPathComponent("bridge/version.txt"), encoding: .utf8) == "new-runtime")
+        #expect(!FileManager.default.fileExists(atPath: fixture.layout.runtimeDirectory.path))
         #expect(try String(contentsOf: fixture.layout.bridgeApp.appendingPathComponent("Contents/MacOS/VibeStickBridge"), encoding: .utf8) == "new-bridge")
         #expect(try String(contentsOf: fixture.privateConfiguration, encoding: .utf8) == "do-not-touch")
         #expect(try String(contentsOf: receipt.backupDirectory.appendingPathComponent("managed/support/runtime/bridge/version.txt"), encoding: .utf8) == "old-runtime")
         #expect(FileManager.default.fileExists(atPath: receipt.backupDirectory.appendingPathComponent("install-receipt-v1.json").path))
+        let bridgeAgentData = try Data(contentsOf: fixture.layout.bridgeLaunchAgent)
+        let bridgeAgentValue = try PropertyListSerialization.propertyList(
+            from: bridgeAgentData,
+            format: nil
+        )
+        let bridgeAgent = try #require(bridgeAgentValue as? [String: Any])
+        #expect(
+            bridgeAgent["AssociatedBundleIdentifiers"] as? [String]
+                == ["io.github.hanminyin.vibestick"]
+        )
         let events = await controller.recordedEvents()
         #expect(events == ["preflight", "validate", "paste", "revalidate", "stop", "start", "verify"])
     }
@@ -1125,7 +1434,8 @@ struct VibeStickAppTests {
         let installer = RuntimeInstaller(
             layout: fixture.layout,
             payloadRoot: fixture.payload,
-            serviceController: controller
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
         )
 
         do {
@@ -1159,7 +1469,8 @@ struct VibeStickAppTests {
         let installer = RuntimeInstaller(
             layout: fixture.layout,
             payloadRoot: fixture.payload,
-            serviceController: controller
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
         )
 
         let receipt = try await installer.install()
@@ -1167,6 +1478,35 @@ struct VibeStickAppTests {
         #expect(receipt.preservedPasteIdentity)
         #expect(try String(contentsOf: existingPaste, encoding: .utf8) == "old-paste")
         #expect(try String(contentsOf: receipt.backupDirectory.appendingPathComponent("managed/support/Components.noindex/VibeStick Paste.app/Contents/MacOS/VibeStickPaste"), encoding: .utf8) == "old-paste")
+    }
+
+    @Test
+    func runtimeInstallerBootstrapsBeforeStartAndRollsBackConfigurationAfterStartFailure() async throws {
+        let fixture = try makeRuntimeInstallFixture("BootstrapTransaction")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let trace = RuntimeInstallEventTrace()
+        let controller = MockRuntimeInstallController(preservePaste: false, trace: trace)
+        let bootstrapper = MockRuntimeConfigurationBootstrapper(trace: trace)
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: fixture.payload,
+            serviceController: controller,
+            configurationBootstrapper: bootstrapper
+        )
+
+        do {
+            _ = try await installer.install(fault: .afterStart)
+            Issue.record("Expected injected post-start failure")
+        } catch is RuntimeInstallError {
+            // Expected: the public outcome is the installer's fixed transaction failure.
+        }
+
+        #expect(
+            trace.events == [
+                "preflight", "validate", "paste", "revalidate", "stop",
+                "bootstrap", "start", "bootstrap-rollback", "stop", "restore",
+            ]
+        )
     }
 
     @Test
@@ -2343,9 +2683,6 @@ private func makeRuntimePayload(
         ("Components.noindex/VibeStick HUD.app/Contents/MacOS/VibeStickHUD", "new-hud", 0o755),
         ("Components.noindex/VibeStick Paste.app/Contents/MacOS/VibeStickPaste", "new-paste", 0o755),
         ("Components.noindex/VibeStick Paste.app/Contents/Resources/VibeStickPaste.build", "paste-build-1\n", 0o644),
-        ("runtime/bridge/pyproject.toml", "[project]\nrequires-python = \">=3.11\"\n", 0o644),
-        ("runtime/bridge/src/vibe_stick/__main__.py", "print('bridge')\n", 0o644),
-        ("runtime/bridge/version.txt", "new-runtime", 0o644),
     ]
     for (relativePath, contents, mode) in files {
         try writeTestFile(contents, to: root.appendingPathComponent(relativePath), mode: mode)
@@ -2450,19 +2787,34 @@ private func makeRuntimeInstallFixture(_ label: String) throws -> RuntimeInstall
     )
 }
 
+private final class RuntimeInstallEventTrace: @unchecked Sendable {
+    private let lock = NSLock()
+    private var recorded: [String] = []
+
+    var events: [String] {
+        lock.withLock { recorded }
+    }
+
+    func append(_ event: String) {
+        lock.withLock { recorded.append(event) }
+    }
+}
+
 private actor MockRuntimeInstallController: RuntimeInstallServiceControlling {
     private let preservePaste: Bool
+    private let trace: RuntimeInstallEventTrace?
     private var events: [String] = []
     private var restoredCheckpoint: RuntimeServiceCheckpoint?
 
-    init(preservePaste: Bool) {
+    init(preservePaste: Bool, trace: RuntimeInstallEventTrace? = nil) {
         self.preservePaste = preservePaste
+        self.trace = trace
     }
 
     func preflight() -> RuntimeInstallPreflight {
         events.append("preflight")
+        trace?.append("preflight")
         return RuntimeInstallPreflight(
-            pythonPath: "/usr/bin/python3",
             checkpoint: RuntimeServiceCheckpoint(
                 bridgeWasLoaded: true,
                 bridgeWasRunning: true,
@@ -2474,10 +2826,12 @@ private actor MockRuntimeInstallController: RuntimeInstallServiceControlling {
 
     func validateComponents(at componentsDirectory: URL) {
         events.append("validate")
+        trace?.append("validate")
     }
 
     func revalidateBeforeMutation() -> RuntimeServiceCheckpoint {
         events.append("revalidate")
+        trace?.append("revalidate")
         return RuntimeServiceCheckpoint(
             bridgeWasLoaded: true,
             bridgeWasRunning: true,
@@ -2488,23 +2842,28 @@ private actor MockRuntimeInstallController: RuntimeInstallServiceControlling {
 
     func canPreservePasteIdentity(existing: URL, candidate: URL) -> Bool {
         events.append("paste")
+        trace?.append("paste")
         return preservePaste
     }
 
     func stopManagedServices() {
         events.append("stop")
+        trace?.append("stop")
     }
 
     func startInstalledServices() {
         events.append("start")
+        trace?.append("start")
     }
 
     func verifyInstalledServices() {
         events.append("verify")
+        trace?.append("verify")
     }
 
     func restoreServiceState(_ checkpoint: RuntimeServiceCheckpoint) {
         events.append("restore")
+        trace?.append("restore")
         restoredCheckpoint = checkpoint
     }
 
@@ -2517,11 +2876,140 @@ private actor MockRuntimeInstallController: RuntimeInstallServiceControlling {
     }
 }
 
+private actor MockRuntimeConfigurationBootstrapper: RuntimeConfigurationBootstrapping {
+    private let trace: RuntimeInstallEventTrace?
+    private let receipt: RuntimeFreshInstallConfigurationBootstrapReceipt
+
+    init() {
+        self.trace = nil
+        self.receipt = .unchanged
+    }
+
+    init(trace: RuntimeInstallEventTrace) {
+        self.trace = trace
+        self.receipt = RuntimeFreshInstallConfigurationBootstrapReceipt(
+            createdManagedConfiguration: true,
+            createdBridgeCredential: true
+        )
+    }
+
+    func prepareIfNeeded() -> RuntimeFreshInstallConfigurationBootstrapReceipt {
+        trace?.append("bootstrap")
+        return receipt
+    }
+
+    func rollback(_ receipt: RuntimeFreshInstallConfigurationBootstrapReceipt) {
+        trace?.append("bootstrap-rollback")
+    }
+}
+
+private actor FictionalRuntimeBootstrapCredentialVault: M4OfflineCredentialVault {
+    private var items: [M4VersionedCredentialReference: Data] = [:]
+
+    func stage(_ secret: Data, for reference: M4VersionedCredentialReference) throws {
+        guard items[reference] == nil else {
+            throw M4ProductionMigrationAdapterError.managedCredentialAlreadyExists
+        }
+        items[reference] = secret
+    }
+
+    func read(_ reference: M4VersionedCredentialReference) -> Data? {
+        items[reference]
+    }
+
+    func contains(_ reference: M4VersionedCredentialReference) -> Bool {
+        items[reference] != nil
+    }
+
+    func discard(_ reference: M4VersionedCredentialReference) {
+        items.removeValue(forKey: reference)
+    }
+
+    func legacyAccountsRemainUntouched() -> Bool {
+        true
+    }
+}
+
+private actor FictionalManagedASRGenericPasswordClient: M4VersionedGenericPasswordAccess {
+    private var items: [M4VersionedCredentialReference: Data]
+    private(set) var readReferences: [M4VersionedCredentialReference] = []
+
+    init(items: [M4VersionedCredentialReference: Data]) {
+        self.items = items
+    }
+
+    func contains(_ reference: M4VersionedCredentialReference) -> Bool {
+        items[reference] != nil
+    }
+
+    func read(_ reference: M4VersionedCredentialReference) -> Data? {
+        readReferences.append(reference)
+        return items[reference]
+    }
+
+    func add(_ data: Data, for reference: M4VersionedCredentialReference) throws {
+        guard items[reference] == nil else {
+            throw M4ProductionMigrationAdapterError.managedCredentialAlreadyExists
+        }
+        items[reference] = data
+    }
+
+    func delete(_ reference: M4VersionedCredentialReference) {
+        items.removeValue(forKey: reference)
+    }
+
+    func value(for reference: M4VersionedCredentialReference) -> Data? {
+        items[reference]
+    }
+
+    func resetReadReferences() {
+        readReferences = []
+    }
+}
+
 private struct MockSecretStore: SecretStoring {
     let present: Set<KeychainSecret>
 
     func contains(_ key: KeychainSecret) -> Bool {
         present.contains(key)
+    }
+}
+
+private func m4HManagedRuntimeConfigurationFixture() -> M4ManagedRuntimeConfiguration {
+    M4ManagedRuntimeConfiguration(
+        schemaVersion: M4ManagedRuntimeConfiguration.currentSchemaVersion,
+        credentialReferences: [
+            .managed(.bridgeToken),
+            .managed(.asrAPIKey),
+        ],
+        asr: M4ManagedASRConfiguration(
+            provider: "openai-compatible",
+            baseURL: "https://fictional.invalid/v1/audio/transcriptions",
+            model: "fictional-m4-5h-model",
+            language: "zh",
+            localCommand: ""
+        ),
+        agentProvider: "auto",
+        projectPresentation: M4ManagedProjectPresentation(
+            projectName: "Fictional M4-5H Project",
+            showProjectName: true
+        ),
+        voiceDelivery: M4ManagedVoiceDelivery(sendMode: "confirm"),
+        soundEnabled: true
+    )
+}
+
+private actor MockManagedCredentialPresenceChecker: M4ManagedCredentialPresenceChecking {
+    private let present: Set<M4VersionedCredentialReference>
+    private(set) var checkedReferences: [M4VersionedCredentialReference] = []
+
+    init(present: Set<M4VersionedCredentialReference>) {
+        self.present = present
+    }
+
+    func contains(_ reference: M4VersionedCredentialReference) -> Bool {
+        checkedReferences.append(reference)
+        return present.contains(reference)
     }
 }
 

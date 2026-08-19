@@ -3,10 +3,13 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
-BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
+BUILD_ROOT="${VIBESTICK_BUILD_ROOT:-$ROOT_DIR/.build/macos.noindex}"
 APP_PATH="${1:-$BUILD_ROOT/VibeStick for Mac.app}"
 PAYLOAD_ROOT="$APP_PATH/Contents/Resources/RuntimePayload.noindex"
-PAYLOAD_VERSION="0.2.0-m4.2"
+PAYLOAD_VERSION="0.2.0-rc.1-native"
+LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+SWIFT_MODULE_CACHE="$BUILD_ROOT/SwiftModuleCache.noindex"
+mkdir -p "$SWIFT_MODULE_CACHE"
 
 if [ ! -d "$APP_PATH/Contents" ]; then
   printf '%s\n' "Expected an app bundle at $APP_PATH" >&2
@@ -21,6 +24,7 @@ for target in VibeStickBridge VibeStickHUD VibeStickPaste; do
     -destination 'platform=macOS,arch=arm64' \
     -derivedDataPath "$BUILD_ROOT/$target-DerivedData" \
     CODE_SIGNING_ALLOWED=NO \
+    REGISTER_APP_WITH_LAUNCH_SERVICES=NO \
     build
 done
 
@@ -28,9 +32,12 @@ BRIDGE_APP="$BUILD_ROOT/VibeStickBridge-DerivedData/Build/Products/Release/VibeS
 HUD_APP="$BUILD_ROOT/VibeStickHUD-DerivedData/Build/Products/Release/VibeStick HUD.app"
 PASTE_APP="$BUILD_ROOT/VibeStickPaste-DerivedData/Build/Products/Release/VibeStick Paste.app"
 
+"$LSREGISTER_PATH" -u "$BRIDGE_APP" >/dev/null 2>&1 || true
+"$LSREGISTER_PATH" -u "$HUD_APP" >/dev/null 2>&1 || true
+"$LSREGISTER_PATH" -u "$PASTE_APP" >/dev/null 2>&1 || true
+
 rm -rf "$PAYLOAD_ROOT"
 mkdir -p "$PAYLOAD_ROOT/Components.noindex"
-mkdir -p "$PAYLOAD_ROOT/runtime/bridge/src/vibe_stick"
 
 /usr/bin/ditto --norsrc --noextattr "$BRIDGE_APP" "$PAYLOAD_ROOT/Components.noindex/VibeStick Bridge.app"
 /usr/bin/ditto --norsrc --noextattr "$HUD_APP" "$PAYLOAD_ROOT/Components.noindex/VibeStick HUD.app"
@@ -51,16 +58,9 @@ printf '%s\n' "$PASTE_BUILD_FINGERPRINT" > "$PASTE_PAYLOAD_APP/Contents/Resource
 /usr/bin/codesign --force --sign - --requirements '=designated => identifier "com.vibestick.hud.agent"' "$PAYLOAD_ROOT/Components.noindex/VibeStick HUD.app"
 /usr/bin/codesign --force --sign - --requirements '=designated => identifier "com.vibestick.paste"' "$PASTE_PAYLOAD_APP"
 
-/usr/bin/ditto --norsrc --noextattr "$ROOT_DIR/bridge/pyproject.toml" "$PAYLOAD_ROOT/runtime/bridge/pyproject.toml"
-find "$ROOT_DIR/bridge/src/vibe_stick" -type f -name '*.py' -print | while IFS= read -r source_path; do
-  relative_path="${source_path#"$ROOT_DIR/bridge/src/vibe_stick/"}"
-  destination_path="$PAYLOAD_ROOT/runtime/bridge/src/vibe_stick/$relative_path"
-  mkdir -p "$(dirname -- "$destination_path")"
-  /usr/bin/ditto --norsrc --noextattr "$source_path" "$destination_path"
-done
-
-PYTHON_PATH="$(command -v python3)"
-"$PYTHON_PATH" "$ROOT_DIR/scripts/runtime-payload-manifest.py" generate "$PAYLOAD_ROOT" "$PAYLOAD_VERSION"
-"$PYTHON_PATH" "$ROOT_DIR/scripts/runtime-payload-manifest.py" verify "$PAYLOAD_ROOT"
+/usr/bin/xcrun swift -module-cache-path "$SWIFT_MODULE_CACHE" \
+  "$ROOT_DIR/scripts/runtime-payload-manifest.swift" generate "$PAYLOAD_ROOT" "$PAYLOAD_VERSION"
+/usr/bin/xcrun swift -module-cache-path "$SWIFT_MODULE_CACHE" \
+  "$ROOT_DIR/scripts/runtime-payload-manifest.swift" verify "$PAYLOAD_ROOT"
 
 printf '%s\n' "$PAYLOAD_ROOT"

@@ -8,7 +8,7 @@
 >
 > 上游项目：[GaryGaryyy/VibeStick](https://github.com/GaryGaryyy/VibeStick)
 >
-> 独立维护：[HanminYIN/VibeStick](https://github.com/HanminYIN/VibeStick)
+> 独立维护：[HanminYIN/VibeStick-for-Mac](https://github.com/HanminYIN/VibeStick-for-Mac)
 
 > 本文件保留 M1 封存时的完成范围与后续待办；M2 的当前成果见 [M2 阶段成果与版本演进对比](VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)。
 
@@ -208,3 +208,6 @@ M1 收尾期间进一步修复了长任务中的“短暂已完成”误报：
 5. 再决定是否将 GitHub 仓库脱离 Fork network，并酌情改名为 `VibeStick-for-Mac`。
 
 提交、推送、标签、Release、仓库改名和脱离 Fork 均需单独确认，不在本文档整理动作中自动执行。
+
+> 后续状态（2026-08-19）：第 5 项已在单独授权下完成；仓库现为独立的
+> `HanminYIN/VibeStick-for-Mac`，完整历史与 Gary 原项目的 `upstream` 来源均保留。

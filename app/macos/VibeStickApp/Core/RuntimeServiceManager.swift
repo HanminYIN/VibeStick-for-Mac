@@ -184,6 +184,84 @@ actor RuntimeServiceManager {
         )
     }
 
+    // Migration discovery needs fresh ownership and active-work facts, but it
+    // must not launch the Paste helper merely to probe Accessibility. This
+    // read-only snapshot intentionally leaves Paste permission unknown; that
+    // permission remains a separate post-migration/runtime-activation check.
+    func migrationDiscoverySnapshot(bridge: BridgeSnapshot) async -> RuntimeSnapshot {
+        async let bridgeAgent = inspectLaunchAgent(label: "com.vibestick.bridge")
+        async let hudAgent = inspectLaunchAgent(label: "com.vibestick.hud")
+
+        let bridgeInstalled = hasCompatibleLaunchAgent(
+            plist: SupportPaths.bridgeLaunchAgent,
+            executable: SupportPaths.bridgeExecutable,
+            label: "com.vibestick.bridge"
+        )
+        let hudInstalled = hasCompatibleLaunchAgent(
+            plist: SupportPaths.hudLaunchAgent,
+            executable: SupportPaths.hudExecutable,
+            label: "com.vibestick.hud"
+        )
+        let pasteInstalled = fileManager.isExecutableFile(atPath: SupportPaths.pasteExecutable.path)
+        let inspectedBridgeAgent = await bridgeAgent
+        let inspectedHUDAgent = await hudAgent
+
+        let bridgeHealth: ComponentHealth
+        if bridge.hasPortConflict {
+            bridgeHealth = ComponentHealth(
+                kind: .bridge,
+                phase: .portConflict,
+                detail: "迁移预检发现未知端口占用",
+                isInstalled: bridgeInstalled,
+                ownership: .conflictingProcess
+            )
+        } else if bridge.isHealthy && !inspectedBridgeAgent.running {
+            bridgeHealth = ComponentHealth(
+                kind: .bridge,
+                phase: .healthy,
+                detail: "迁移预检发现外部 Bridge",
+                isInstalled: bridgeInstalled,
+                ownership: .externalProcess
+            )
+        } else {
+            bridgeHealth = ServiceStateResolver.launchAgent(
+                kind: .bridge,
+                installed: bridgeInstalled,
+                loaded: inspectedBridgeAgent.loaded,
+                running: inspectedBridgeAgent.running,
+                ready: inspectedBridgeAgent.running ? bridge.isHealthy : nil,
+                detail: nil
+            )
+        }
+        let hudHealth = ServiceStateResolver.launchAgent(
+            kind: .hud,
+            installed: hudInstalled,
+            loaded: inspectedHUDAgent.loaded,
+            running: inspectedHUDAgent.running,
+            ready: nil,
+            detail: nil
+        )
+        let pasteHealth = ComponentHealth(
+            kind: .paste,
+            phase: pasteInstalled ? .unknown : .notInstalled,
+            detail: pasteInstalled
+                ? "迁移预检不启动 Paste 权限探针"
+                : "未找到现有文字输入组件",
+            isInstalled: pasteInstalled,
+            ownership: pasteInstalled ? .legacyLaunchAgent : .none
+        )
+
+        return RuntimeSnapshot(
+            bridge: bridgeHealth,
+            hud: hudHealth,
+            paste: pasteHealth,
+            isRecordingActive: recordingFileClaimsActive(
+                bridgeProcessRunning: inspectedBridgeAgent.running
+            ),
+            checkedAt: Date()
+        )
+    }
+
     func startServices() async -> ServiceActionResult {
         if let issue = await managedInstallationIssue() {
             return ServiceActionResult(success: false, message: issue)

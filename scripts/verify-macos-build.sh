@@ -3,13 +3,17 @@ set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
-BUILD_ROOT="$ROOT_DIR/.build/macos.noindex"
+BUILD_ROOT="${VIBESTICK_BUILD_ROOT:-$ROOT_DIR/.build/macos.noindex}"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-M4-4D-D0.2.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-0.2.0-rc.1.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+RUN_LAUNCH_SMOKE="${VIBESTICK_RUN_LAUNCH_SMOKE:-1}"
+TRUSTED_FIRMWARE_PAYLOAD="${VIBESTICK_TRUSTED_FIRMWARE_PAYLOAD:-$ROOT_DIR/release/firmware/sticks3/0.2.0-m4.4a}"
+SWIFT_MODULE_CACHE="$BUILD_ROOT/SwiftModuleCache.noindex"
+mkdir -p "$SWIFT_MODULE_CACHE"
 
 assert_binary() {
   binary_path="$1"
@@ -27,6 +31,38 @@ assert_binary() {
   printf '%s\n' "PASS: $label is thin arm64 with macOS 15.0 minimum"
 }
 
+assert_bundle_version() {
+  bundle_path="$1"
+  bundle_label="$2"
+  info_plist="$bundle_path/Contents/Info.plist"
+  short_version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$info_plist")"
+  build_version="$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$info_plist")"
+  if [ "$short_version" != "0.2.0" ] || [ "$build_version" != "10" ]; then
+    printf '%s\n' "FAIL: $bundle_label version is $short_version ($build_version), expected 0.2.0 (10)" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: $bundle_label version is 0.2.0 (10)"
+}
+
+assert_local_network_metadata() {
+  app_bundle="$1"
+  bridge_bundle="$2"
+  bundle_label="$3"
+
+  for info_plist in \
+    "$app_bundle/Contents/Info.plist" \
+    "$bridge_bundle/Contents/Info.plist"; do
+    purpose="$(/usr/bin/plutil -extract NSLocalNetworkUsageDescription raw -o - "$info_plist" 2>/dev/null || true)"
+    bonjour_service="$(/usr/bin/plutil -extract NSBonjourServices.0 raw -o - "$info_plist" 2>/dev/null || true)"
+    if [ -z "$purpose" ] || [ "$bonjour_service" != "_vibestick._tcp" ]; then
+      printf '%s\n' "FAIL: $bundle_label is missing the local-network purpose or _vibestick._tcp Bonjour declaration" >&2
+      exit 1
+    fi
+  done
+
+  printf '%s\n' "PASS: $bundle_label declares local-network use and _vibestick._tcp Bonjour service"
+}
+
 sign_and_verify_bundle() {
   bundle_path="$1"
   label="$2"
@@ -40,6 +76,54 @@ verify_bundle_signature() {
   label="$2"
   /usr/bin/codesign --verify --deep --strict "$bundle_path"
   printf '%s\n' "PASS: $label embedded signature verified without mutation"
+}
+
+assert_license_bundle() {
+  license_app_path="$1"
+  license_label="$2"
+  license_root="$license_app_path/Contents/Resources/Licenses"
+  for required_license in \
+    VibeStick-MIT.txt \
+    VibeStick-NOTICE.txt \
+    SIL-OFL-1.1.txt \
+    THIRD-PARTY-LICENSES.md \
+    Firmware/ESP-IDF-Apache-2.0.txt \
+    Firmware/LVGL-MIT.txt \
+    Firmware/FatFs.txt \
+    Firmware/GCC-GPL-3.0.txt \
+    Firmware/GCC-Runtime-Library-Exception-3.1.txt \
+    Firmware/Newlib-COPYING.txt \
+    Firmware/wpa_supplicant-BSD.txt; do
+    if [ ! -s "$license_root/$required_license" ]; then
+      printf '%s\n' "FAIL: $license_label is missing $required_license" >&2
+      exit 1
+    fi
+  done
+  if /usr/bin/find "$license_root" -type l -print -quit | /usr/bin/grep -q .; then
+    printf '%s\n' "FAIL: $license_label license inventory contains a symbolic link" >&2
+    exit 1
+  fi
+  license_count="$(/usr/bin/find "$license_root" -type f -print | /usr/bin/wc -l | /usr/bin/tr -d ' ')"
+  if [ "$license_count" -lt 24 ]; then
+    printf '%s\n' "FAIL: $license_label license inventory contains only $license_count files" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: $license_label contains the offline project, font, firmware, and toolchain notices"
+}
+
+assert_trusted_firmware_payload() {
+  candidate_root="$1"
+  candidate_label="$2"
+  python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" verify-source \
+    "$TRUSTED_FIRMWARE_PAYLOAD" "$ROOT_DIR/firmware/sticks3"
+  python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" verify "$candidate_root"
+  for payload_file in bootloader.bin partition-table.bin vibe-stick.bin manifest-v1.json; do
+    if ! /usr/bin/cmp -s "$TRUSTED_FIRMWARE_PAYLOAD/$payload_file" "$candidate_root/$payload_file"; then
+      printf '%s\n' "FAIL: $candidate_label firmware payload differs from the accepted M4-5K payload" >&2
+      exit 1
+    fi
+  done
+  printf '%s\n' "PASS: $candidate_label firmware payload is byte-identical to the accepted M4-5K payload"
 }
 
 detach_disk_image() {
@@ -226,6 +310,7 @@ assert_m3c_asr_source_contract() {
   section_views="$ROOT_DIR/app/macos/VibeStickApp/Features/SectionViews.swift"
   app_info="$ROOT_DIR/app/macos/VibeStickApp/Resources/Info.plist"
   transcriber="$ROOT_DIR/bridge/src/vibe_stick/audio/transcriber.py"
+  native_runtime_configuration="$ROOT_DIR/app/macos/VibeStickBridge/NativeBridgeRuntimeConfiguration.swift"
 
   if ! /usr/bin/grep -F 'actor ASRKeychainManager' "$m3c_source" >/dev/null \
     || ! /usr/bin/grep -F 'case siliconFlow = "siliconflow"' "$ROOT_DIR/app/macos/VibeStickApp/Core/Models.swift" >/dev/null \
@@ -241,6 +326,8 @@ assert_m3c_asr_source_contract() {
     || ! /usr/bin/grep -F 'SecTrustedApplicationCreateFromPath' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
     || ! /usr/bin/grep -F 'kSecAttrAccess as String' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
     || ! /usr/bin/grep -F 'asrAdditionalTrustedApplicationPaths = ["/usr/bin/security"]' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
+    || ! /usr/bin/grep -F 'securityExecutable = "/usr/bin/security"' "$native_runtime_configuration" >/dev/null \
+    || ! /usr/bin/grep -F 'find-generic-password' "$native_runtime_configuration" >/dev/null \
     || ! /usr/bin/grep -F 'existingItemUpdateAttributes(data: data)' "$ROOT_DIR/app/macos/VibeStickApp/Core/Infrastructure.swift" >/dev/null \
     || ! /usr/bin/grep -F 'await asrSecretManager.containsAPIKey()' "$ROOT_DIR/app/macos/VibeStickApp/App/AppModel.swift" >/dev/null \
     || ! /usr/bin/grep -F 'find-generic-password' "$transcriber" >/dev/null \
@@ -250,6 +337,11 @@ assert_m3c_asr_source_contract() {
   fi
   if /usr/bin/grep -F 'prepareAPIKeyAccess' "$ROOT_DIR/app/macos/VibeStickApp/App/AppModel.swift" "$m3c_source" >/dev/null; then
     printf '%s\n' "FAIL: routine ASR saves must not rewrite an existing keychain ACL" >&2
+    exit 1
+  fi
+
+  if /usr/bin/grep -F 'SecItemCopyMatching' "$native_runtime_configuration" >/dev/null; then
+    printf '%s\n' "FAIL: the native Bridge must use the fixed Keychain tool already trusted by the managed ACL" >&2
     exit 1
   fi
 
@@ -279,11 +371,21 @@ assert_m4_install_source_contract() {
     exit 1
   fi
   if /usr/bin/grep -F 'scripts/install.sh' "$installer_source" "$app_model" >/dev/null \
-    || /usr/bin/grep -E 'esptool|idf\.py|erase_flash|write_flash' "$installer_source" >/dev/null; then
+    || /usr/bin/grep -E 'esptool|idf\.py|erase_flash|write_flash|VIBE_STICK_PYTHON_PATH|compatiblePythonPath|runtime/bridge' \
+      "$installer_source" "$ROOT_DIR/scripts/build-macos-runtime-payload.sh" >/dev/null; then
     printf '%s\n' "FAIL: the distributed M4-2 installer references a developer installer or firmware mutation" >&2
     exit 1
   fi
-  printf '%s\n' "PASS: M4-2 source keeps explicit confirmation, revalidation, backup, and firmware boundaries"
+  if ! /usr/bin/grep -F 'NativeBridgeProductionFactory.make' \
+      "$ROOT_DIR/app/macos/VibeStickBridge/main.swift" >/dev/null \
+    || [ ! -f "$ROOT_DIR/scripts/runtime-payload-manifest.swift" ] \
+    || ! /usr/bin/grep -F 'AssociatedBundleIdentifiers' "$installer_source" >/dev/null \
+    || ! /usr/bin/grep -F 'io.github.hanminyin.vibestick' "$installer_source" >/dev/null \
+    || ! /usr/bin/grep -F 'serviceVerificationAttempts = 480' "$installer_source" >/dev/null; then
+    printf '%s\n' "FAIL: the distributed Bridge or payload manifest is not native Swift" >&2
+    exit 1
+  fi
+  printf '%s\n' "PASS: M4-2 source keeps confirmation, revalidation, backup, local-network handoff, and firmware boundaries"
 }
 
 assert_m4_flashing_tool_source_contract() {
@@ -339,6 +441,10 @@ assert_m4_firmware_payload_source_contract() {
   if ! /usr/bin/grep -F 'FirmwarePayload.noindex' "$payload_builder" >/dev/null \
     || ! /usr/bin/grep -F 'VIBE_STICK_DISTRIBUTABLE_BUILD=ON' "$payload_builder" >/dev/null \
     || ! /usr/bin/grep -F 'assert-no-secrets' "$payload_builder" >/dev/null \
+    || ! /usr/bin/grep -F 'VIBESTICK_ALLOW_FIRMWARE_REBUILD:-0' "$payload_builder" >/dev/null \
+    || ! /usr/bin/grep -F 'refusing to rebuild without VIBESTICK_ALLOW_FIRMWARE_REBUILD=1' "$payload_builder" >/dev/null \
+    || ! /usr/bin/grep -F 'release/firmware/sticks3/0.2.0-m4.4a' "$payload_builder" >/dev/null \
+    || ! /usr/bin/grep -F 'release/licenses/firmware' "$payload_builder" >/dev/null \
     || ! /usr/bin/grep -F 'static let preservedNVS' "$firmware_source" >/dev/null \
     || ! /usr/bin/grep -F '"partition-table.bin": 0x8000' "$firmware_source" >/dev/null \
     || ! /usr/bin/grep -F '"vibe-stick.bin": 0x10000' "$firmware_source" >/dev/null \
@@ -846,22 +952,23 @@ assert_m4_device_backup_source_contract
 assert_m4_device_flash_source_contract
 "$ROOT_DIR/scripts/build-macos-app.sh"
 assert_binary "$APP_BINARY" "VibeStick for Mac"
+assert_bundle_version "$APP_PATH" "VibeStick for Mac"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"
 assert_app_icon "$APP_PATH" "built app"
 assert_menu_bar_icon "$APP_PATH" "built app"
+assert_license_bundle "$APP_PATH" "built app"
 
 PAYLOAD_ROOT="$APP_PATH/Contents/Resources/RuntimePayload.noindex"
 BRIDGE_APP="$PAYLOAD_ROOT/Components.noindex/VibeStick Bridge.app"
 HUD_APP="$PAYLOAD_ROOT/Components.noindex/VibeStick HUD.app"
 PASTE_APP="$PAYLOAD_ROOT/Components.noindex/VibeStick Paste.app"
+assert_local_network_metadata "$APP_PATH" "$BRIDGE_APP" "built app and Bridge"
 
-python3 "$ROOT_DIR/scripts/runtime-payload-manifest.py" verify "$PAYLOAD_ROOT"
-printf '%s\n' "PASS: embedded M4-2 runtime payload manifest and exact file set verified"
+/usr/bin/xcrun swift -module-cache-path "$SWIFT_MODULE_CACHE" \
+  "$ROOT_DIR/scripts/runtime-payload-manifest.swift" verify "$PAYLOAD_ROOT"
+printf '%s\n' "PASS: embedded native Swift runtime payload manifest and exact file set verified"
 FIRMWARE_PAYLOAD_ROOT="$APP_PATH/Contents/Resources/FirmwarePayload.noindex"
-python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" verify "$FIRMWARE_PAYLOAD_ROOT"
-python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" assert-no-secrets \
-  "$FIRMWARE_PAYLOAD_ROOT" "$ROOT_DIR/firmware/sticks3/include/vibe_stick_secrets.h"
-printf '%s\n' "PASS: embedded M4-4A firmware payload manifest, geometry, and secret scan verified"
+assert_trusted_firmware_payload "$FIRMWARE_PAYLOAD_ROOT" "embedded M4-4A"
 paste_source_digest="$(/usr/bin/shasum -a 256 "$ROOT_DIR/app/macos/VibeStickPaste/main.swift" | /usr/bin/awk '{print $1}')"
 paste_plist_digest="$(/usr/bin/shasum -a 256 "$ROOT_DIR/app/macos/VibeStickPaste/Info.install.plist" | /usr/bin/awk '{print $1}')"
 expected_paste_fingerprint="$({
@@ -879,6 +986,9 @@ printf '%s\n' "PASS: unchanged Paste builds retain the stable Accessibility iden
 assert_binary "$BRIDGE_APP/Contents/MacOS/VibeStickBridge" "VibeStick Bridge"
 assert_binary "$HUD_APP/Contents/MacOS/VibeStickHUD" "VibeStick HUD"
 assert_binary "$PASTE_APP/Contents/MacOS/VibeStickPaste" "VibeStick Paste"
+assert_bundle_version "$BRIDGE_APP" "VibeStick Bridge"
+assert_bundle_version "$HUD_APP" "VibeStick HUD"
+assert_bundle_version "$PASTE_APP" "VibeStick Paste"
 verify_bundle_signature "$BRIDGE_APP" "VibeStick Bridge"
 verify_bundle_signature "$HUD_APP" "VibeStick HUD"
 verify_bundle_signature "$PASTE_APP" "VibeStick Paste"
@@ -892,6 +1002,8 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build-for-testing
 
+"$LSREGISTER_PATH" -u "$TEST_DERIVED_DATA/Build/Products/Debug/VibeStick for Mac.app" >/dev/null 2>&1 || true
+
 sign_and_verify_bundle "$TEST_BUNDLE" "VibeStick hostless tests"
 assert_binary "$TEST_BUNDLE/Contents/MacOS/VibeStickForMacTests" "VibeStick hostless tests"
 /Applications/Xcode.app/Contents/Developer/usr/bin/xctest "$TEST_BUNDLE"
@@ -899,7 +1011,11 @@ printf '%s\n' "PASS: Swift unit tests executed"
 
 assert_no_forbidden_files "$APP_PATH" "built app"
 assert_firmware_binary_scope "$APP_PATH" "built app"
-assert_app_launch_smoke "$APP_PATH" "built app"
+if [ "$RUN_LAUNCH_SMOKE" = "1" ]; then
+  assert_app_launch_smoke "$APP_PATH" "built app"
+else
+  printf '%s\n' "SKIP: built App launch smoke was not authorized"
+fi
 
 if [ -d "$APP_PATH/Contents/Helpers/VibeStick Paste.app" ]; then
   printf '%s\n' "FAIL: Paste payload must remain in the no-index transaction resources, not Contents/Helpers" >&2
@@ -932,21 +1048,38 @@ fi
 MOUNTED_APP="$MOUNT_POINT/VibeStick for Mac.app"
 /usr/bin/codesign --verify --deep --strict "$MOUNTED_APP"
 assert_binary "$MOUNTED_APP/Contents/MacOS/VibeStick for Mac" "DMG VibeStick for Mac"
+assert_bundle_version "$MOUNTED_APP" "DMG VibeStick for Mac"
+assert_local_network_metadata \
+  "$MOUNTED_APP" \
+  "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex/Components.noindex/VibeStick Bridge.app" \
+  "DMG app and Bridge"
 assert_app_icon "$MOUNTED_APP" "DMG app"
 assert_menu_bar_icon "$MOUNTED_APP" "DMG app"
-python3 "$ROOT_DIR/scripts/runtime-payload-manifest.py" verify \
+assert_license_bundle "$MOUNTED_APP" "DMG app"
+/usr/bin/xcrun swift -module-cache-path "$SWIFT_MODULE_CACHE" \
+  "$ROOT_DIR/scripts/runtime-payload-manifest.swift" verify \
   "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex"
-printf '%s\n' "PASS: DMG M4-2 runtime payload manifest verified after mounting"
-python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" verify \
-  "$MOUNTED_APP/Contents/Resources/FirmwarePayload.noindex"
-python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" assert-no-secrets \
+printf '%s\n' "PASS: DMG native Swift runtime payload manifest verified after mounting"
+assert_bundle_version \
+  "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex/Components.noindex/VibeStick Bridge.app" \
+  "DMG VibeStick Bridge"
+assert_bundle_version \
+  "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex/Components.noindex/VibeStick HUD.app" \
+  "DMG VibeStick HUD"
+assert_bundle_version \
+  "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex/Components.noindex/VibeStick Paste.app" \
+  "DMG VibeStick Paste"
+assert_trusted_firmware_payload \
   "$MOUNTED_APP/Contents/Resources/FirmwarePayload.noindex" \
-  "$ROOT_DIR/firmware/sticks3/include/vibe_stick_secrets.h"
-printf '%s\n' "PASS: DMG M4-4A firmware payload verified after mounting"
+  "DMG M4-4A"
 
 assert_no_forbidden_files "$MOUNT_POINT" "mounted DMG"
 assert_firmware_binary_scope "$MOUNT_POINT" "mounted DMG"
-assert_app_launch_smoke "$MOUNTED_APP" "DMG app"
+if [ "$RUN_LAUNCH_SMOKE" = "1" ]; then
+  assert_app_launch_smoke "$MOUNTED_APP" "DMG app"
+else
+  printf '%s\n' "SKIP: mounted App launch smoke was not authorized"
+fi
 
 "$LSREGISTER_PATH" -u "$MOUNTED_APP" >/dev/null 2>&1 || true
 detach_disk_image "$MOUNT_POINT"

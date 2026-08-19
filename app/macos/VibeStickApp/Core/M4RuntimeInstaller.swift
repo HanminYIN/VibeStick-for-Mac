@@ -33,7 +33,6 @@ struct RuntimeServiceCheckpoint: Codable, Equatable, Sendable {
 }
 
 struct RuntimeInstallPreflight: Equatable, Sendable {
-    let pythonPath: String
     let checkpoint: RuntimeServiceCheckpoint
 }
 
@@ -100,8 +99,6 @@ enum RuntimePayloadValidator {
         "Components.noindex/VibeStick HUD.app/Contents/MacOS/VibeStickHUD",
         "Components.noindex/VibeStick Paste.app/Contents/MacOS/VibeStickPaste",
         "Components.noindex/VibeStick Paste.app/Contents/Resources/VibeStickPaste.build",
-        "runtime/bridge/pyproject.toml",
-        "runtime/bridge/src/vibe_stick/__main__.py",
     ]
 
     static func validate(root: URL, fileManager: FileManager = .default) throws -> RuntimePayloadManifest {
@@ -271,7 +268,133 @@ protocol RuntimeInstallServiceControlling: Sendable {
     func restoreServiceState(_ checkpoint: RuntimeServiceCheckpoint) async throws
 }
 
+struct RuntimeFreshInstallConfigurationBootstrapReceipt: Equatable, Sendable {
+    let createdManagedConfiguration: Bool
+    let createdBridgeCredential: Bool
+
+    static let unchanged = RuntimeFreshInstallConfigurationBootstrapReceipt(
+        createdManagedConfiguration: false,
+        createdBridgeCredential: false
+    )
+}
+
+protocol RuntimeConfigurationBootstrapping: Sendable {
+    func prepareIfNeeded() async throws -> RuntimeFreshInstallConfigurationBootstrapReceipt
+    func rollback(_ receipt: RuntimeFreshInstallConfigurationBootstrapReceipt) async throws
+}
+
+actor RuntimeFreshInstallConfigurationBootstrapper: RuntimeConfigurationBootstrapping {
+    private let supportDirectory: URL
+    private let fileManager: FileManager
+    private let credentialVault: any M4OfflineCredentialVault
+    private let tokenGenerator: @Sendable () throws -> Data
+
+    init(
+        supportDirectory: URL,
+        credentialVault: any M4OfflineCredentialVault = M4VersionedKeychainCredentialVault.live(),
+        tokenGenerator: @escaping @Sendable () throws -> Data = {
+            var generator = SystemRandomNumberGenerator()
+            let randomBytes = (0..<32).map { _ in UInt8.random(in: .min ... .max, using: &generator) }
+            return Data(randomBytes).base64EncodedData()
+        }
+    ) {
+        self.supportDirectory = supportDirectory
+        self.fileManager = .default
+        self.credentialVault = credentialVault
+        self.tokenGenerator = tokenGenerator
+    }
+
+    func prepareIfNeeded() async throws -> RuntimeFreshInstallConfigurationBootstrapReceipt {
+        let configurationURL = supportDirectory.appendingPathComponent("managed-runtime-v1.json")
+        let legacyEnvironmentURL = supportDirectory.appendingPathComponent(".env")
+        guard !fileManager.fileExists(atPath: configurationURL.path),
+              !fileManager.fileExists(atPath: legacyEnvironmentURL.path) else {
+            return .unchanged
+        }
+
+        let bridgeReference = M4VersionedCredentialReference.managed(.bridgeToken)
+        let temporaryConfigurationURL = supportDirectory.appendingPathComponent(
+            ".managed-runtime-v1.\(UUID().uuidString).tmp"
+        )
+        var createdBridgeCredential = false
+        var createdManagedConfiguration = false
+        defer { try? fileManager.removeItem(at: temporaryConfigurationURL) }
+        do {
+            try fileManager.createDirectory(
+                at: supportDirectory,
+                withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700],
+                ofItemAtPath: supportDirectory.path
+            )
+
+            if try await credentialVault.contains(bridgeReference) == false {
+                let token = try tokenGenerator()
+                guard token.count >= 32 else {
+                    throw RuntimeInstallError.blocked("无法生成满足长度要求的 Bridge 安全凭据。")
+                }
+                try await credentialVault.stage(token, for: bridgeReference)
+                createdBridgeCredential = true
+            }
+
+            let configuration = try M4ManagedRuntimeConfiguration(
+                schemaVersion: M4ManagedRuntimeConfiguration.currentSchemaVersion,
+                credentialReferences: [bridgeReference],
+                asr: nil,
+                agentProvider: "auto",
+                projectPresentation: nil,
+                voiceDelivery: M4ManagedVoiceDelivery(sendMode: "paste_only"),
+                soundEnabled: nil
+            ).validated()
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            let data = try encoder.encode(configuration)
+            try data.write(to: temporaryConfigurationURL, options: .atomic)
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: temporaryConfigurationURL.path
+            )
+            try fileManager.moveItem(at: temporaryConfigurationURL, to: configurationURL)
+            createdManagedConfiguration = true
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: configurationURL.path
+            )
+            return RuntimeFreshInstallConfigurationBootstrapReceipt(
+                createdManagedConfiguration: true,
+                createdBridgeCredential: createdBridgeCredential
+            )
+        } catch {
+            if createdManagedConfiguration {
+                try? fileManager.removeItem(at: configurationURL)
+            }
+            if createdBridgeCredential {
+                try? await credentialVault.discard(bridgeReference)
+            }
+            if let error = error as? RuntimeInstallError { throw error }
+            throw RuntimeInstallError.fileFailure("无法准备全新安装的 Bridge 安全配置。")
+        }
+    }
+
+    func rollback(_ receipt: RuntimeFreshInstallConfigurationBootstrapReceipt) async throws {
+        let configurationURL = supportDirectory.appendingPathComponent("managed-runtime-v1.json")
+        let bridgeReference = M4VersionedCredentialReference.managed(.bridgeToken)
+        if receipt.createdManagedConfiguration,
+           fileManager.fileExists(atPath: configurationURL.path) {
+            try fileManager.removeItem(at: configurationURL)
+        }
+        if receipt.createdBridgeCredential {
+            try await credentialVault.discard(bridgeReference)
+        }
+    }
+}
+
 actor RuntimeLaunchAgentInstallController: RuntimeInstallServiceControlling {
+    static let serviceVerificationAttempts = 480
+    static let serviceVerificationIntervalMilliseconds = 250
+
     private struct AgentState: Sendable {
         let loaded: Bool
         let running: Bool
@@ -300,11 +423,7 @@ actor RuntimeLaunchAgentInstallController: RuntimeInstallServiceControlling {
 
     func preflight() async throws -> RuntimeInstallPreflight {
         let checkpoint = try await mutationSafetyCheck()
-        let pythonPath = try await compatiblePythonPath()
-        return RuntimeInstallPreflight(
-            pythonPath: pythonPath,
-            checkpoint: checkpoint
-        )
+        return RuntimeInstallPreflight(checkpoint: checkpoint)
     }
 
     func revalidateBeforeMutation() async throws -> RuntimeServiceCheckpoint {
@@ -419,7 +538,7 @@ actor RuntimeLaunchAgentInstallController: RuntimeInstallServiceControlling {
         var lastBridge = await inspect(label: "com.vibestick.bridge")
         var lastHUD = await inspect(label: "com.vibestick.hud")
         var lastEndpoint = await bridgeEndpointState()
-        for _ in 0..<60 {
+        for _ in 0..<Self.serviceVerificationAttempts {
             async let bridgeInspection = inspect(label: "com.vibestick.bridge")
             async let hudInspection = inspect(label: "com.vibestick.hud")
             async let endpointInspection = bridgeEndpointState()
@@ -427,7 +546,9 @@ actor RuntimeLaunchAgentInstallController: RuntimeInstallServiceControlling {
             lastHUD = await hudInspection
             lastEndpoint = await endpointInspection
             if lastBridge.running && lastHUD.running && lastEndpoint == .expected { return }
-            try? await Task.sleep(for: .milliseconds(250))
+            try? await Task.sleep(
+                for: .milliseconds(Self.serviceVerificationIntervalMilliseconds)
+            )
         }
         throw RuntimeInstallError.serviceFailure(
             "新组件没有在等待时间内同时达到健康状态（Bridge：\(agentDescription(lastBridge))；HUD：\(agentDescription(lastHUD))；端口：\(endpointDescription(lastEndpoint))）"
@@ -480,25 +601,6 @@ actor RuntimeLaunchAgentInstallController: RuntimeInstallServiceControlling {
         guard result.succeeded else {
             throw RuntimeInstallError.serviceFailure(cleanError(result))
         }
-    }
-
-    private func compatiblePythonPath() async throws -> String {
-        let candidates = [
-            "/opt/homebrew/bin/python3",
-            "/usr/local/bin/python3",
-            "/usr/bin/python3",
-            "/Applications/Xcode.app/Contents/Developer/usr/bin/python3",
-        ]
-        for candidate in candidates where fileManager.isExecutableFile(atPath: candidate) {
-            let result = await runner.run(
-                executable: candidate,
-                arguments: ["-c", "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)"]
-            )
-            if result.succeeded { return candidate }
-        }
-        throw RuntimeInstallError.blocked(
-            "没有找到兼容的 Python 3.11 或更高版本。M4-2 不会下载或执行仓库安装脚本；全新 Mac 的自包含运行时将在 M4-5 验收。"
-        )
     }
 
     private func bridgeEndpointState() async -> EndpointState {
@@ -555,7 +657,7 @@ actor RuntimeLaunchAgentInstallController: RuntimeInstallServiceControlling {
 actor RuntimeInstaller {
     private struct ManagedTarget {
         let key: String
-        let staged: URL
+        let staged: URL?
         let installed: URL
         let backup: URL
     }
@@ -580,13 +682,15 @@ actor RuntimeInstaller {
     private let payloadRoot: URL?
     private let fileManager: FileManager
     private let serviceController: any RuntimeInstallServiceControlling
+    private let configurationBootstrapper: any RuntimeConfigurationBootstrapping
 
     init(
         layout: RuntimeInstallLayout = .standard,
         payloadRoot: URL? = Bundle.main.resourceURL?
             .appendingPathComponent("RuntimePayload.noindex", isDirectory: true),
         fileManager: FileManager = .default,
-        serviceController: (any RuntimeInstallServiceControlling)? = nil
+        serviceController: (any RuntimeInstallServiceControlling)? = nil,
+        configurationBootstrapper: (any RuntimeConfigurationBootstrapping)? = nil
     ) {
         self.layout = layout
         self.payloadRoot = payloadRoot
@@ -594,6 +698,10 @@ actor RuntimeInstaller {
         self.serviceController = serviceController ?? RuntimeLaunchAgentInstallController(
             layout: layout
         )
+        self.configurationBootstrapper = configurationBootstrapper
+            ?? RuntimeFreshInstallConfigurationBootstrapper(
+                supportDirectory: layout.supportDirectory
+            )
     }
 
     func install(fault: RuntimeInstallFault = .none) async throws -> RuntimeInstallReceipt {
@@ -612,6 +720,7 @@ actor RuntimeInstaller {
         var filesystemWasTouched = false
         var preservedPasteIdentity = false
         var rollbackCheckpoint = preflight.checkpoint
+        var configurationBootstrapReceipt: RuntimeFreshInstallConfigurationBootstrapReceipt?
 
         do {
             try preparePrivateDirectories(stagingRoot: stagingRoot, backupRoot: backupRoot)
@@ -621,7 +730,7 @@ actor RuntimeInstaller {
                 to: stagedInstallRoot
             )
             _ = try RuntimePayloadValidator.validate(root: stagedInstallRoot, fileManager: fileManager)
-            try writeLaunchAgents(to: stagedInstallRoot, pythonPath: preflight.pythonPath)
+            try writeLaunchAgents(to: stagedInstallRoot)
             try await serviceController.validateComponents(
                 at: stagedInstallRoot.appendingPathComponent("Components.noindex", isDirectory: true)
             )
@@ -676,11 +785,13 @@ actor RuntimeInstaller {
             if fault == .afterBackup { throw RuntimeInstallError.injectedFault(fault) }
 
             for target in targets {
-                try fileManager.moveItem(at: target.staged, to: target.installed)
+                guard let staged = target.staged else { continue }
+                try fileManager.moveItem(at: staged, to: target.installed)
                 filesystemWasTouched = true
             }
             if fault == .afterSwitch { throw RuntimeInstallError.injectedFault(fault) }
 
+            configurationBootstrapReceipt = try await configurationBootstrapper.prepareIfNeeded()
             try await serviceController.startInstalledServices()
             if fault == .afterStart { throw RuntimeInstallError.injectedFault(fault) }
             try await serviceController.verifyInstalledServices()
@@ -704,6 +815,14 @@ actor RuntimeInstaller {
         } catch {
             let cause = error.localizedDescription
             var rollbackOutcome = "无需回退，现有运行时未改变。"
+            var configurationRollbackFailed = false
+            if let configurationBootstrapReceipt {
+                do {
+                    try await configurationBootstrapper.rollback(configurationBootstrapReceipt)
+                } catch {
+                    configurationRollbackFailed = true
+                }
+            }
             if servicesWereStopped || filesystemWasTouched {
                 do {
                     try await rollback(
@@ -717,6 +836,9 @@ actor RuntimeInstaller {
                 } catch {
                     rollbackOutcome = "自动回退未完整通过：\(error.localizedDescription)"
                 }
+            }
+            if configurationRollbackFailed {
+                rollbackOutcome += " 新建的 Bridge 安全配置未能完整撤销。"
             }
             try? writeReceipt(
                 TransactionReceipt(
@@ -780,7 +902,7 @@ actor RuntimeInstaller {
         }
     }
 
-    private func writeLaunchAgents(to stagedInstallRoot: URL, pythonPath: String) throws {
+    private func writeLaunchAgents(to stagedInstallRoot: URL) throws {
         let launchAgents = stagedInstallRoot.appendingPathComponent("LaunchAgents", isDirectory: true)
         try fileManager.createDirectory(at: launchAgents, withIntermediateDirectories: true)
 
@@ -788,11 +910,11 @@ actor RuntimeInstaller {
         let hudExecutable = layout.hudApp.appendingPathComponent("Contents/MacOS/VibeStickHUD").path
         let bridge: [String: Any] = [
             "Label": "com.vibestick.bridge",
+            "AssociatedBundleIdentifiers": ["io.github.hanminyin.vibestick"],
             "ProgramArguments": [bridgeExecutable],
             "WorkingDirectory": layout.supportDirectory.path,
             "EnvironmentVariables": [
                 "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-                "VIBE_STICK_PYTHON_PATH": pythonPath,
             ],
             "RunAtLoad": true,
             "KeepAlive": true,
@@ -801,6 +923,7 @@ actor RuntimeInstaller {
         ]
         let hud: [String: Any] = [
             "Label": "com.vibestick.hud",
+            "AssociatedBundleIdentifiers": ["io.github.hanminyin.vibestick"],
             "ProgramArguments": [hudExecutable],
             "RunAtLoad": true,
             "KeepAlive": true,
@@ -831,7 +954,7 @@ actor RuntimeInstaller {
         stagedInstallRoot: URL,
         backupManagedRoot: URL
     ) -> [ManagedTarget] {
-        func target(key: String, staged: URL, installed: URL) -> ManagedTarget {
+        func target(key: String, staged: URL?, installed: URL) -> ManagedTarget {
             ManagedTarget(
                 key: key,
                 staged: staged,
@@ -842,7 +965,7 @@ actor RuntimeInstaller {
         return [
             target(
                 key: "support/runtime",
-                staged: stagedInstallRoot.appendingPathComponent("runtime", isDirectory: true),
+                staged: nil,
                 installed: layout.runtimeDirectory
             ),
             target(

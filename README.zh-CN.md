@@ -14,53 +14,73 @@ VibeStick for Mac 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：�
 
 VibeStick 面向 M5Stack StickS3，不是 M5Stack 官方项目。Codex、Claude 等第三方 agent 名称只用于说明本地兼容工具和集成。
 
-## 从原始 VibeStick 到 M4-4D D0.2
+## 为什么做这个项目
 
-原始 VibeStick 奠定了 StickS3 显示 coding agent 状态、额度、提醒和长按语音输入的
-核心闭环。M0 在此基础上增强状态观察、具名后台、Paste 权限与诊断；M1 加入原生
-SwiftUI App、菜单栏、结构化健康状态、显式后台启停、品牌图标，以及面向 arm64、
-macOS 15 的开发版 DMG。
+- 不再用另一个桌面窗口遮挡工作区，在小屏幕上随时查看 Codex 和 Claude 状态。
+- 长按一个实体按键，即可完成录音、转写、粘贴，并选择是否确认发送。
+- 普通用户只安装原生 Swift App、Bridge、HUD 和 Paste，不需要 Python、
+  Homebrew、Xcode 或 ESP-IDF。
+- 配对、钥匙串、诊断、后台安装、USB、固件备份和写入都有清楚且独立的确认边界。
 
-M2 进一步完成设备 ID、USB 安全配对、每设备独立密钥、Bonjour 自动发现和带
-revision/ACK 的配置同步。真实 Mac 地址变化、凭据轮换、失败恢复，以及原有语音、
-HUD、Paste、Codex 状态和额度链路均已通过当前 Mac 与真实 StickS3 验收。M2 当前
-已封存为本地提交 `8ced6eb`，尚未推送或发布。
+VibeStick for Mac 以 OpenAI Codex 作为主要工程协作者，覆盖产品设计、实现、
+测试、发布工程和安全审计。产品本身也接入本地 Codex 工作流，用来显示会话状态与
+额度窗口；Bridge API 不会暴露 Codex 凭据。
 
-M3 完成 Codex Focus 新首页、Mac 实时预览、动态额度窗口、中文项目名、语音识别、
-蓝键确认发送和完成效果音，并通过当前 Mac 与真实 StickS3 验收。M4-0 至 M4-4B
-进一步建立全新 Mac 安装、运行时管理、诊断、离线固件载荷以及固定版本烧录工具的
-本地可信链。M4-4C 已完成真实设备身份与安全状态检查，以及私有的完整 8 MiB
-双读取备份验收。M4-4D 已加入固定三个范围写入、独立候选读回、完整备份恢复、
-独立恢复读回、持久化中断状态和四次分别确认。首次逐项授权的真机流程中，三个候选
-范围均独立读回一致，但 NVS 检查暴露出 D0 错把较早的 M4-4C 备份作为写入前基准；
-随后已把经过验证的 8 MiB 原始备份完整写回，完整读回摘要一致，原界面和语音输入
-功能也恢复正常。D0.1 改为在候选写入命令前即时保存私有 NVS 快照，并把摘要绑定到
-事务。随后逐项授权的 D0.1 真机流程证明三个候选范围和紧邻写入前的 NVS 均一致，
-但候选无法连接 Bridge：恢复的原固件把 Wi-Fi 编译在镜像内，NVS 虽有配对信息却没有
-`wifi_ssid` 或 `wifi_pass`。再次完整恢复、读回和真实语音验收通过后，D0.2 在 USB
-配对界面增加仅用于当次任务的 2.4 GHz Wi-Fi 输入；schema 2 报告尚未配网时，会在
-修改 Mac 注册表或钥匙串前失败关闭。Wi-Fi 密码不会保存到 Mac 配置。后续候选写入、
-独立读回和 USB 配网继续逐项授权：D1 在写入前即时保存 NVS，再单次写入三个候选
-范围；D2 独立读回三个范围与 NVS，四项均一致，并只在最后一次读取后复位。使用者
-随后直接在开发版 App 中填写凭据并亲自提交一次 USB 配对，候选成功回连 Bridge，
-真实 StickS3 PCM 语音经转写、粘贴和蓝键确认后获得 HTTP 200，最终状态为 `sent`。
-版本库不记录 Wi-Fi 凭据、设备/Bridge 标识、本机地址、私有备份摘要或 NVS 摘要。
+## 0.2.0 RC 1
+
+第一个可交付候选已经使用完全原生的 Swift Bridge。发布 DMG 内含主 App 与
+arm64 原生 Bridge、HUD、Paste；普通用户不需要 Python、Homebrew、Xcode 或
+ESP-IDF。版本为 `0.2.0 (10)`，支持 Apple Silicon 与 macOS 15 及以上。
+安装、升级、隐私、恢复和已知限制见
+[RC 1 双语发布说明](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_RELEASE_NOTES.md)。
+
+该 RC 使用 ad-hoc 签名，尚未公证。本地验收证据与候选文件分别记录；发布到
+GitHub 仍需维护者单独执行。
+
+### 安装 RC
+
+GitHub Pre-release 发布后：
+
+1. 从 [GitHub Releases](https://github.com/HanminYIN/VibeStick-for-Mac/releases)
+   下载 `VibeStick-for-Mac-0.2.0-rc.1.dmg`。
+2. 打开 DMG，把 **VibeStick for Mac** 拖入“应用程序”。
+3. RC 1 仍是 ad-hoc 签名且尚未公证，首次启动可能需要在 Finder 中按住 Control
+   点按 App，再选择“打开”。
+4. 先查看状态。只有选择对应操作并确认后，App 才会安装后台、访问 USB、配对或处理固件。
+
+### 已验证内容
+
+| 范围 | RC 1 证据 |
+| --- | --- |
+| 原生运行时 | Swift App、Bridge、HUD、Paste；arm64；macOS 15+ |
+| 设备流程 | USB 配对、每设备独立信任、Bonjour 恢复、revision/ACK 配置同步 |
+| 语音流程 | StickS3 录音、ASR、HUD、粘贴和确认状态 |
+| 安全边界 | Keychain 密钥、脱敏诊断、事务式后台迁移、分别确认的固件操作 |
+| 发布验证 | 269 项 Swift 测试、194 项 Python 兼容性测试、隔离 Release 构建、组件签名检查和只读 DMG 验证 |
+
+详细实现过程和真机证据放在里程碑文档中，避免首页变成开发流水账：
 
 - [M1 成果与验收证据](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
 - [M2 成果与原作者版本对比](docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)
 - [M2 实现与验收边界](docs/VIBESTICK_FOR_MAC_M2_IMPLEMENTATION.md)
 - [M3-A 成果与原作者版本对比](docs/VIBESTICK_FOR_MAC_M3A_ACHIEVEMENTS.md)
+- [M3-B 语音与发送成果](docs/VIBESTICK_FOR_MAC_M3B_ACHIEVEMENTS.md)
+- [M3-C 原生 ASR 配置成果](docs/VIBESTICK_FOR_MAC_M3C_ACHIEVEMENTS.md)
 - [VibeStick for Mac Roadmap](docs/VIBESTICK_FOR_MAC_ROADMAP.md)
 - [原生 macOS 构建说明](app/macos/README.md)
 
-## 开始前的准备
+## 从源码构建：开始前的准备
 
-- [ ] M5 StickS3｜一根 USB-C 数据线｜一台电脑（最好是Mac）
-- [ ] Wi-Fi（必须2.4GHz）名称｜Wi-Fi密码｜语音识别模型 API Key，模型名称，base_url （推荐使用硅基流动有免费额度：https://cloud.siliconflow.cn/i/7ZCoy9fU）
--  如要显示 Claude 5H/7D 用量（该功能默认关闭）。需要 Claude Code CLI（在终端运行 `claude` 后执行 `/login`），并在 `.env` 中设置 `VIBE_STICK_CLAUDE_USAGE=on`。
+普通 RC 用户不需要这一节。以下内容面向需要重建固件或运行仓库开发流程的贡献者。
+
+- [ ] M5Stack StickS3、一根 USB-C 数据线和一台 Mac。
+- [ ] 2.4 GHz Wi-Fi 名称和密码，以及语音识别服务的 API Key、模型名称和
+  base URL。SiliconFlow 是可选服务之一：<https://cloud.siliconflow.cn/>。
+- [ ] 如要显示 Claude 5H/7D 用量，需要 Claude Code CLI，并在 `.env` 中设置
+  `VIBE_STICK_CLAUDE_USAGE=on`；该功能默认关闭。
 
 
-## 安装
+## 从源码构建并安装
 
 你可以手动执行，也可以交给 AI 编程 agent，例如 Claude Code 和 Codex。
 
@@ -69,8 +89,8 @@ M3 完成 Codex Focus 新首页、Mac 实时预览、动态额度窗口、中文
 1. 克隆仓库并创建本地配置文件：
 
 ```sh
-git clone https://github.com/HanminYIN/VibeStick.git
-cd VibeStick
+git clone https://github.com/HanminYIN/VibeStick-for-Mac.git
+cd VibeStick-for-Mac
 ./scripts/setup.sh
 ```
 
@@ -171,7 +191,7 @@ ESP-IDF 没有加载到当前 shell，或者还没有安装。先 source ESP-IDF
 
 ### 录音能转写但没有粘贴
 
-给 `VibeStick Paste` 开辅助功能权限。macOS 路径：系统设置 -> 隐私与安全性 -> 辅助功能，然后允许 `VibeStick Paste`。正式安装使用这个具名原生组件；用 `scripts/dev.sh` 在终端调试时，仍可能回退到终端 / Python runner。重复运行安装脚本会保留未变化的辅助程序及其权限；只有辅助程序本身升级后，macOS 才可能要求重新允许一次。
+给 `VibeStick Paste` 开辅助功能权限。macOS 路径：系统设置 -> 隐私与安全性 -> 辅助功能，然后允许 `VibeStick Paste`。正式安装和仓库开发模式都使用这个具名原生组件。重复运行安装脚本会保留未变化的辅助程序及其权限；只有辅助程序本身升级后，macOS 才可能要求重新允许一次。
 
 ### "No transcription adapter configured"
 
@@ -191,7 +211,9 @@ open -e .env
 
 ### 录音转写失败、SSL 报错或超时
 
-通常是当前网络访问不到所选 ASR 服务。国内用户建议换 SiliconFlow：<https://cloud.siliconflow.cn/i/7ZCoy9fU>。也可以配置其他可访问的 OpenAI 兼容 ASR，或配置网络代理。
+通常是当前网络访问不到所选 ASR 服务。国内用户可以尝试 SiliconFlow：
+<https://cloud.siliconflow.cn/>。也可以配置其他可访问的 OpenAI 兼容 ASR，
+或配置网络代理。
 
 ## 配置说明
 
@@ -265,7 +287,7 @@ Claude usage 会使用用户本机 Claude Code 订阅凭据和 client headers �
 ## 项目结构
 
 ```text
-VibeStick/
+VibeStick-for-Mac/
   README.md
   README.zh-CN.md
   .env.example
@@ -284,6 +306,9 @@ VibeStick/
 
 ## 检查命令
 
+下面的 Python 测试用于保护保留的参考实现兼容性，属于开发者检查，不是普通
+用户运行 App 的依赖。
+
 ```sh
 python3 -m compileall -q bridge/src tests
 PYTHONPATH=bridge/src python3 -m unittest discover -s tests
@@ -291,7 +316,8 @@ bash -n scripts/setup.sh scripts/doctor.sh scripts/install.sh
 scripts/verify-macos-build.sh
 ```
 
-固件构建仍需要 ESP-IDF：
+普通 RC App/DMG 构建使用 `release/firmware` 中已验收且绑定源码摘要的固定载荷，
+不需要 ESP-IDF。只有重新构建固件本身时才需要 ESP-IDF，并须重新验收：
 
 ```sh
 cd firmware/sticks3
@@ -301,7 +327,7 @@ idf.py build
 
 ## 当前限制
 
-- 当前 M4-4D D0.2 候选已完成逐项授权的真机写入/读回、首次 Wi-Fi 配对、Bridge 回连及真实语音蓝键发送验收；开发 DMG 仍未经发布，也尚未完成全新 Mac 验收。
+- RC 1 已使用原生 Swift 运行时，并完成隔离 App/DMG 验收。由于没有第二台全新 Mac 或可用的外置干净启动环境，严格的全新环境首次安装与故障回退验收仍未执行；这既不是通过，也不是失败。
 - 固件只面向 M5Stack StickS3。
 - Mac App 只支持 Apple Silicon 和 macOS 15 或更高版本；当前为 ad-hoc 签名且未经 Apple 公证。
 - Codex 额度平时跟随本地任务 `rate_limits` 事件，不额外启动进程；手动刷新时才单次调用与当前版本绑定的本机 Codex app-server 协议，获取更新的账户级读数。两者都不是公开额度 API。
@@ -317,3 +343,4 @@ idf.py build
 
 原始 VibeStick 与 VibeStick for Mac 修改均使用 MIT License 发布，并保留原作者版权
 声明。详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
+固件和字体等随包许可见[第三方许可证清单](docs/THIRD_PARTY_LICENSES.md)。

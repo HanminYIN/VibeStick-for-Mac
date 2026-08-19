@@ -41,6 +41,15 @@ class TranscriptionAdapter:
     the final transcript to stdout.
     """
 
+    def __init__(
+        self,
+        *,
+        managed_asr: dict[str, Any] | None = None,
+        managed_asr_api_key: str = "",
+    ) -> None:
+        self._managed_asr = dict(managed_asr) if managed_asr is not None else None
+        self._managed_asr_api_key = managed_asr_api_key
+
     def transcribe(
         self,
         session_payload: dict[str, Any],
@@ -55,23 +64,31 @@ class TranscriptionAdapter:
                 source="request",
             )
 
-        configured_text = os.environ.get("VIBE_STICK_TRANSCRIPT_TEXT", "").strip()
-        if configured_text:
-            return TranscriptionResult(
-                text=configured_text,
-                success=True,
-                message="Transcript supplied by local development override",
-                source="env",
-            )
+        if self._managed_asr is None:
+            configured_text = os.environ.get("VIBE_STICK_TRANSCRIPT_TEXT", "").strip()
+            if configured_text:
+                return TranscriptionResult(
+                    text=configured_text,
+                    success=True,
+                    message="Transcript supplied by local development override",
+                    source="env",
+                )
 
-        command = os.environ.get("VIBE_STICK_TRANSCRIBE_CMD", "").strip()
-        if not command:
-            return self._transcribe_with_configured_asr(session_payload)
+            command = os.environ.get("VIBE_STICK_TRANSCRIBE_CMD", "").strip()
+            if command:
+                return _transcribe_with_command(command, session_payload)
 
-        return _transcribe_with_command(command, session_payload)
+        result = self._transcribe_with_configured_asr(session_payload)
+        if self._managed_asr is not None:
+            result.message = _without_secret(result.message, self._managed_asr_api_key)
+        return result
 
     def _transcribe_with_configured_asr(self, session_payload: dict[str, Any]) -> TranscriptionResult:
-        config = _load_asr_config()
+        config = (
+            _config_from_managed_runtime(self._managed_asr, self._managed_asr_api_key)
+            if self._managed_asr is not None
+            else _load_asr_config()
+        )
         if config.get("provider") == "local-command":
             command = config.get("command", "").strip()
             if not command:
@@ -306,6 +323,35 @@ def _config_from_mac_app(
         model=model,
         language=language,
     )
+
+
+def _config_from_managed_runtime(
+    data: dict[str, Any],
+    api_key: str,
+) -> dict[str, str]:
+    provider = _normalize_asr_provider(data.get("provider"))
+    if provider == "local-command":
+        command = str(data.get("localCommand") or "").strip()
+        return {"provider": provider, "command": command} if command else {}
+    if provider not in {"groq", "siliconflow", "openai-compatible"}:
+        return {}
+    base_url = str(data.get("baseURL") or "").strip()
+    model = str(data.get("model") or "").strip()
+    language = str(data.get("language") or "").strip()
+    if not base_url or not model or not language:
+        return {}
+    return _asr_config(
+        provider=provider,
+        base_url=base_url,
+        api_key=api_key.strip(),
+        model=model,
+        language=language,
+    )
+
+
+def _without_secret(message: str, secret: str) -> str:
+    value = secret.strip()
+    return message.replace(value, "[redacted]") if value else message
 
 
 def _asr_config(

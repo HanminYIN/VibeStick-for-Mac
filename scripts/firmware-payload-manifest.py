@@ -227,6 +227,19 @@ def verify(root: Path) -> None:
     validate_file_layout(entries)
 
 
+def verify_source(root: Path, source_root: Path) -> None:
+    verify(root)
+    manifest_path = root / MANIFEST_NAME
+    try:
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        fail(f"cannot read {MANIFEST_NAME}: {error}")
+    expected = manifest["source"]["digest"]
+    actual = source_digest(source_root)
+    if actual != expected:
+        fail("payload source digest does not match the secret-free firmware source")
+
+
 def secret_values(header: Path) -> list[bytes]:
     if not header.exists():
         return []
@@ -288,6 +301,9 @@ def main() -> int:
     generate_parser.add_argument("source_digest")
     verify_parser = subparsers.add_parser("verify")
     verify_parser.add_argument("root", type=Path)
+    verify_source_parser = subparsers.add_parser("verify-source")
+    verify_source_parser.add_argument("root", type=Path)
+    verify_source_parser.add_argument("source_root", type=Path)
     digest_parser = subparsers.add_parser("source-digest")
     digest_parser.add_argument("root", type=Path)
     secret_parser = subparsers.add_parser("assert-no-secrets")
@@ -306,6 +322,8 @@ def main() -> int:
         )
     elif arguments.command == "verify":
         verify(arguments.root.resolve())
+    elif arguments.command == "verify-source":
+        verify_source(arguments.root.resolve(), arguments.source_root.resolve())
     elif arguments.command == "source-digest":
         print(source_digest(arguments.root.resolve()))
     elif arguments.command == "assert-no-secrets":

@@ -31,21 +31,47 @@ def default_device_configuration() -> dict[str, Any]:
 
 
 class DeviceConfigurationStore:
-    def __init__(self, path: Path = DEVICE_CONFIGURATION_PATH) -> None:
+    def __init__(
+        self,
+        path: Path = DEVICE_CONFIGURATION_PATH,
+        *,
+        managed_project_presentation: dict[str, Any] | None = None,
+    ) -> None:
         self.path = path
+        self.managed_project_presentation = (
+            dict(managed_project_presentation)
+            if managed_project_presentation is not None
+            else None
+        )
 
     def current(self) -> dict[str, Any]:
         try:
             raw = self.path.read_bytes()
         except (FileNotFoundError, OSError):
-            return default_device_configuration()
+            return self._with_managed_project(default_device_configuration())
         if len(raw) > MAX_CONFIGURATION_BYTES:
-            return default_device_configuration()
+            return self._with_managed_project(default_device_configuration())
         try:
             payload = json.loads(raw)
         except (UnicodeDecodeError, json.JSONDecodeError):
-            return default_device_configuration()
-        return normalize_device_configuration(payload)
+            return self._with_managed_project(default_device_configuration())
+        return self._with_managed_project(normalize_device_configuration(payload))
+
+    def _with_managed_project(self, configuration: dict[str, Any]) -> dict[str, Any]:
+        if self.managed_project_presentation is None:
+            return configuration
+        managed = normalize_device_configuration(
+            {
+                "schema_version": DEVICE_CONFIGURATION_SCHEMA_VERSION,
+                "project": {
+                    "visible": self.managed_project_presentation.get("showProjectName"),
+                    "name": self.managed_project_presentation.get("projectName"),
+                },
+            }
+        )["project"]
+        result = dict(configuration)
+        result["project"] = managed
+        return result
 
 
 def normalize_device_configuration(value: Any) -> dict[str, Any]:

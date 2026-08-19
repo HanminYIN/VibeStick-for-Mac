@@ -24,6 +24,12 @@
     <string>$(MACOSX_DEPLOYMENT_TARGET)</string>
     <key>NSHighResolutionCapable</key>
     <true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>VibeStick connects this Mac to your StickS3 on the local network and advertises the Bridge for device discovery.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_vibestick._tcp</string>
+    </array>
     <key>NSHumanReadableCopyright</key>
     <string>VibeStick contributors</string>
     <key>NSPrincipalClass</key>

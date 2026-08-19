@@ -59,6 +59,38 @@ class DeviceConfigurationTests(unittest.TestCase):
         self.assertEqual(latin["project"]["name"], "abcdefghijklmnopqr")
         self.assertLess(len(chinese["project"]["name"].encode("utf-8")), 40)
 
+    def test_managed_project_presentation_overrides_only_legacy_project_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "device-config-v1.json"
+            path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": 1,
+                        "revision": 9,
+                        "modules": ["codex", "claude", "connection"],
+                        "default_page": "claude",
+                        "project": {"visible": False, "name": "Legacy Project"},
+                        "buttons": {"front_double": "home", "side_single": "none"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            configuration = DeviceConfigurationStore(
+                path,
+                managed_project_presentation={
+                    "projectName": "Managed Project",
+                    "showProjectName": True,
+                },
+            ).current()
+
+        self.assertEqual(configuration["revision"], 9)
+        self.assertEqual(configuration["modules"], ["codex", "claude", "connection"])
+        self.assertEqual(configuration["buttons"]["front_double"], "home")
+        self.assertEqual(
+            configuration["project"],
+            {"visible": True, "name": "Managed Project"},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

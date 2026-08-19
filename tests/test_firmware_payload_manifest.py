@@ -76,6 +76,32 @@ class FirmwarePayloadManifestTests(unittest.TestCase):
                 with self.assertRaises(SystemExit):
                     manifest.verify(root)
 
+    def test_verify_source_binds_payload_to_secret_free_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "source"
+            payload = root / "payload"
+            payload.mkdir()
+            for directory_name in manifest.SOURCE_DIRECTORIES:
+                (source / directory_name).mkdir(parents=True, exist_ok=True)
+            for file_name in manifest.SOURCE_FILES:
+                (source / file_name).write_text(file_name, encoding="utf-8")
+            (source / "include" / "vibe_stick_secrets.h").write_text(
+                '#define VIBE_STICK_WIFI_PASSWORD "excluded"\n',
+                encoding="utf-8",
+            )
+            digest = manifest.source_digest(source)
+            for index, name in enumerate(manifest.EXPECTED_FILES, start=1):
+                path = payload / name
+                path.write_bytes(bytes([index]) * (128 + index))
+                os.chmod(path, 0o644)
+            manifest.generate(payload, "0.2.0-m4.4a", "a" * 40, digest)
+
+            manifest.verify_source(payload, source)
+            (source / "src" / "changed.c").write_text("changed", encoding="utf-8")
+            with self.assertRaises(SystemExit):
+                manifest.verify_source(payload, source)
+
     def test_local_secret_scan_never_needs_to_print_values(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "payload"

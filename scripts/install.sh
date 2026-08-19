@@ -7,7 +7,6 @@ ENV_PATH="$ROOT_DIR/.env"
 SECRETS_PATH="$ROOT_DIR/firmware/sticks3/include/vibe_stick_secrets.h"
 CONFIG_DIR="$HOME/Library/Application Support/VibeStick"
 COMPONENTS_DIR="$CONFIG_DIR/Components.noindex"
-RUNTIME_DIR="$CONFIG_DIR/runtime"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.bridge.plist"
 HUD_PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.hud.plist"
@@ -22,8 +21,8 @@ LEGACY_BRIDGE_APP_PATH="$CONFIG_DIR/VibeStick Bridge.app"
 LEGACY_HUD_APP_PATH="$CONFIG_DIR/VibeStick HUD.app"
 LEGACY_PASTE_APP_PATH="$CONFIG_DIR/VibeStick Paste.app"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
-BRIDGE_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickBridge/main.swift"
-HUD_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickHUD/main.swift"
+PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
+BUILD_ROOT="$ROOT_DIR/.build/macos.noindex/DeveloperInstall"
 PASTE_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickPaste/main.swift"
 PASTE_INFO_TEMPLATE_PATH="$ROOT_DIR/app/macos/VibeStickPaste/Info.install.plist"
 LEGACY_RUNNER_PATH="$CONFIG_DIR/run-bridge.sh"
@@ -98,104 +97,41 @@ require_bridge_token_ready() {
 "$SETUP_PATH"
 require_bridge_token_ready
 
-if [ -f "$ENV_PATH" ]; then
-  set -a
-  . "$ENV_PATH"
-  set +a
-fi
-
-if ! PYTHON_PATH="$(command -v python3)"; then
-  printf '%s\n' "Python 3 is required to install VibeStick Bridge." >&2
-  exit 1
-fi
-
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$COMPONENTS_DIR"
 mkdir -p "$LAUNCH_AGENTS_DIR"
 chmod 700 "$CONFIG_DIR"
 
-RUNTIME_TEMP="$CONFIG_DIR/.runtime.installing"
 BRIDGE_APP_TEMP="$CONFIG_DIR/.VibeStick Bridge.app.installing"
 HUD_APP_TEMP="$CONFIG_DIR/.VibeStick HUD.app.installing"
 PASTE_APP_TEMP="$CONFIG_DIR/.VibeStick Paste.app.installing"
 
-rm -rf "$RUNTIME_TEMP" "$BRIDGE_APP_TEMP" "$HUD_APP_TEMP" "$PASTE_APP_TEMP"
-mkdir -p "$RUNTIME_TEMP"
-cp -R "$ROOT_DIR/bridge" "$RUNTIME_TEMP/bridge"
+rm -rf "$BRIDGE_APP_TEMP" "$HUD_APP_TEMP" "$PASTE_APP_TEMP"
+for target in VibeStickBridge VibeStickHUD VibeStickPaste; do
+  xcodebuild \
+    -project "$PROJECT_PATH" \
+    -scheme "$target" \
+    -configuration Release \
+    -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath "$BUILD_ROOT/$target-DerivedData" \
+    CODE_SIGNING_ALLOWED=NO \
+    REGISTER_APP_WITH_LAUNCH_SERVICES=NO \
+    build
+done
 
-mkdir -p "$BRIDGE_APP_TEMP/Contents/MacOS"
-mkdir -p "$HUD_APP_TEMP/Contents/MacOS"
-mkdir -p "$PASTE_APP_TEMP/Contents/MacOS"
+/usr/bin/ditto --norsrc --noextattr \
+  "$BUILD_ROOT/VibeStickBridge-DerivedData/Build/Products/Release/VibeStick Bridge.app" \
+  "$BRIDGE_APP_TEMP"
+/usr/bin/ditto --norsrc --noextattr \
+  "$BUILD_ROOT/VibeStickHUD-DerivedData/Build/Products/Release/VibeStick HUD.app" \
+  "$HUD_APP_TEMP"
+/usr/bin/ditto --norsrc --noextattr \
+  "$BUILD_ROOT/VibeStickPaste-DerivedData/Build/Products/Release/VibeStick Paste.app" \
+  "$PASTE_APP_TEMP"
 mkdir -p "$PASTE_APP_TEMP/Contents/Resources"
 
-swiftc "$BRIDGE_SOURCE_PATH" -o "$BRIDGE_APP_TEMP/Contents/MacOS/VibeStickBridge"
-swiftc "$HUD_SOURCE_PATH" -o "$HUD_APP_TEMP/Contents/MacOS/VibeStickHUD" -framework AppKit -framework QuartzCore
-swiftc "$PASTE_SOURCE_PATH" -o "$PASTE_APP_TEMP/Contents/MacOS/VibeStickPaste" -framework AppKit -framework ApplicationServices
-
-cat > "$BRIDGE_APP_TEMP/Contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDisplayName</key>
-  <string>VibeStick Bridge</string>
-  <key>CFBundleExecutable</key>
-  <string>VibeStickBridge</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.vibestick.bridge.agent</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>VibeStick Bridge</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>0.1.4</string>
-  <key>CFBundleVersion</key>
-  <string>1</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
-  <key>LSBackgroundOnly</key>
-  <true/>
-</dict>
-</plist>
-PLIST
-
-cat > "$HUD_APP_TEMP/Contents/Info.plist" <<'PLIST'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>CFBundleDisplayName</key>
-  <string>VibeStick HUD</string>
-  <key>CFBundleExecutable</key>
-  <string>VibeStickHUD</string>
-  <key>CFBundleIdentifier</key>
-  <string>com.vibestick.hud.agent</string>
-  <key>CFBundleInfoDictionaryVersion</key>
-  <string>6.0</string>
-  <key>CFBundleName</key>
-  <string>VibeStick HUD</string>
-  <key>CFBundlePackageType</key>
-  <string>APPL</string>
-  <key>CFBundleShortVersionString</key>
-  <string>0.1.4</string>
-  <key>CFBundleVersion</key>
-  <string>1</string>
-  <key>LSMinimumSystemVersion</key>
-  <string>13.0</string>
-  <key>LSUIElement</key>
-  <true/>
-</dict>
-</plist>
-PLIST
-
-/usr/bin/ditto "$PASTE_INFO_TEMPLATE_PATH" "$PASTE_APP_TEMP/Contents/Info.plist"
-
 PASTE_SOURCE_DIGEST="$(shasum -a 256 "$PASTE_SOURCE_PATH" | awk '{print $1}')"
-PASTE_PLIST_DIGEST="$(shasum -a 256 "$PASTE_APP_TEMP/Contents/Info.plist" | awk '{print $1}')"
+PASTE_PLIST_DIGEST="$(shasum -a 256 "$PASTE_INFO_TEMPLATE_PATH" | awk '{print $1}')"
 PASTE_BUILD_FINGERPRINT="$({
   printf '%s\n' "$PASTE_SOURCE_DIGEST"
   printf '%s\n' "$PASTE_PLIST_DIGEST"
@@ -230,12 +166,11 @@ launchctl bootout "gui/$(id -u)" "$HUD_PLIST_PATH" >/dev/null 2>&1 || true
 rm -f "$PLIST_PATH" "$HUD_PLIST_PATH"
 rm -f "$LEGACY_RUNNER_PATH" "$LEGACY_HUD_BINARY_PATH"
 rm -rf \
-  "$RUNTIME_DIR" \
+  "$CONFIG_DIR/runtime" \
   "$BRIDGE_APP_PATH" \
   "$HUD_APP_PATH" \
   "$LEGACY_BRIDGE_APP_PATH" \
   "$LEGACY_HUD_APP_PATH"
-mv "$RUNTIME_TEMP" "$RUNTIME_DIR"
 mv "$BRIDGE_APP_TEMP" "$BRIDGE_APP_PATH"
 mv "$HUD_APP_TEMP" "$HUD_APP_PATH"
 if [ "$PRESERVE_PASTE_APP" -eq 1 ]; then
@@ -272,8 +207,6 @@ cat > "$PLIST_PATH" <<PLIST
   <dict>
     <key>PATH</key>
     <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
-    <key>VIBE_STICK_PYTHON_PATH</key>
-    <string>$PYTHON_PATH</string>
   </dict>
   <key>RunAtLoad</key>
   <true/>

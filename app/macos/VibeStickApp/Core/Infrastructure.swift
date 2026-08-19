@@ -17,6 +17,10 @@ enum SupportPaths {
         supportDirectory.appendingPathComponent(".env")
     }
 
+    static var managedRuntimeFile: URL {
+        supportDirectory.appendingPathComponent("managed-runtime-v1.json")
+    }
+
     static var deviceRegistryFile: URL {
         supportDirectory.appendingPathComponent("devices-v1.json")
     }
@@ -135,6 +139,23 @@ enum KeychainAccessPolicy {
     }
 
     static func makeASRAccess() throws -> SecAccess {
+        try makeAccess(
+            label: "VibeStick ASR API Key",
+            additionalTrustedApplicationPaths: asrAdditionalTrustedApplicationPaths
+        )
+    }
+
+    static func makeManagedRuntimeAccess(label: String) throws -> SecAccess {
+        try makeAccess(
+            label: label,
+            additionalTrustedApplicationPaths: asrAdditionalTrustedApplicationPaths
+        )
+    }
+
+    private static func makeAccess(
+        label: String,
+        additionalTrustedApplicationPaths: [String]
+    ) throws -> SecAccess {
         var trustedApplications: [SecTrustedApplication] = []
         var currentApplication: SecTrustedApplication?
         var status = SecTrustedApplicationCreateFromPath(nil, &currentApplication)
@@ -143,7 +164,7 @@ enum KeychainAccessPolicy {
         }
         trustedApplications.append(currentApplication)
 
-        for path in asrAdditionalTrustedApplicationPaths {
+        for path in additionalTrustedApplicationPaths {
             var trustedApplication: SecTrustedApplication?
             status = path.withCString {
                 SecTrustedApplicationCreateFromPath($0, &trustedApplication)
@@ -156,7 +177,7 @@ enum KeychainAccessPolicy {
 
         var access: SecAccess?
         status = SecAccessCreate(
-            "VibeStick ASR API Key" as CFString,
+            label as CFString,
             trustedApplications as CFArray,
             &access
         )
@@ -315,13 +336,13 @@ actor ConfigurationInspector {
             containsLegacySecrets: hasSecrets,
             legacyFileIsOverexposed: isOverexposed
         )
-        let keychain = KeychainSummary(
+        let legacyKeychain = LegacyKeychainSummary(
             bridgeTokenStored: keychainStore.contains(.bridgeToken),
             asrKeyStored: keychainStore.contains(.asrAPIKey)
         )
         return ConfigurationInspection(
             legacy: legacy,
-            keychain: keychain,
+            legacyKeychain: legacyKeychain,
             voice: inspectVoiceInteraction(fallbackSendMode: voiceSendMode)
         )
     }
@@ -359,6 +380,349 @@ actor ConfigurationInspector {
     private func booleanValue(_ value: String?) -> Bool {
         guard let value else { return false }
         return ["1", "true", "yes", "on"].contains(value.lowercased())
+    }
+}
+
+enum M4ManagedRuntimeStatusInspectionError: Error, Equatable, Sendable {
+    case unsafeConfigurationFile
+    case oversizedConfigurationFile
+}
+
+protocol M4ManagedRuntimeConfigurationReading: Sendable {
+    func readManagedRuntimeConfiguration() async throws -> Data?
+}
+
+protocol M4ManagedCredentialPresenceChecking: Sendable {
+    func contains(_ reference: M4VersionedCredentialReference) async throws -> Bool
+}
+
+struct M4FoundationManagedRuntimeConfigurationReader:
+    M4ManagedRuntimeConfigurationReading,
+    Sendable
+{
+    private static let maximumByteCount = 1_048_576
+
+    private let fileURL: URL
+
+    init(fileURL: URL = SupportPaths.managedRuntimeFile) {
+        self.fileURL = fileURL
+    }
+
+    func readManagedRuntimeConfiguration() throws -> Data? {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+        let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+        let type = attributes[.type] as? FileAttributeType
+        let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
+        let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
+        guard type == .typeRegular,
+              let permissions,
+              permissions & 0o077 == 0 else {
+            throw M4ManagedRuntimeStatusInspectionError.unsafeConfigurationFile
+        }
+        guard byteCount > 0, byteCount <= Self.maximumByteCount else {
+            throw M4ManagedRuntimeStatusInspectionError.oversizedConfigurationFile
+        }
+        let data = try Data(contentsOf: fileURL)
+        guard data.count == byteCount else {
+            throw M4ManagedRuntimeStatusInspectionError.unsafeConfigurationFile
+        }
+        return data
+    }
+}
+
+extension M4SecurityVersionedGenericPasswordClient: M4ManagedCredentialPresenceChecking {}
+
+actor M4ManagedRuntimeStatusInspector {
+    private let configurationReader: any M4ManagedRuntimeConfigurationReading
+    private let credentialPresenceChecker: any M4ManagedCredentialPresenceChecking
+
+    init(
+        configurationReader: any M4ManagedRuntimeConfigurationReading =
+            M4FoundationManagedRuntimeConfigurationReader(),
+        credentialPresenceChecker: any M4ManagedCredentialPresenceChecking =
+            M4SecurityVersionedGenericPasswordClient()
+    ) {
+        self.configurationReader = configurationReader
+        self.credentialPresenceChecker = credentialPresenceChecker
+    }
+
+    func inspect() async -> M4ManagedRuntimeSummary {
+        let data: Data
+        do {
+            guard let loaded = try await configurationReader.readManagedRuntimeConfiguration() else {
+                return .empty
+            }
+            data = loaded
+        } catch {
+            return M4ManagedRuntimeSummary(
+                configurationState: .unavailable,
+                bridgeCredentialState: .notReferenced,
+                asrCredentialState: .notReferenced
+            )
+        }
+
+        let configuration: M4ManagedRuntimeConfiguration
+        do {
+            configuration = try JSONDecoder().decode(
+                M4ManagedRuntimeConfiguration.self,
+                from: data
+            ).validated()
+        } catch {
+            return M4ManagedRuntimeSummary(
+                configurationState: .invalid,
+                bridgeCredentialState: .notReferenced,
+                asrCredentialState: .notReferenced
+            )
+        }
+
+        return M4ManagedRuntimeSummary(
+            configurationState: .validated,
+            bridgeCredentialState: await credentialState(
+                for: .bridgeToken,
+                in: configuration
+            ),
+            asrCredentialState: await credentialState(
+                for: .asrAPIKey,
+                in: configuration
+            )
+        )
+    }
+
+    private func credentialState(
+        for purpose: M4CredentialPurpose,
+        in configuration: M4ManagedRuntimeConfiguration
+    ) async -> M4ManagedCredentialState {
+        guard let reference = configuration.credentialReference(for: purpose) else {
+            return .notReferenced
+        }
+        do {
+            return try await credentialPresenceChecker.contains(reference) ? .stored : .missing
+        } catch {
+            return .unavailable
+        }
+    }
+}
+
+protocol M4ManagedASRSettingsManaging: Sendable {
+    func loadConfigurationIfManaged() async throws -> ASRConfiguration?
+    func saveIfManaged(_ configuration: ASRConfiguration, apiKey: String) async throws -> Bool
+    func storedAPIKeyIfManaged() async throws -> M4ManagedASRAPIKeyLookup
+    func deleteAPIKeyIfManaged() async throws -> Bool
+}
+
+struct M4ManagedASRAPIKeyLookup: Equatable, Sendable {
+    let isManaged: Bool
+    let apiKey: String?
+
+    static let legacy = M4ManagedASRAPIKeyLookup(isManaged: false, apiKey: nil)
+}
+
+enum M4ManagedASRSettingsError: LocalizedError {
+    case unavailable
+    case missingAPIKey
+
+    var errorDescription: String? {
+        switch self {
+        case .unavailable:
+            "受管语音设置无法安全更新；原配置和凭据已尽可能恢复。"
+        case .missingAPIKey:
+            "受管云端语音供应方需要一个保存在 macOS 钥匙串中的 API Key。"
+        }
+    }
+}
+
+actor M4ManagedASRSettingsStore: M4ManagedASRSettingsManaging {
+    private static let maximumConfigurationBytes = 1_048_576
+    private static let maximumCredentialBytes = 65_536
+
+    private let configurationURL: URL
+    private let credentialClient: any M4VersionedGenericPasswordAccess
+
+    init(
+        configurationURL: URL = SupportPaths.managedRuntimeFile,
+        credentialClient: any M4VersionedGenericPasswordAccess =
+            M4SecurityVersionedGenericPasswordClient()
+    ) {
+        self.configurationURL = configurationURL
+        self.credentialClient = credentialClient
+    }
+
+    func loadConfigurationIfManaged() throws -> ASRConfiguration? {
+        guard let managed = try loadManagedConfiguration() else { return nil }
+        guard let asr = managed.asr,
+              let provider = ASRProvider(rawValue: asr.provider) else { return nil }
+        return try ASRConfiguration(
+            provider: provider,
+            baseURL: asr.baseURL,
+            model: asr.model,
+            language: asr.language,
+            localCommand: asr.localCommand
+        ).validated()
+    }
+
+    func saveIfManaged(_ configuration: ASRConfiguration, apiKey: String) async throws -> Bool {
+        guard let original = try loadManagedConfiguration() else { return false }
+        let requested = try configuration.validated()
+        let asrReference = M4VersionedCredentialReference.managed(.asrAPIKey)
+        let previousCredential = requested.provider.isCloud
+            ? try await credentialClient.read(asrReference)
+            : nil
+        let suppliedKey = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let suppliedCredential = Data(suppliedKey.utf8)
+        var references = original.credentialReferences.filter { $0.purpose != .asrAPIKey }
+        var replacementCredential: Data?
+
+        if requested.provider.isCloud {
+            let effectiveCredential = suppliedCredential.isEmpty
+                ? previousCredential ?? Data()
+                : suppliedCredential
+            guard !effectiveCredential.isEmpty,
+                  effectiveCredential.count <= Self.maximumCredentialBytes else {
+                throw M4ManagedASRSettingsError.missingAPIKey
+            }
+            references.append(asrReference)
+            if !suppliedCredential.isEmpty, suppliedCredential != previousCredential {
+                replacementCredential = suppliedCredential
+            }
+        }
+
+        let updated = try M4ManagedRuntimeConfiguration(
+            schemaVersion: original.schemaVersion,
+            credentialReferences: references,
+            asr: M4ManagedASRConfiguration(
+                provider: requested.provider.rawValue,
+                baseURL: requested.baseURL,
+                model: requested.model,
+                language: requested.language,
+                localCommand: requested.localCommand
+            ),
+            agentProvider: original.agentProvider,
+            projectPresentation: original.projectPresentation,
+            voiceDelivery: original.voiceDelivery,
+            soundEnabled: original.soundEnabled
+        ).validated()
+
+        var credentialWasReplaced = false
+        do {
+            if let replacementCredential {
+                try await replaceCredential(
+                    asrReference,
+                    previous: previousCredential,
+                    replacement: replacementCredential
+                )
+                credentialWasReplaced = true
+            }
+            try writeManagedConfiguration(updated)
+            return true
+        } catch {
+            if credentialWasReplaced {
+                try? await restoreCredential(asrReference, previous: previousCredential)
+            }
+            if let error = error as? M4ManagedASRSettingsError { throw error }
+            throw M4ManagedASRSettingsError.unavailable
+        }
+    }
+
+    func storedAPIKeyIfManaged() async throws -> M4ManagedASRAPIKeyLookup {
+        guard let configuration = try loadManagedConfiguration() else { return .legacy }
+        let reference = M4VersionedCredentialReference.managed(.asrAPIKey)
+        guard configuration.credentialReference(for: .asrAPIKey) != nil else {
+            return M4ManagedASRAPIKeyLookup(isManaged: true, apiKey: nil)
+        }
+        let data = try await credentialClient.read(reference)
+        guard let data,
+              !data.isEmpty,
+              data.count <= Self.maximumCredentialBytes,
+              let value = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return M4ManagedASRAPIKeyLookup(isManaged: true, apiKey: nil)
+        }
+        return M4ManagedASRAPIKeyLookup(isManaged: true, apiKey: value)
+    }
+
+    func deleteAPIKeyIfManaged() async throws -> Bool {
+        guard try loadManagedConfiguration() != nil else { return false }
+        try await credentialClient.delete(.managed(.asrAPIKey))
+        return true
+    }
+
+    private func loadManagedConfiguration() throws -> M4ManagedRuntimeConfiguration? {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: configurationURL.path) else { return nil }
+        do {
+            let attributes = try fileManager.attributesOfItem(atPath: configurationURL.path)
+            let type = attributes[.type] as? FileAttributeType
+            let permissions = (attributes[.posixPermissions] as? NSNumber)?.intValue
+            let byteCount = (attributes[.size] as? NSNumber)?.intValue ?? 0
+            guard type == .typeRegular,
+                  let permissions,
+                  permissions & 0o077 == 0,
+                  byteCount > 0,
+                  byteCount <= Self.maximumConfigurationBytes else {
+                throw M4ManagedASRSettingsError.unavailable
+            }
+            let data = try Data(contentsOf: configurationURL)
+            guard data.count == byteCount else { throw M4ManagedASRSettingsError.unavailable }
+            return try JSONDecoder().decode(
+                M4ManagedRuntimeConfiguration.self,
+                from: data
+            ).validated()
+        } catch let error as M4ManagedASRSettingsError {
+            throw error
+        } catch {
+            throw M4ManagedASRSettingsError.unavailable
+        }
+    }
+
+    private func writeManagedConfiguration(_ configuration: M4ManagedRuntimeConfiguration) throws {
+        let fileManager = FileManager.default
+        let directory = configurationURL.deletingLastPathComponent()
+        let temporaryURL = directory.appendingPathComponent(
+            ".managed-runtime-v1.\(UUID().uuidString).tmp"
+        )
+        defer { try? fileManager.removeItem(at: temporaryURL) }
+        do {
+            let encoder = JSONEncoder()
+            encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+            try encoder.encode(configuration).write(to: temporaryURL, options: .atomic)
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o600],
+                ofItemAtPath: temporaryURL.path
+            )
+            _ = try fileManager.replaceItemAt(configurationURL, withItemAt: temporaryURL)
+        } catch {
+            throw M4ManagedASRSettingsError.unavailable
+        }
+    }
+
+    private func replaceCredential(
+        _ reference: M4VersionedCredentialReference,
+        previous: Data?,
+        replacement: Data
+    ) async throws {
+        if previous != nil {
+            try await credentialClient.delete(reference)
+        }
+        do {
+            try await credentialClient.add(replacement, for: reference)
+        } catch {
+            if let previous {
+                try? await credentialClient.add(previous, for: reference)
+            }
+            throw M4ManagedASRSettingsError.unavailable
+        }
+    }
+
+    private func restoreCredential(
+        _ reference: M4VersionedCredentialReference,
+        previous: Data?
+    ) async throws {
+        try await credentialClient.delete(reference)
+        if let previous {
+            try await credentialClient.add(previous, for: reference)
+        }
     }
 }
 

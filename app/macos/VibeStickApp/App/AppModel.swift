@@ -21,13 +21,17 @@ private final class StartupSmokeCounter: @unchecked Sendable {
 
 @MainActor
 final class AppModel: ObservableObject {
+    let legacyMigrationFlow: M4LegacyMigrationUIFlow
+    let diagnosticFlow: M4DiagnosticUIFlow
+
     @Published private(set) var bridgeSnapshot = BridgeSnapshot.empty
     @Published private(set) var runtimeSnapshot = RuntimeSnapshot.waiting
     @Published private(set) var flashingToolSnapshot = FlashingToolSnapshot.checking()
     @Published private(set) var deviceBackupSnapshot = DeviceBackupSnapshot.idle
     @Published private(set) var deviceFlashSnapshot = DeviceFlashSnapshot.checking
     @Published private(set) var configurationSummary = LegacyConfigurationSummary.empty
-    @Published private(set) var keychainSummary = KeychainSummary.empty
+    @Published private(set) var legacyKeychainSummary = LegacyKeychainSummary.empty
+    @Published private(set) var managedRuntimeSummary = M4ManagedRuntimeSummary.empty
     @Published private(set) var voiceInteractionSummary = VoiceInteractionSummary.empty
     @Published private(set) var configuration = AppConfiguration.standard
     @Published private(set) var asrDraft = ASRConfiguration.standard
@@ -62,14 +66,17 @@ final class AppModel: ObservableObject {
     private let deviceBackupManager: DeviceBackupManager
     private let deviceFlashManager: DeviceFlashManager
     private let configurationInspector: ConfigurationInspector
+    private let managedRuntimeStatusInspector: M4ManagedRuntimeStatusInspector
     private let preferencesStore: PreferencesStore
     private let loginItemController: LoginItemController
     private let deviceConfigurationStore: DeviceConfigurationStore
     private let usbDeviceDetector: USBDeviceDetector
     private let devicePairingManager: DevicePairingManager
     private let asrSecretManager: any ASRSecretManaging
+    private let managedASRSettingsStore: any M4ManagedASRSettingsManaging
     private let asrTestService: any ASRTesting
     private let asrTestAudioProvider: any ASRTestAudioProviding
+    private let diagnosticSnapshotStore: M4DiagnosticSnapshotStore
     private var refreshLoop: Task<Void, Never>?
     private var startupSmokeProbe: Task<Void, Never>?
     private var startupSmokeObservation: AnyCancellable?
@@ -77,6 +84,8 @@ final class AppModel: ObservableObject {
     private var startupSmokeWindowVisible = false
     private var hasStarted = false
     private var hasEditedASRDraft = false
+    private var latestDiagnosticMigrationReceipt: M4DiagnosticMigrationReceiptSummary?
+    private var latestDiagnosticRuntimeReceipt: M4DiagnosticRuntimeReceiptSummary?
 
     init(
         bridgeClient: BridgeClient = BridgeClient(),
@@ -86,14 +95,21 @@ final class AppModel: ObservableObject {
         deviceBackupManager: DeviceBackupManager = DeviceBackupManager(),
         deviceFlashManager: DeviceFlashManager = DeviceFlashManager(),
         configurationInspector: ConfigurationInspector = ConfigurationInspector(),
+        managedRuntimeStatusInspector: M4ManagedRuntimeStatusInspector =
+            M4ManagedRuntimeStatusInspector(),
         preferencesStore: PreferencesStore = PreferencesStore(),
         loginItemController: LoginItemController = LoginItemController(),
         deviceConfigurationStore: DeviceConfigurationStore = DeviceConfigurationStore(),
         usbDeviceDetector: USBDeviceDetector = USBDeviceDetector(),
         devicePairingManager: DevicePairingManager = DevicePairingManager(),
         asrSecretManager: any ASRSecretManaging = ASRKeychainManager(),
+        managedASRSettingsStore: any M4ManagedASRSettingsManaging =
+            M4ManagedASRSettingsStore(),
         asrTestService: any ASRTesting = ASRTestService(),
-        asrTestAudioProvider: any ASRTestAudioProviding = ASRTestAudioGenerator()
+        asrTestAudioProvider: any ASRTestAudioProviding = ASRTestAudioGenerator(),
+        legacyMigrationOperationBuilder: (any M4LegacyMigrationUIOperationBuilding)? = nil,
+        diagnosticOperationBuilder: (any M4DiagnosticUIOperationBuilding)? = nil,
+        diagnosticDestinationSelector: (any M4DiagnosticDestinationSelecting)? = nil
     ) {
         self.bridgeClient = bridgeClient
         self.runtimeManager = runtimeManager
@@ -102,14 +118,59 @@ final class AppModel: ObservableObject {
         self.deviceBackupManager = deviceBackupManager
         self.deviceFlashManager = deviceFlashManager
         self.configurationInspector = configurationInspector
+        self.managedRuntimeStatusInspector = managedRuntimeStatusInspector
         self.preferencesStore = preferencesStore
         self.loginItemController = loginItemController
         self.deviceConfigurationStore = deviceConfigurationStore
         self.usbDeviceDetector = usbDeviceDetector
         self.devicePairingManager = devicePairingManager
         self.asrSecretManager = asrSecretManager
+        self.managedASRSettingsStore = managedASRSettingsStore
         self.asrTestService = asrTestService
         self.asrTestAudioProvider = asrTestAudioProvider
+        let migrationBuilder = legacyMigrationOperationBuilder
+            ?? M4ProductionLegacyMigrationUIOperationBuilder(
+                runtimeFacts: M4ExplicitActionLegacyRuntimeFactsReader {
+                    let bridge = await bridgeClient.fetchSnapshot()
+                    let runtime = await runtimeManager.migrationDiscoverySnapshot(bridge: bridge)
+                    return M4LegacyRuntimeFacts.appSnapshot(runtime)
+                }
+            )
+        legacyMigrationFlow = M4LegacyMigrationUIFlow(builder: migrationBuilder)
+        let initialDiagnosticSnapshot = M4DiagnosticAppSnapshotFactory.make(
+            appVersion: Bundle.main.object(
+                forInfoDictionaryKey: "CFBundleShortVersionString"
+            ) as? String ?? "0.2.0-dev",
+            appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+                ?? "local",
+            bridge: .empty,
+            runtime: .waiting,
+            migrationReceipt: nil,
+            runtimeReceipt: nil
+        )
+        let snapshotStore = M4DiagnosticSnapshotStore(snapshot: initialDiagnosticSnapshot)
+        diagnosticSnapshotStore = snapshotStore
+        let diagnosticsBuilder = diagnosticOperationBuilder
+            ?? M4ProductionDiagnosticUIOperationBuilder(
+                snapshotReader: snapshotStore,
+                logReader: M4ProductionDiagnosticLogSourceReader(
+                    supportDirectory: SupportPaths.supportDirectory
+                ),
+                signatureReader: M4ProductionDiagnosticComponentSignatureReader(
+                    bridge: SupportPaths.bridgeApp,
+                    hud: SupportPaths.hudApp,
+                    paste: SupportPaths.pasteApp
+                )
+            )
+        diagnosticFlow = M4DiagnosticUIFlow(
+            builder: diagnosticsBuilder,
+            destinationSelector: diagnosticDestinationSelector
+                ?? M4SystemDiagnosticDestinationSelector()
+        )
+        legacyMigrationFlow.setMigrationCompletionHandler { [weak self] in
+            await self?.captureCompletedMigrationForDiagnostics()
+            await self?.refreshManagedRuntimeStatus()
+        }
     }
 
     var appVersion: String {
@@ -117,7 +178,7 @@ final class AppModel: ObservableObject {
             ?? "0.2.0-dev"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "local"
-        return "\(version) (\(build)) · M4-4D"
+        return "\(version) (\(build)) · RC 1"
     }
 
     func start() {
@@ -127,9 +188,15 @@ final class AppModel: ObservableObject {
 
         Task {
             async let loadedPreferences = preferencesStore.load()
+            async let loadedManagedASR = try? managedASRSettingsStore.loadConfigurationIfManaged()
             async let loadedDeviceConfiguration = deviceConfigurationStore.load()
             configuration = await loadedPreferences
-            asrDraft = configuration.asr ?? .standard
+            if let managedASR = await loadedManagedASR {
+                configuration.asr = managedASR
+                asrDraft = managedASR
+            } else {
+                asrDraft = configuration.asr ?? .standard
+            }
             deviceConfiguration = await loadedDeviceConfiguration
             synchronizeMenuBarPreference()
             configuration.launchAtLogin = await loginItemController.isEnabled()
@@ -157,13 +224,13 @@ final class AppModel: ObservableObject {
 
         async let bridge = bridgeClient.fetchSnapshot()
         async let inspected = configurationInspector.inspect()
+        async let managedRuntime = managedRuntimeStatusInspector.inspect()
         async let devices = bridgeClient.fetchDevices()
-        async let usbDevice = usbDeviceDetector.detect()
 
         let fetchedBridge = await bridge
         let fetchedConfiguration = await inspected
+        let fetchedManagedRuntime = await managedRuntime
         let fetchedDevices = await devices
-        let detectedUSBDevice = await usbDevice
         let runtime = await runtimeManager.snapshot(
             bridge: fetchedBridge,
             forcePermissionCheck: forcePermissionCheck
@@ -172,7 +239,8 @@ final class AppModel: ObservableObject {
         bridgeSnapshot = fetchedBridge
         runtimeSnapshot = runtime
         configurationSummary = fetchedConfiguration.legacy
-        keychainSummary = fetchedConfiguration.keychain
+        legacyKeychainSummary = fetchedConfiguration.legacyKeychain
+        managedRuntimeSummary = fetchedManagedRuntime
         voiceInteractionSummary = fetchedConfiguration.voice
         if configuration.asr == nil,
            !hasEditedASRDraft,
@@ -180,15 +248,37 @@ final class AppModel: ObservableObject {
             asrDraft = .preset(provider)
         }
         bridgeDevices = fetchedDevices
-        if case .pairing = pairingPhase {
-            // Preserve the in-flight phase until the USB transaction finishes.
-        } else if case .paired = pairingPhase {
-            // Keep the success result visible until the user explicitly checks USB again.
-        } else if let detectedUSBDevice {
-            pairingPhase = .ready(detectedUSBDevice)
-        } else {
-            pairingPhase = .unavailable("未检测到 StickS3 USB 连接")
-        }
+        await refreshDiagnosticSnapshot()
+    }
+
+    func refreshManagedRuntimeStatus() async {
+        managedRuntimeSummary = await managedRuntimeStatusInspector.inspect()
+    }
+
+    private func captureCompletedMigrationForDiagnostics() async {
+        guard case let .completed(receipt) = legacyMigrationFlow.state else { return }
+        latestDiagnosticMigrationReceipt = M4DiagnosticAppSnapshotFactory.migrationReceipt(
+            from: receipt
+        )
+        await refreshDiagnosticSnapshot()
+    }
+
+    private func refreshDiagnosticSnapshot() async {
+        let version = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String ?? "0.2.0-dev"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
+            ?? "local"
+        await diagnosticSnapshotStore.replace(
+            with: M4DiagnosticAppSnapshotFactory.make(
+                appVersion: version,
+                appBuild: build,
+                bridge: bridgeSnapshot,
+                runtime: runtimeSnapshot,
+                migrationReceipt: latestDiagnosticMigrationReceipt,
+                runtimeReceipt: latestDiagnosticRuntimeReceipt
+            )
+        )
     }
 
     func detectUSBDevice() {
@@ -336,22 +426,27 @@ final class AppModel: ObservableObject {
         Task {
             do {
                 let validated = try requested.validated()
-                let hasStoredKey = validated.provider.isCloud
-                    ? await asrSecretManager.containsAPIKey()
-                    : false
-                if validated.requiresAPIKey && suppliedKey.isEmpty && !hasStoredKey {
-                    throw ASRConfigurationError.missingAPIKey
-                }
-
                 var value = configuration
                 value.asr = validated
-                try await preferencesStore.save(value)
-                if !suppliedKey.isEmpty {
-                    do {
-                        try await asrSecretManager.saveAPIKey(suppliedKey)
-                    } catch {
-                        try? await preferencesStore.save(configuration)
-                        throw error
+                let savedManaged = try await managedASRSettingsStore.saveIfManaged(
+                    validated,
+                    apiKey: suppliedKey
+                )
+                if !savedManaged {
+                    let hasStoredKey = validated.provider.isCloud
+                        ? await asrSecretManager.containsAPIKey()
+                        : false
+                    if validated.requiresAPIKey && suppliedKey.isEmpty && !hasStoredKey {
+                        throw ASRConfigurationError.missingAPIKey
+                    }
+                    try await preferencesStore.save(value)
+                    if !suppliedKey.isEmpty {
+                        do {
+                            try await asrSecretManager.saveAPIKey(suppliedKey)
+                        } catch {
+                            try? await preferencesStore.save(configuration)
+                            throw error
+                        }
                     }
                 }
 
@@ -378,7 +473,10 @@ final class AppModel: ObservableObject {
         asrSettingsSaveInProgress = true
         Task {
             do {
-                try await asrSecretManager.deleteAPIKey()
+                let deletedManaged = try await managedASRSettingsStore.deleteAPIKeyIfManaged()
+                if !deletedManaged {
+                    try await asrSecretManager.deleteAPIKey()
+                }
                 asrSettingsSaveInProgress = false
                 presentedMessage = AppMessage(
                     title: "语音 API Key 已移除",
@@ -415,9 +513,15 @@ final class AppModel: ObservableObject {
             do {
                 let fixture = try await asrTestAudioProvider.makeFixture()
                 defer { try? FileManager.default.removeItem(at: fixture.audioURL) }
-                let storedKey = configuration.requiresAPIKey && suppliedKey.isEmpty
-                    ? try await asrSecretManager.storedAPIKey()
-                    : nil
+                let storedKey: String?
+                if configuration.requiresAPIKey && suppliedKey.isEmpty {
+                    let managed = try await managedASRSettingsStore.storedAPIKeyIfManaged()
+                    storedKey = managed.isManaged
+                        ? managed.apiKey
+                        : try await asrSecretManager.storedAPIKey()
+                } else {
+                    storedKey = nil
+                }
                 if configuration.requiresAPIKey && suppliedKey.isEmpty && storedKey == nil {
                     throw ASRConfigurationError.missingAPIKey
                 }
@@ -521,6 +625,9 @@ final class AppModel: ObservableObject {
 
             do {
                 let receipt = try await runtimeInstaller.install()
+                latestDiagnosticRuntimeReceipt = M4DiagnosticAppSnapshotFactory.runtimeReceipt(
+                    from: receipt
+                )
                 runtimeInstallInProgress = false
                 await refresh(forcePermissionCheck: true)
                 presentedMessage = AppMessage(

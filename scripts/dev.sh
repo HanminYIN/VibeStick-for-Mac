@@ -2,7 +2,9 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
-cd "$ROOT_DIR/bridge"
+PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
+BUILD_ROOT="$ROOT_DIR/.build/macos.noindex/NativeBridgeDev-DerivedData"
+SUPPORT_DIR="$HOME/Library/Application Support/VibeStick"
 
 if [ -f "$ROOT_DIR/.env" ]; then
   set -a
@@ -18,4 +20,19 @@ case "${VIBE_STICK_BRIDGE_TOKEN:-}" in
     ;;
 esac
 
-PYTHONPATH="$ROOT_DIR/bridge/src" exec python3 -m vibe_stick --host 0.0.0.0 --port 8765
+mkdir -p "$SUPPORT_DIR"
+chmod 700 "$SUPPORT_DIR"
+cp "$ROOT_DIR/.env" "$SUPPORT_DIR/.env"
+chmod 600 "$SUPPORT_DIR/.env"
+
+xcodebuild \
+  -project "$PROJECT_PATH" \
+  -scheme VibeStickBridge \
+  -configuration Debug \
+  -destination 'platform=macOS,arch=arm64' \
+  -derivedDataPath "$BUILD_ROOT" \
+  CODE_SIGNING_ALLOWED=NO \
+  REGISTER_APP_WITH_LAUNCH_SERVICES=NO \
+  build
+
+exec "$BUILD_ROOT/Build/Products/Debug/VibeStick Bridge.app/Contents/MacOS/VibeStickBridge"

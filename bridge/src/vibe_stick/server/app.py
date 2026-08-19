@@ -19,6 +19,7 @@ from vibe_stick.claude.usage import fetch_usage as fetch_claude_usage
 from vibe_stick.claude.usage import to_quota_snapshot as claude_usage_to_quota
 from vibe_stick.codex.quota import QuotaSnapshot, load_quota, save_quota
 from vibe_stick.codex.rate_limits import fetch_account_quota as fetch_codex_account_quota
+from vibe_stick.config.managed_runtime import ResolvedManagedRuntimeConfiguration
 from vibe_stick.config.paths import (
     CLAUDE_QUOTA_PATH,
     PENDING_SEND_PATH,
@@ -26,6 +27,11 @@ from vibe_stick.config.paths import (
     RECORDING_PATH,
     STATE_PATH,
     ensure_app_support,
+)
+from vibe_stick.config.runtime_bootstrap import (
+    ManagedRuntimeBootstrapError,
+    configured_startup_mode,
+    load_runtime_configuration,
 )
 from vibe_stick.desktop.hud import hide_hud
 from vibe_stick.protocol.state import (
@@ -68,10 +74,17 @@ class BridgeStateStore:
         device_registry: PairedDeviceRegistry | None = None,
         device_configuration: DeviceConfigurationStore | None = None,
         bridge_identity: BridgeIdentityStore | None = None,
+        runtime_configuration: ResolvedManagedRuntimeConfiguration | None = None,
     ) -> None:
         ensure_app_support()
         self._lock = threading.RLock()
         self._project_root = _resolve_project_root()
+        self._runtime_agent_provider = _managed_agent_provider(runtime_configuration)
+        self.bridge_token = (
+            _bridge_token(runtime_configuration.bridge_token)
+            if runtime_configuration is not None
+            else _bridge_token()
+        )
         self._manual_status_until = 0.0
         self._state = self._load_state()
         self._last_active_provider = self._state.active_provider or "codex"
@@ -81,7 +94,11 @@ class BridgeStateStore:
         self._claude_usage_last_attempt = 0.0
         self._claude_usage_last_success = 0.0
         self.device_registry = device_registry or PairedDeviceRegistry()
-        self.device_configuration = device_configuration or DeviceConfigurationStore()
+        self.device_configuration = device_configuration or DeviceConfigurationStore(
+            managed_project_presentation=runtime_configuration.project_presentation
+            if runtime_configuration is not None
+            else None
+        )
         self.bridge_id = (bridge_identity or BridgeIdentityStore()).bridge_id()
         self._device_runtime: dict[str, dict[str, Any]] = {}
         self._codex_quota = load_quota(QUOTA_PATH)
@@ -93,6 +110,15 @@ class BridgeStateStore:
         self.recording = RecordingController(
             RECORDING_PATH,
             pending_send_path=PENDING_SEND_PATH,
+            managed_asr=(runtime_configuration.asr or {})
+            if runtime_configuration is not None
+            else None,
+            managed_asr_api_key=runtime_configuration.asr_api_key
+            if runtime_configuration is not None
+            else "",
+            managed_send_mode=(runtime_configuration.voice_delivery or {}).get("sendMode", "")
+            if runtime_configuration is not None
+            else None,
         )
         hide_hud()
 
@@ -244,7 +270,7 @@ class BridgeStateStore:
             _apply_manual_codex_state(codex_observation, self._state)
 
         active_provider = _select_active_provider(
-            _configured_provider(),
+            getattr(self, "_runtime_agent_provider", None) or _configured_provider(),
             self._last_active_provider,
             codex_observation,
             claude_observation,
@@ -418,7 +444,13 @@ class BridgeStateStore:
         STATE_PATH.write_text(json.dumps(self._state.to_jsonable(), indent=2) + "\n")
 
 
-def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
+def make_handler(
+    store: BridgeStateStore,
+    *,
+    bridge_token: str | None = None,
+) -> type[BaseHTTPRequestHandler]:
+    effective_bridge_token = _bridge_token() if bridge_token is None else _bridge_token(bridge_token)
+
     class VibeStickHandler(BaseHTTPRequestHandler):
         server_version = "VibeStick/0.1"
 
@@ -555,7 +587,7 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
             if paired_device_id is not None:
                 store.note_device_request(paired_device_id, self.headers)
                 return True
-            expected = _bridge_token()
+            expected = effective_bridge_token
             if not expected:
                 return self._is_loopback_request()
             supplied = self.headers.get("X-Vibe-Stick-Token", "")
@@ -601,13 +633,21 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
     return VibeStickHandler
 
 
-def run_server(host: str, port: int) -> None:
-    store = BridgeStateStore()
-    _enforce_bind_security(host, store.device_registry)
-    server = ThreadingHTTPServer((host, port), make_handler(store))
+def run_server(
+    host: str,
+    port: int,
+    *,
+    runtime_configuration: ResolvedManagedRuntimeConfiguration | None = None,
+) -> None:
+    store = BridgeStateStore(runtime_configuration=runtime_configuration)
+    _enforce_bind_security(host, store.device_registry, bridge_token=store.bridge_token)
+    server = ThreadingHTTPServer(
+        (host, port),
+        make_handler(store, bridge_token=store.bridge_token),
+    )
     advertiser = BonjourAdvertiser(bridge_id=store.bridge_id, port=port)
     advertiser.start()
-    if not _bridge_token() and not store.device_registry.devices():
+    if not store.bridge_token and not store.device_registry.devices():
         print(
             "WARNING: VIBE_STICK_BRIDGE_TOKEN is not set; POST endpoints are unauthenticated on loopback only.",
             flush=True,
@@ -631,16 +671,25 @@ def _protected_paths() -> set[str]:
     }
 
 
-def _bridge_token() -> str:
-    token = os.environ.get("VIBE_STICK_BRIDGE_TOKEN", "").strip()
+def _bridge_token(explicit: str | None = None) -> str:
+    token = (
+        os.environ.get("VIBE_STICK_BRIDGE_TOKEN", "")
+        if explicit is None
+        else explicit
+    ).strip()
     if token.lower() in PLACEHOLDER_BRIDGE_TOKENS:
         return ""
     return token
 
 
-def _enforce_bind_security(host: str, registry: PairedDeviceRegistry | None = None) -> None:
+def _enforce_bind_security(
+    host: str,
+    registry: PairedDeviceRegistry | None = None,
+    *,
+    bridge_token: str | None = None,
+) -> None:
     paired_devices = (registry or PairedDeviceRegistry()).devices()
-    if _host_requires_token(host) and not _bridge_token() and not paired_devices:
+    if _host_requires_token(host) and not _bridge_token(bridge_token) and not paired_devices:
         raise SystemExit(
             "Refusing to bind VibeStick Bridge outside loopback without "
             "a paired device or VIBE_STICK_BRIDGE_TOKEN. Pair over USB, set a strong legacy token, "
@@ -754,6 +803,14 @@ def _configured_provider() -> str:
     return value if value in {"codex", "claude", "auto"} else "auto"
 
 
+def _managed_agent_provider(
+    runtime_configuration: ResolvedManagedRuntimeConfiguration | None,
+) -> str | None:
+    if runtime_configuration is None:
+        return None
+    return runtime_configuration.agent_provider or "auto"
+
+
 def _select_active_provider(
     configured: str,
     last_active: str,
@@ -862,4 +919,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    run_server(args.host, args.port)
+    try:
+        runtime_configuration = load_runtime_configuration(
+            expected_mode=configured_startup_mode()
+        )
+    except ManagedRuntimeBootstrapError:
+        raise SystemExit("VibeStick Bridge: managed runtime configuration is unavailable") from None
+    run_server(
+        args.host,
+        args.port,
+        runtime_configuration=runtime_configuration,
+    )
