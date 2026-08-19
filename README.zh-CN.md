@@ -6,9 +6,7 @@
 > [Gary Zhang 原始 VibeStick](https://github.com/GaryGaryyy/VibeStick)、面向 macOS
 > 独立维护的衍生项目。原作者版权、MIT 许可和项目历史均完整保留。
 
-![VibeStick 首页，显示 Codex 和 Claude 状态](assets/brand/home-screen-preview.png)
-
-![VibeStick 语音输入流程，显示 StickS3 录音状态和 Mac HUD](assets/brand/voice-input-preview.png)
+![VibeStick for Mac 英文产品图，设备区域保留真实 StickS3 首页布局](assets/brand/vibestick-for-mac-hero.png)
 
 VibeStick for Mac 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：显示状态、可用额度窗口和提醒，并支持长按说话后自动转写粘贴到 Mac。
 

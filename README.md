@@ -6,9 +6,7 @@
 > [Gary Zhang's VibeStick](https://github.com/GaryGaryyy/VibeStick). The original
 > copyright, MIT license, and project history are retained.
 
-![VibeStick home screen showing Codex and Claude providers](assets/brand/home-screen-preview.png)
-
-![VibeStick voice input flow showing StickS3 recording states and Mac HUD](assets/brand/voice-input-preview.png)
+![VibeStick for Mac with the real StickS3 home-screen layout and English product messaging](assets/brand/vibestick-for-mac-hero.png)
 
 VibeStick for Mac turns an M5Stack StickS3 into a tiny desktop companion for
 coding agents: glanceable status and quota windows on the device, plus
