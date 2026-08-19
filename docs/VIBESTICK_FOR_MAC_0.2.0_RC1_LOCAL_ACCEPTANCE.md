@@ -4,11 +4,12 @@ Date: 2026-08-19
 
 ## Result
 
-The isolated local release candidate built from commit `5479663` passed the
-authorized pre-publication acceptance chain. Its source is published to Draft
-PR #1, and both required GitHub Actions jobs pass at that head. It is ready for
-maintainer review; merge, tag, GitHub Pre-release creation, and DMG upload remain
-separate publication boundaries.
+At the time of this dated record, the isolated local release candidate built
+from commit `5479663` had passed the authorized pre-publication acceptance
+chain. Its source was published to Draft PR #1, and both required GitHub Actions
+jobs passed at that head. It was ready for maintainer review, while merge, tag,
+GitHub Pre-release creation, and DMG upload remained separate publication
+boundaries.
 
 Before the final diagnostic-redaction fix, the predecessor candidate was
 installed locally under separate authorization. The main App was atomically
@@ -132,14 +133,16 @@ The accepted M4-5K candidate remains untouched:
 
 The existing M4-5K installation backup and diagnostic export were not modified.
 
-## Deferred evidence and publication stop
+## Deferred evidence and publication boundary
 
 Strict clean-machine first-install and fault-rollback acceptance remains
 unexecuted because no second clean Mac or external clean boot environment is
 available. This is neither a pass nor a failure and must be disclosed in the
 GitHub Pre-release notes.
 
-Authorized source commits, branch pushes, and Draft PR creation are complete.
-The RC remains intentionally stopped before merge, tag, Pre-release creation,
-and DMG upload. Those actions remain outside this acceptance and require
-separate explicit authorization.
+At the time of this dated acceptance, authorized source commits, branch pushes,
+and Draft PR creation were complete. The RC was intentionally stopped before
+merge, tag, Pre-release creation, and DMG upload. Those actions remained outside
+this acceptance and required separate explicit authorization. They were later
+authorized and completed as
+[GitHub Pre-release v0.2.0-rc.1](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1).
