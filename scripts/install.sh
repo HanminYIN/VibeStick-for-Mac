@@ -6,13 +6,27 @@ SETUP_PATH="$ROOT_DIR/scripts/setup.sh"
 ENV_PATH="$ROOT_DIR/.env"
 SECRETS_PATH="$ROOT_DIR/firmware/sticks3/include/vibe_stick_secrets.h"
 CONFIG_DIR="$HOME/Library/Application Support/VibeStick"
-RUNTIME_DIR="$CONFIG_DIR/runtime"
+COMPONENTS_DIR="$CONFIG_DIR/Components.noindex"
 LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
 PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.bridge.plist"
 HUD_PLIST_PATH="$LAUNCH_AGENTS_DIR/com.vibestick.hud.plist"
-RUNNER_PATH="$CONFIG_DIR/run-bridge.sh"
-HUD_BINARY_PATH="$CONFIG_DIR/VibeStickHUD"
-HUD_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickHUD/main.swift"
+BRIDGE_APP_PATH="$COMPONENTS_DIR/VibeStick Bridge.app"
+BRIDGE_BINARY_PATH="$BRIDGE_APP_PATH/Contents/MacOS/VibeStickBridge"
+HUD_APP_PATH="$COMPONENTS_DIR/VibeStick HUD.app"
+HUD_BINARY_PATH="$HUD_APP_PATH/Contents/MacOS/VibeStickHUD"
+PASTE_APP_PATH="$COMPONENTS_DIR/VibeStick Paste.app"
+PASTE_BINARY_PATH="$PASTE_APP_PATH/Contents/MacOS/VibeStickPaste"
+PASTE_BUILD_STAMP_PATH="$PASTE_APP_PATH/Contents/Resources/VibeStickPaste.build"
+LEGACY_BRIDGE_APP_PATH="$CONFIG_DIR/VibeStick Bridge.app"
+LEGACY_HUD_APP_PATH="$CONFIG_DIR/VibeStick HUD.app"
+LEGACY_PASTE_APP_PATH="$CONFIG_DIR/VibeStick Paste.app"
+LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
+BUILD_ROOT="$ROOT_DIR/.build/macos.noindex/DeveloperInstall"
+PASTE_SOURCE_PATH="$ROOT_DIR/app/macos/VibeStickPaste/main.swift"
+PASTE_INFO_TEMPLATE_PATH="$ROOT_DIR/app/macos/VibeStickPaste/Info.install.plist"
+LEGACY_RUNNER_PATH="$CONFIG_DIR/run-bridge.sh"
+LEGACY_HUD_BINARY_PATH="$CONFIG_DIR/VibeStickHUD"
 
 is_placeholder_token() {
   case "${1:-}" in
@@ -83,33 +97,97 @@ require_bridge_token_ready() {
 "$SETUP_PATH"
 require_bridge_token_ready
 
-if [ -f "$ENV_PATH" ]; then
-  set -a
-  . "$ENV_PATH"
-  set +a
+mkdir -p "$CONFIG_DIR"
+mkdir -p "$COMPONENTS_DIR"
+mkdir -p "$LAUNCH_AGENTS_DIR"
+chmod 700 "$CONFIG_DIR"
+
+BRIDGE_APP_TEMP="$CONFIG_DIR/.VibeStick Bridge.app.installing"
+HUD_APP_TEMP="$CONFIG_DIR/.VibeStick HUD.app.installing"
+PASTE_APP_TEMP="$CONFIG_DIR/.VibeStick Paste.app.installing"
+
+rm -rf "$BRIDGE_APP_TEMP" "$HUD_APP_TEMP" "$PASTE_APP_TEMP"
+for target in VibeStickBridge VibeStickHUD VibeStickPaste; do
+  xcodebuild \
+    -project "$PROJECT_PATH" \
+    -scheme "$target" \
+    -configuration Release \
+    -destination 'platform=macOS,arch=arm64' \
+    -derivedDataPath "$BUILD_ROOT/$target-DerivedData" \
+    CODE_SIGNING_ALLOWED=NO \
+    REGISTER_APP_WITH_LAUNCH_SERVICES=NO \
+    build
+done
+
+/usr/bin/ditto --norsrc --noextattr \
+  "$BUILD_ROOT/VibeStickBridge-DerivedData/Build/Products/Release/VibeStick Bridge.app" \
+  "$BRIDGE_APP_TEMP"
+/usr/bin/ditto --norsrc --noextattr \
+  "$BUILD_ROOT/VibeStickHUD-DerivedData/Build/Products/Release/VibeStick HUD.app" \
+  "$HUD_APP_TEMP"
+/usr/bin/ditto --norsrc --noextattr \
+  "$BUILD_ROOT/VibeStickPaste-DerivedData/Build/Products/Release/VibeStick Paste.app" \
+  "$PASTE_APP_TEMP"
+mkdir -p "$PASTE_APP_TEMP/Contents/Resources"
+
+PASTE_SOURCE_DIGEST="$(shasum -a 256 "$PASTE_SOURCE_PATH" | awk '{print $1}')"
+PASTE_PLIST_DIGEST="$(shasum -a 256 "$PASTE_INFO_TEMPLATE_PATH" | awk '{print $1}')"
+PASTE_BUILD_FINGERPRINT="$({
+  printf '%s\n' "$PASTE_SOURCE_DIGEST"
+  printf '%s\n' "$PASTE_PLIST_DIGEST"
+  printf '%s\n' 'swiftc-frameworks:AppKit,ApplicationServices'
+} | shasum -a 256 | awk '{print $1}')"
+printf '%s\n' "$PASTE_BUILD_FINGERPRINT" > "$PASTE_APP_TEMP/Contents/Resources/VibeStickPaste.build"
+
+codesign --force --deep --sign - --requirements '=designated => identifier "com.vibestick.bridge.agent"' "$BRIDGE_APP_TEMP"
+codesign --force --deep --sign - --requirements '=designated => identifier "com.vibestick.hud.agent"' "$HUD_APP_TEMP"
+codesign --force --deep --sign - --requirements '=designated => identifier "com.vibestick.paste"' "$PASTE_APP_TEMP"
+
+# An ad-hoc-signed Accessibility app is stored by macOS using its exact code
+# hash. Preserve an unchanged helper across reinstalls so its permission remains
+# valid. Source or bundle changes intentionally replace it and require the user
+# to enable the new build once.
+PRESERVE_PASTE_APP=0
+EXISTING_PASTE_APP_PATH="$PASTE_APP_PATH"
+if [ ! -x "$PASTE_BINARY_PATH" ] \
+  && [ -x "$LEGACY_PASTE_APP_PATH/Contents/MacOS/VibeStickPaste" ]; then
+  EXISTING_PASTE_APP_PATH="$LEGACY_PASTE_APP_PATH"
+fi
+EXISTING_PASTE_BUILD_STAMP_PATH="$EXISTING_PASTE_APP_PATH/Contents/Resources/VibeStickPaste.build"
+if [ -x "$EXISTING_PASTE_APP_PATH/Contents/MacOS/VibeStickPaste" ] \
+  && [ -f "$EXISTING_PASTE_BUILD_STAMP_PATH" ] \
+  && [ "$(sed -n '1p' "$EXISTING_PASTE_BUILD_STAMP_PATH")" = "$PASTE_BUILD_FINGERPRINT" ] \
+  && codesign --verify --deep --strict "$EXISTING_PASTE_APP_PATH" >/dev/null 2>&1; then
+  PRESERVE_PASTE_APP=1
 fi
 
-mkdir -p "$CONFIG_DIR"
-mkdir -p "$LAUNCH_AGENTS_DIR"
-rm -rf "$RUNTIME_DIR"
-mkdir -p "$RUNTIME_DIR"
-cp -R "$ROOT_DIR/bridge" "$RUNTIME_DIR/bridge"
+launchctl bootout "gui/$(id -u)" "$PLIST_PATH" >/dev/null 2>&1 || true
+launchctl bootout "gui/$(id -u)" "$HUD_PLIST_PATH" >/dev/null 2>&1 || true
+rm -f "$PLIST_PATH" "$HUD_PLIST_PATH"
+rm -f "$LEGACY_RUNNER_PATH" "$LEGACY_HUD_BINARY_PATH"
+rm -rf \
+  "$CONFIG_DIR/runtime" \
+  "$BRIDGE_APP_PATH" \
+  "$HUD_APP_PATH" \
+  "$LEGACY_BRIDGE_APP_PATH" \
+  "$LEGACY_HUD_APP_PATH"
+mv "$BRIDGE_APP_TEMP" "$BRIDGE_APP_PATH"
+mv "$HUD_APP_TEMP" "$HUD_APP_PATH"
+if [ "$PRESERVE_PASTE_APP" -eq 1 ]; then
+  if [ "$EXISTING_PASTE_APP_PATH" != "$PASTE_APP_PATH" ]; then
+    rm -rf "$PASTE_APP_PATH"
+    mv "$EXISTING_PASTE_APP_PATH" "$PASTE_APP_PATH"
+  fi
+  rm -rf "$PASTE_APP_TEMP"
+else
+  rm -rf "$PASTE_APP_PATH" "$LEGACY_PASTE_APP_PATH"
+  mv "$PASTE_APP_TEMP" "$PASTE_APP_PATH"
+fi
+
 if [ -f "$ENV_PATH" ]; then
   cp "$ENV_PATH" "$CONFIG_DIR/.env"
+  chmod 600 "$CONFIG_DIR/.env"
 fi
-swiftc "$HUD_SOURCE_PATH" -o "$HUD_BINARY_PATH" -framework AppKit -framework QuartzCore
-cat > "$RUNNER_PATH" <<RUNNER
-#!/usr/bin/env sh
-set -eu
-cd "$CONFIG_DIR"
-if [ -f "$CONFIG_DIR/.env" ]; then
-  set -a
-  . "$CONFIG_DIR/.env"
-  set +a
-fi
-PYTHONPATH="$RUNTIME_DIR/bridge/src" exec python3 -m vibe_stick --host 0.0.0.0 --port 8765
-RUNNER
-chmod +x "$RUNNER_PATH"
 
 cat > "$PLIST_PATH" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -121,8 +199,7 @@ cat > "$PLIST_PATH" <<PLIST
   <string>com.vibestick.bridge</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/bin/sh</string>
-    <string>$RUNNER_PATH</string>
+    <string>$BRIDGE_BINARY_PATH</string>
   </array>
   <key>WorkingDirectory</key>
   <string>$CONFIG_DIR</string>
@@ -173,10 +250,23 @@ launchctl bootstrap "gui/$(id -u)" "$PLIST_PATH"
 launchctl bootstrap "gui/$(id -u)" "$HUD_PLIST_PATH"
 launchctl kickstart -k "gui/$(id -u)/com.vibestick.bridge"
 launchctl kickstart -k "gui/$(id -u)/com.vibestick.hud"
+"$LSREGISTER_PATH" -u \
+  "$LEGACY_BRIDGE_APP_PATH" \
+  "$LEGACY_HUD_APP_PATH" \
+  "$LEGACY_PASTE_APP_PATH" \
+  "$BRIDGE_APP_PATH" \
+  "$HUD_APP_PATH" \
+  "$PASTE_APP_PATH" >/dev/null 2>&1 || true
 
 printf '%s\n' "VibeStick config directory is ready:"
 printf '%s\n' "$CONFIG_DIR"
-printf '%s\n' "VibeStick Bridge LaunchAgent installed:"
+printf '%s\n' "VibeStick Bridge background service installed:"
 printf '%s\n' "$PLIST_PATH"
-printf '%s\n' "VibeStick Bridge HUD LaunchAgent installed:"
+printf '%s\n' "VibeStick HUD background service installed:"
 printf '%s\n' "$HUD_PLIST_PATH"
+if [ "$PRESERVE_PASTE_APP" -eq 1 ]; then
+  printf '%s\n' "VibeStick Paste accessibility helper preserved (permission identity unchanged):"
+else
+  printf '%s\n' "VibeStick Paste accessibility helper installed or updated:"
+fi
+printf '%s\n' "$PASTE_APP_PATH"

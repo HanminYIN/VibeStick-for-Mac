@@ -1,23 +1,84 @@
-# VibeStick
+# VibeStick for Mac
 
 [English README](README.md)
 
-![VibeStick 首页，显示 Codex 和 Claude 状态](assets/brand/home-screen-preview.png)
+> **项目状态：**这是基于
+> [Gary Zhang 原始 VibeStick](https://github.com/GaryGaryyy/VibeStick)、面向 macOS
+> 独立维护的衍生项目。原作者版权、MIT 许可和项目历史均完整保留。
 
-![VibeStick 语音输入流程，显示 StickS3 录音状态和 Mac HUD](assets/brand/voice-input-preview.png)
+![VibeStick for Mac 英文产品图，设备区域保留真实 StickS3 首页布局](assets/brand/vibestick-for-mac-hero.png)
 
-VibeStick 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：显示状态、5H/7D 用量、提醒音，并支持长按说话后自动转写粘贴到 Mac。
+VibeStick for Mac 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：显示状态、可用额度窗口和提醒，并支持长按说话后自动转写粘贴到 Mac。
 
 VibeStick 面向 M5Stack StickS3，不是 M5Stack 官方项目。Codex、Claude 等第三方 agent 名称只用于说明本地兼容工具和集成。
 
-## 开始前的准备
+## 为什么做这个项目
 
-- [ ] M5 StickS3｜一根 USB-C 数据线｜一台电脑（最好是Mac）
-- [ ] Wi-Fi（必须2.4GHz）名称｜Wi-Fi密码｜语音识别模型 API Key，模型名称，base_url （推荐使用硅基流动有免费额度：https://cloud.siliconflow.cn/i/7ZCoy9fU）
--  如要显示 Claude 5H/7D 用量（该功能默认关闭）。需要 Claude Code CLI（在终端运行 `claude` 后执行 `/login`），并在 `.env` 中设置 `VIBE_STICK_CLAUDE_USAGE=on`。
+- 不再用另一个桌面窗口遮挡工作区，在小屏幕上随时查看 Codex 和 Claude 状态。
+- 长按一个实体按键，即可完成录音、转写、粘贴，并选择是否确认发送。
+- 普通用户只安装原生 Swift App、Bridge、HUD 和 Paste，不需要 Python、
+  Homebrew、Xcode 或 ESP-IDF。
+- 配对、钥匙串、诊断、后台安装、USB、固件备份和写入都有清楚且独立的确认边界。
+
+VibeStick for Mac 以 OpenAI Codex 作为主要工程协作者，覆盖产品设计、实现、
+测试、发布工程和安全审计。产品本身也接入本地 Codex 工作流，用来显示会话状态与
+额度窗口；Bridge API 不会暴露 Codex 凭据。
+
+## 0.2.0 RC 1
+
+第一个可交付候选已经使用完全原生的 Swift Bridge。发布 DMG 内含主 App 与
+arm64 原生 Bridge、HUD、Paste；普通用户不需要 Python、Homebrew、Xcode 或
+ESP-IDF。版本为 `0.2.0 (10)`，支持 Apple Silicon 与 macOS 15 及以上。
+安装、升级、隐私、恢复和已知限制见
+[RC 1 双语发布说明](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_RELEASE_NOTES.md)。
+
+该 RC 使用 ad-hoc 签名，尚未公证。本地验收证据与候选文件分别记录；发布到
+GitHub 仍需维护者单独执行。
+
+### 安装 RC
+
+GitHub Pre-release 发布后：
+
+1. 从 [GitHub Releases](https://github.com/HanminYIN/VibeStick-for-Mac/releases)
+   下载 `VibeStick-for-Mac-0.2.0-rc.1.dmg`。
+2. 打开 DMG，把 **VibeStick for Mac** 拖入“应用程序”。
+3. RC 1 仍是 ad-hoc 签名且尚未公证，首次启动可能需要在 Finder 中按住 Control
+   点按 App，再选择“打开”。
+4. 先查看状态。只有选择对应操作并确认后，App 才会安装后台、访问 USB、配对或处理固件。
+
+### 已验证内容
+
+| 范围 | RC 1 证据 |
+| --- | --- |
+| 原生运行时 | Swift App、Bridge、HUD、Paste；arm64；macOS 15+ |
+| 设备流程 | USB 配对、每设备独立信任、Bonjour 恢复、revision/ACK 配置同步 |
+| 语音流程 | StickS3 录音、ASR、HUD、粘贴和确认状态 |
+| 安全边界 | Keychain 密钥、脱敏诊断、事务式后台迁移、分别确认的固件操作 |
+| 发布验证 | 270 项 Swift 测试、194 项 Python 兼容性测试、隔离 Release 构建、组件签名检查和只读 DMG 验证 |
+
+详细实现过程和真机证据放在里程碑文档中，避免首页变成开发流水账：
+
+- [M1 成果与验收证据](docs/VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md)
+- [M2 成果与原作者版本对比](docs/VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md)
+- [M2 实现与验收边界](docs/VIBESTICK_FOR_MAC_M2_IMPLEMENTATION.md)
+- [M3-A 成果与原作者版本对比](docs/VIBESTICK_FOR_MAC_M3A_ACHIEVEMENTS.md)
+- [M3-B 语音与发送成果](docs/VIBESTICK_FOR_MAC_M3B_ACHIEVEMENTS.md)
+- [M3-C 原生 ASR 配置成果](docs/VIBESTICK_FOR_MAC_M3C_ACHIEVEMENTS.md)
+- [VibeStick for Mac Roadmap](docs/VIBESTICK_FOR_MAC_ROADMAP.md)
+- [原生 macOS 构建说明](app/macos/README.md)
+
+## 从源码构建：开始前的准备
+
+普通 RC 用户不需要这一节。以下内容面向需要重建固件或运行仓库开发流程的贡献者。
+
+- [ ] M5Stack StickS3、一根 USB-C 数据线和一台 Mac。
+- [ ] 2.4 GHz Wi-Fi 名称和密码，以及语音识别服务的 API Key、模型名称和
+  base URL。SiliconFlow 是可选服务之一：<https://cloud.siliconflow.cn/>。
+- [ ] 如要显示 Claude 5H/7D 用量，需要 Claude Code CLI，并在 `.env` 中设置
+  `VIBE_STICK_CLAUDE_USAGE=on`；该功能默认关闭。
 
 
-## 安装
+## 从源码构建并安装
 
 你可以手动执行，也可以交给 AI 编程 agent，例如 Claude Code 和 Codex。
 
@@ -26,8 +87,8 @@ VibeStick 面向 M5Stack StickS3，不是 M5Stack 官方项目。Codex、Claude 
 1. 克隆仓库并创建本地配置文件：
 
 ```sh
-git clone https://github.com/GaryGaryyy/VibeStick.git
-cd VibeStick
+git clone https://github.com/HanminYIN/VibeStick-for-Mac.git
+cd VibeStick-for-Mac
 ./scripts/setup.sh
 ```
 
@@ -90,7 +151,7 @@ ls /dev/cu.*
 ./scripts/install.sh
 ```
 
-9. 👤 当 macOS 弹出 `python3.14` 想用辅助功能控制这台电脑时，点击“打开系统设置”并勾选允许。粘贴转写结果需要这个权限。
+9. 👤 当 macOS 弹出 `VibeStick Paste` 想用辅助功能控制这台电脑时，点击“打开系统设置”并勾选允许。粘贴转写结果需要这个权限。安装后的后台项目会明确显示为 `VibeStick Bridge` 和 `VibeStick HUD`，不再显示成通用的 `sh` 或 Python 进程。
 
 10. 检查安装状态：
 
@@ -128,7 +189,7 @@ ESP-IDF 没有加载到当前 shell，或者还没有安装。先 source ESP-IDF
 
 ### 录音能转写但没有粘贴
 
-给执行粘贴的 Python runner 开辅助功能权限。macOS 路径：系统设置 -> 隐私与安全性 -> 辅助功能，然后允许 `python3.14` 或运行 VibeStick 的终端 / 启动器。
+给 `VibeStick Paste` 开辅助功能权限。macOS 路径：系统设置 -> 隐私与安全性 -> 辅助功能，然后允许 `VibeStick Paste`。正式安装和仓库开发模式都使用这个具名原生组件。重复运行安装脚本会保留未变化的辅助程序及其权限；只有辅助程序本身升级后，macOS 才可能要求重新允许一次。
 
 ### "No transcription adapter configured"
 
@@ -148,7 +209,9 @@ open -e .env
 
 ### 录音转写失败、SSL 报错或超时
 
-通常是当前网络访问不到所选 ASR 服务。国内用户建议换 SiliconFlow：<https://cloud.siliconflow.cn/i/7ZCoy9fU>。也可以配置其他可访问的 OpenAI 兼容 ASR，或配置网络代理。
+通常是当前网络访问不到所选 ASR 服务。国内用户可以尝试 SiliconFlow：
+<https://cloud.siliconflow.cn/>。也可以配置其他可访问的 OpenAI 兼容 ASR，
+或配置网络代理。
 
 ## 配置说明
 
@@ -222,27 +285,37 @@ Claude usage 会使用用户本机 Claude Code 订阅凭据和 client headers �
 ## 项目结构
 
 ```text
-VibeStick/
+VibeStick-for-Mac/
   README.md
   README.zh-CN.md
   .env.example
   docs/
   firmware/sticks3/
   bridge/src/vibe_stick/
+  app/macos/VibeStick.xcodeproj/
+  app/macos/VibeStickApp/
+  app/macos/VibeStickAppTests/
+  app/macos/VibeStickBridge/
   app/macos/VibeStickHUD/
+  app/macos/VibeStickPaste/
   scripts/
   tests/
 ```
 
 ## 检查命令
 
+下面的 Python 测试用于保护保留的参考实现兼容性，属于开发者检查，不是普通
+用户运行 App 的依赖。
+
 ```sh
 python3 -m compileall -q bridge/src tests
 PYTHONPATH=bridge/src python3 -m unittest discover -s tests
 bash -n scripts/setup.sh scripts/doctor.sh scripts/install.sh
+scripts/verify-macos-build.sh
 ```
 
-固件构建仍需要 ESP-IDF：
+普通 RC App/DMG 构建使用 `release/firmware` 中已验收且绑定源码摘要的固定载荷，
+不需要 ESP-IDF。只有重新构建固件本身时才需要 ESP-IDF，并须重新验收：
 
 ```sh
 cd firmware/sticks3
@@ -252,9 +325,10 @@ idf.py build
 
 ## 当前限制
 
-- 这是整理后的原型，不是打包好的 Mac app 或 DMG。
+- RC 1 已使用原生 Swift 运行时，并完成隔离 App/DMG 验收。由于没有第二台全新 Mac 或可用的外置干净启动环境，严格的全新环境首次安装与故障回退验收仍未执行；这既不是通过，也不是失败。
 - 固件只面向 M5Stack StickS3。
-- Codex quota 来自本地 Codex session JSONL 里的 `rate_limits`，不是官方 quota API。
+- Mac App 只支持 Apple Silicon 和 macOS 15 或更高版本；当前为 ad-hoc 签名且未经 Apple 公证。
+- Codex 额度平时跟随本地任务 `rate_limits` 事件，不额外启动进程；手动刷新时才单次调用与当前版本绑定的本机 Codex app-server 协议，获取更新的账户级读数。两者都不是公开额度 API。
 - Claude usage 来自未公开的 Claude Code OAuth endpoint，默认关闭。
 - ASR 可靠性取决于麦克风采集、上传 PCM 质量、provider 可达性和模型配置。
 
@@ -265,4 +339,6 @@ idf.py build
 
 ## 许可证
 
-VibeStick 使用 MIT License 发布。见 [LICENSE](LICENSE)。
+原始 VibeStick 与 VibeStick for Mac 修改均使用 MIT License 发布，并保留原作者版权
+声明。详见 [LICENSE](LICENSE) 与 [NOTICE](NOTICE)。
+固件和字体等随包许可见[第三方许可证清单](docs/THIRD_PARTY_LICENSES.md)。

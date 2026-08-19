@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18" role="img" aria-label="VibeStick menu bar icon">
+  <g fill="none" stroke="#000" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="1.5" y="1" width="15" height="16" rx="3" stroke-width="1.5"/>
+    <path d="M5.05 5.2L7.2 7.25 5.05 9.3" stroke-width="1.5"/>
+    <path d="M8.7 9.25H12.1" stroke-width="1.5"/>
+    <circle cx="5.1" cy="13.25" r="0.8" fill="#000" stroke="none"/>
+  </g>
+</svg>

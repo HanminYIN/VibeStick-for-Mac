@@ -1,4 +1,5 @@
 import os
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -107,6 +108,137 @@ class TranscriberConfigTests(unittest.TestCase):
         self.assertEqual(config["model"], "whisper-test")
         self.assertEqual(config["language"], "en")
 
+    def test_mac_app_config_reads_provider_and_keychain_without_plaintext_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app_support = Path(tmp) / "VibeStick"
+            app_support.mkdir(parents=True)
+            (app_support / "config-v1.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "asr": {
+                            "provider": "groq",
+                            "baseURL": "https://api.groq.com/openai/v1",
+                            "model": "whisper-large-v3-turbo",
+                            "language": "zh",
+                            "localCommand": "",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict(os.environ, {}, clear=True):
+                with mock.patch.object(transcriber, "APP_SUPPORT_DIR", app_support):
+                    with mock.patch.object(transcriber, "_keychain_asr_api_key", return_value="keychain-key"):
+                        config = transcriber._load_asr_config()
+            persisted = (app_support / "config-v1.json").read_text(encoding="utf-8")
+
+        self.assertEqual(config["provider"], "groq")
+        self.assertEqual(config["api_key"], "keychain-key")
+        self.assertNotIn("keychain-key", persisted)
+
+    def test_explicit_mac_app_config_takes_precedence_over_legacy_environment(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            app_support = Path(tmp) / "VibeStick"
+            app_support.mkdir(parents=True)
+            (app_support / "config-v1.json").write_text(
+                json.dumps(
+                    {
+                        "schemaVersion": 1,
+                        "asr": {
+                            "provider": "siliconflow",
+                            "baseURL": "https://api.siliconflow.cn/v1",
+                            "model": "FunAudioLLM/SenseVoiceSmall",
+                            "language": "zh",
+                            "localCommand": "",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "VIBE_STICK_ASR_PROVIDER": "groq",
+                    "VIBE_STICK_ASR_API_KEY": "legacy-key",
+                    "VIBE_STICK_ASR_BASE_URL": transcriber.GROQ_ASR_BASE_URL,
+                },
+                clear=True,
+            ):
+                with mock.patch.object(transcriber, "APP_SUPPORT_DIR", app_support):
+                    with mock.patch.object(transcriber, "_keychain_asr_api_key", return_value="native-key"):
+                        config = transcriber._load_asr_config()
+
+        self.assertEqual(config["provider"], "siliconflow")
+        self.assertEqual(config["api_key"], "native-key")
+
+    def test_mac_app_local_command_config_does_not_read_keychain(self) -> None:
+        reader = mock.Mock(return_value="must-not-be-read")
+        config = transcriber._config_from_mac_app(
+            {
+                "provider": "local-command",
+                "localCommand": "/usr/local/bin/transcribe-test",
+            },
+            keychain_reader=reader,
+        )
+
+        self.assertEqual(config, {
+            "provider": "local-command",
+            "command": "/usr/local/bin/transcribe-test",
+        })
+        reader.assert_not_called()
+
+    def test_siliconflow_mac_config_uses_current_official_preset(self) -> None:
+        config = transcriber._config_from_mac_app(
+            {
+                "provider": "siliconflow",
+                "baseURL": "",
+                "model": "",
+                "language": "zh",
+            },
+            keychain_reader=lambda: "keychain-key",
+        )
+
+        self.assertEqual(config["base_url"], transcriber.SILICONFLOW_ASR_BASE_URL)
+        self.assertEqual(config["model"], "FunAudioLLM/SenseVoiceSmall")
+        self.assertEqual(config["api_key"], "keychain-key")
+
+    def test_keychain_reader_allows_time_for_interactive_authorization(self) -> None:
+        completed = transcriber.subprocess.CompletedProcess(
+            args=[],
+            returncode=0,
+            stdout="fixture-key\n",
+            stderr="",
+        )
+        with mock.patch.object(
+            transcriber.subprocess,
+            "run",
+            return_value=completed,
+        ) as run:
+            value = transcriber._keychain_asr_api_key()
+
+        self.assertEqual(value, "fixture-key")
+        self.assertEqual(
+            run.call_args.kwargs["timeout"],
+            transcriber.KEYCHAIN_AUTHORIZATION_TIMEOUT_SECONDS,
+        )
+        self.assertGreaterEqual(run.call_args.kwargs["timeout"], 60)
+
+    def test_keychain_reader_fails_closed_after_authorization_timeout(self) -> None:
+        with mock.patch.object(
+            transcriber.subprocess,
+            "run",
+            side_effect=transcriber.subprocess.TimeoutExpired(
+                cmd=["/usr/bin/security"],
+                timeout=60,
+            ),
+        ):
+            value = transcriber._keychain_asr_api_key()
+
+        self.assertEqual(value, "")
+
     def test_openai_compatible_url_joins_trailing_slash(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             audio = Path(tmp) / "sample.wav"
@@ -163,6 +295,12 @@ class TranscriberConfigTests(unittest.TestCase):
         self.assertEqual(result.source, "groq")
         self.assertEqual(seen["url"], "https://api.groq.com/openai/v1/audio/transcriptions")
 
+    def test_complete_transcription_url_is_not_appended_twice(self) -> None:
+        self.assertEqual(
+            transcriber._transcription_url("https://asr.example.test/v1/audio/transcriptions"),
+            "https://asr.example.test/v1/audio/transcriptions",
+        )
+
     def test_missing_openai_compatible_key_fails_gracefully(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -186,6 +324,42 @@ class TranscriberConfigTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.source, "none")
         self.assertEqual(result.message, "No transcription adapter configured")
+
+    def test_loopback_openai_compatible_endpoint_does_not_require_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            audio = Path(tmp) / "sample.wav"
+            audio.write_bytes(b"RIFFtest")
+            seen: dict[str, str | None] = {}
+
+            def opener(request, timeout=None):  # noqa: ANN001
+                seen["url"] = request.full_url
+                seen["authorization"] = request.headers.get("Authorization")
+                return _FakeResponse(b'{"text":"local hello"}')
+
+            config = {
+                "provider": "openai-compatible",
+                "base_url": "http://127.0.0.1:8080/v1",
+                "api_key": "",
+                "model": "local-whisper",
+                "language": "zh",
+            }
+            transcribe_once = transcriber._transcribe_openai_compatible_once
+            with mock.patch.object(
+                transcriber,
+                "_transcribe_openai_compatible_once",
+                wraps=lambda audio_file, current_config, attempt: transcribe_once(
+                    audio_file,
+                    current_config,
+                    attempt,
+                    opener=opener,
+                ),
+            ):
+                result = transcriber._transcribe_openai_compatible(audio, config)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.text, "local hello")
+        self.assertEqual(seen["url"], "http://127.0.0.1:8080/v1/audio/transcriptions")
+        self.assertIsNone(seen["authorization"])
 
 
 if __name__ == "__main__":

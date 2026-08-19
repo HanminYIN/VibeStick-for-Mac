@@ -1,14 +1,42 @@
-VibeStick
+VibeStick for Mac is independently maintained by HanminYIN and is derived from
+the original VibeStick project by Gary Zhang:
+
+  https://github.com/GaryGaryyy/VibeStick
+
+Original VibeStick
 Copyright (c) 2026 Gary Zhang
 
-This repository contains a generated LVGL glyph subset derived from Source Han Sans K Regular.
+VibeStick for Mac modifications
+Copyright (c) 2026 Hanmin YIN
+
+Independent repository:
+
+  https://github.com/HanminYIN/VibeStick-for-Mac
+
+The original copyright and MIT permission notice are retained in LICENSE.
+Project history is preserved so that upstream and derivative contributions
+remain attributable.
+
+This repository contains generated LVGL glyph subsets derived from Source Han Sans K Regular
+and Noto Sans SC Regular.
 
 Source Han Sans K Regular
 Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name "Source".
 Licensed under the SIL Open Font License, Version 1.1.
+The license text is included at docs/SIL-OFL-1.1.txt.
 
-The generated glyph subset is used only for the StickS3 Chinese UI font in:
+The generated glyph subsets are used only for the StickS3 Chinese UI fonts in:
 
   firmware/sticks3/generated/vibe_stick_cn_16.c
+  firmware/sticks3/generated/vibe_stick_ui_10.c
+  firmware/sticks3/generated/vibe_stick_ui_12.c
 
-VibeStick does not intentionally vendor third-party brand assets or historical prototype application shells in v0.1.1.
+VibeStick for Mac does not intentionally vendor third-party brand assets or
+historical prototype application shells. Provider names describe compatibility
+only and do not imply endorsement.
+
+The macOS App/DMG includes a secret-free StickS3 firmware payload. Its exact
+third-party component inventory and license identifiers are recorded in
+docs/THIRD_PARTY_LICENSES.md. Full corresponding license texts are packaged
+offline under VibeStick for Mac.app/Contents/Resources/Licenses. No Python
+runtime or Python package is distributed by the native macOS Bridge.

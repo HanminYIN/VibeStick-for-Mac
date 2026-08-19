@@ -1,0 +1,2 @@
+release/firmware/sticks3/**/*.bin binary
+release/licenses/** -whitespace

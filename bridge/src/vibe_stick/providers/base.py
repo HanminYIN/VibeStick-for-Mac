@@ -22,6 +22,8 @@ class ProviderObservation:
     alert_message: str
     alert_event_id: str
     latest_event_timestamp: datetime | None = None
+    quota_source: str = ""
+    quota_observed_at_epoch: float = 0.0
 
 
 class Provider(Protocol):

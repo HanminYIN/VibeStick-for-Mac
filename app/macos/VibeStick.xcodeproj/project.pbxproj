@@ -1,0 +1,663 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A10000000000000000000001 /* VibeStickForMacApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000001 /* VibeStickForMacApp.swift */; };
+		A10000000000000000000002 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000002 /* AppModel.swift */; };
+		A10000000000000000000003 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* Models.swift */; };
+		A10000000000000000000004 /* Infrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* Infrastructure.swift */; };
+		A10000000000000000000005 /* BridgeClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000005 /* BridgeClient.swift */; };
+		A10000000000000000000006 /* RuntimeServiceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* RuntimeServiceManager.swift */; };
+		A10000000000000000000007 /* VibeStickStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* VibeStickStyle.swift */; };
+		A10000000000000000000008 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* RootView.swift */; };
+		A10000000000000000000009 /* DashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* DashboardView.swift */; };
+		A1000000000000000000000A /* ConnectionAndRuntimeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000A /* ConnectionAndRuntimeView.swift */; };
+		A1000000000000000000000B /* SectionViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000B /* SectionViews.swift */; };
+		A1000000000000000000000C /* VibeStickAppTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000D /* VibeStickAppTests.swift */; };
+		A1000000000000000000000D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000000E /* main.swift */; };
+		A1000000000000000000000E /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* main.swift */; };
+		A1000000000000000000000F /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* main.swift */; };
+		A10000000000000000000010 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* AppKit.framework */; };
+		A10000000000000000000011 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* Security.framework */; };
+		A10000000000000000000012 /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001A /* ServiceManagement.framework */; };
+		A10000000000000000000013 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* AppKit.framework */; };
+		A10000000000000000000014 /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001B /* QuartzCore.framework */; };
+		A10000000000000000000015 /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* AppKit.framework */; };
+		A10000000000000000000016 /* ApplicationServices.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001C /* ApplicationServices.framework */; };
+		A10000000000000000000017 /* TestableLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001E /* TestableLogic.swift */; };
+		A10000000000000000000018 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000003 /* Models.swift */; };
+		A10000000000000000000019 /* VibeStickStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* VibeStickStyle.swift */; };
+		A1000000000000000000001A /* TestableLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001E /* TestableLogic.swift */; };
+		A1000000000000000000001B /* Infrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* Infrastructure.swift */; };
+		A1000000000000000000001C /* AppKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000018 /* AppKit.framework */; };
+		A1000000000000000000001D /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* Security.framework */; };
+		A1000000000000000000001E /* ServiceManagement.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001A /* ServiceManagement.framework */; };
+		A1000000000000000000001F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000001F /* Assets.xcassets */; };
+		A10000000000000000000020 /* M2Infrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* M2Infrastructure.swift */; };
+		A10000000000000000000021 /* M2Infrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000020 /* M2Infrastructure.swift */; };
+		A10000000000000000000022 /* M3CInfrastructure.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000021 /* M3CInfrastructure.swift */; };
+		A10000000000000000000023 /* M4RuntimeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* M4RuntimeInstaller.swift */; };
+		A10000000000000000000024 /* M4RuntimeInstaller.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000022 /* M4RuntimeInstaller.swift */; };
+		A10000000000000000000025 /* RuntimeServiceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* RuntimeServiceManager.swift */; };
+		A10000000000000000000026 /* M4FlashingTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* M4FlashingTool.swift */; };
+		A10000000000000000000027 /* M4FlashingTool.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000023 /* M4FlashingTool.swift */; };
+		A10000000000000000000028 /* M4FirmwarePayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* M4FirmwarePayload.swift */; };
+		A10000000000000000000029 /* M4FirmwarePayload.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000024 /* M4FirmwarePayload.swift */; };
+		A1000000000000000000002A /* M4DeviceBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* M4DeviceBackup.swift */; };
+		A1000000000000000000002B /* M4DeviceBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000025 /* M4DeviceBackup.swift */; };
+		A1000000000000000000002C /* M4DeviceFlasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* M4DeviceFlasher.swift */; };
+		A1000000000000000000002D /* M4DeviceFlasher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000026 /* M4DeviceFlasher.swift */; };
+		A1000000000000000000002E /* M4AcceptancePlanning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* M4AcceptancePlanning.swift */; };
+		A1000000000000000000002F /* M4AcceptancePlanning.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000027 /* M4AcceptancePlanning.swift */; };
+		A10000000000000000000030 /* M4AcceptanceFixtures.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000028 /* M4AcceptanceFixtures.swift */; };
+		A10000000000000000000031 /* M4AcceptancePlanningTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000029 /* M4AcceptancePlanningTests.swift */; };
+		A10000000000000000000032 /* M4MigrationTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002A /* M4MigrationTransaction.swift */; };
+		A10000000000000000000033 /* M4MigrationTransaction.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002A /* M4MigrationTransaction.swift */; };
+		A10000000000000000000034 /* M4MigrationTransactionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002B /* M4MigrationTransactionTests.swift */; };
+		A10000000000000000000035 /* M4OfflineMigrationAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002C /* M4OfflineMigrationAdapters.swift */; };
+		A10000000000000000000036 /* M4OfflineMigrationAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002C /* M4OfflineMigrationAdapters.swift */; };
+		A10000000000000000000037 /* M4OfflineMigrationAdaptersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002D /* M4OfflineMigrationAdaptersTests.swift */; };
+		A10000000000000000000038 /* M4ProductionMigrationAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002E /* M4ProductionMigrationAdapters.swift */; };
+		A10000000000000000000039 /* M4ProductionMigrationAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002E /* M4ProductionMigrationAdapters.swift */; };
+		A1000000000000000000003A /* M4ProductionMigrationAdaptersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000002F /* M4ProductionMigrationAdaptersTests.swift */; };
+		A1000000000000000000003B /* M4LiveMigrationEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000030 /* M4LiveMigrationEntry.swift */; };
+		A1000000000000000000003C /* M4LiveMigrationEntry.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000030 /* M4LiveMigrationEntry.swift */; };
+		A1000000000000000000003D /* M4LiveMigrationEntryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000031 /* M4LiveMigrationEntryTests.swift */; };
+		A1000000000000000000003E /* M4MigrationUIFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000032 /* M4MigrationUIFlow.swift */; };
+		A1000000000000000000003F /* M4MigrationUIFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000032 /* M4MigrationUIFlow.swift */; };
+		A10000000000000000000040 /* M4MigrationUIFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000033 /* M4MigrationUIFlowTests.swift */; };
+		A10000000000000000000041 /* M4DiagnosticExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000034 /* M4DiagnosticExport.swift */; };
+		A10000000000000000000042 /* M4DiagnosticExport.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000034 /* M4DiagnosticExport.swift */; };
+		A10000000000000000000043 /* M4DiagnosticExportTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000035 /* M4DiagnosticExportTests.swift */; };
+		A10000000000000000000044 /* M4DiagnosticUIFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000036 /* M4DiagnosticUIFlow.swift */; };
+		A10000000000000000000045 /* M4DiagnosticUIFlow.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000036 /* M4DiagnosticUIFlow.swift */; };
+		A10000000000000000000046 /* M4DiagnosticUIFlowTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000037 /* M4DiagnosticUIFlowTests.swift */; };
+		A10000000000000000000047 /* NativeBridgeCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000038 /* NativeBridgeCore.swift */; };
+		A10000000000000000000048 /* NativeBridgeCore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000038 /* NativeBridgeCore.swift */; };
+		A10000000000000000000049 /* NativeBridgeCoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000039 /* NativeBridgeCoreTests.swift */; };
+		A1000000000000000000004A /* NativeBridgePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003A /* NativeBridgePersistence.swift */; };
+		A1000000000000000000004B /* NativeBridgePersistence.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003A /* NativeBridgePersistence.swift */; };
+		A1000000000000000000004C /* NativeBridgePersistenceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003B /* NativeBridgePersistenceTests.swift */; };
+		A1000000000000000000004D /* NativeBridgeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003C /* NativeBridgeState.swift */; };
+		A1000000000000000000004E /* NativeBridgeState.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003C /* NativeBridgeState.swift */; };
+		A1000000000000000000004F /* NativeBridgeStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003D /* NativeBridgeStateTests.swift */; };
+		A10000000000000000000050 /* NativeBridgeHTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003E /* NativeBridgeHTTPServer.swift */; };
+		A10000000000000000000051 /* NativeBridgeHTTPServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003E /* NativeBridgeHTTPServer.swift */; };
+		A10000000000000000000052 /* NativeBridgeHTTPServerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000003F /* NativeBridgeHTTPServerTests.swift */; };
+		A10000000000000000000053 /* NativeBridgeProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000040 /* NativeBridgeProviders.swift */; };
+		A10000000000000000000054 /* NativeBridgeProviders.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000040 /* NativeBridgeProviders.swift */; };
+		A10000000000000000000055 /* NativeBridgeProvidersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000041 /* NativeBridgeProvidersTests.swift */; };
+		A10000000000000000000056 /* NativeBridgeVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000042 /* NativeBridgeVoice.swift */; };
+		A10000000000000000000057 /* NativeBridgeVoice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000042 /* NativeBridgeVoice.swift */; };
+		A10000000000000000000058 /* NativeBridgeVoiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000043 /* NativeBridgeVoiceTests.swift */; };
+		A10000000000000000000059 /* NativeBridgeVoiceAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000044 /* NativeBridgeVoiceAdapters.swift */; };
+		A1000000000000000000005A /* NativeBridgeVoiceAdapters.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000044 /* NativeBridgeVoiceAdapters.swift */; };
+		A1000000000000000000005B /* NativeBridgeVoiceAdaptersTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000045 /* NativeBridgeVoiceAdaptersTests.swift */; };
+		A1000000000000000000005C /* NativeBridgeRuntimeConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000046 /* NativeBridgeRuntimeConfiguration.swift */; };
+		A1000000000000000000005D /* NativeBridgeRuntimeConfiguration.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000046 /* NativeBridgeRuntimeConfiguration.swift */; };
+		A1000000000000000000005E /* NativeBridgeRuntimeConfigurationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000047 /* NativeBridgeRuntimeConfigurationTests.swift */; };
+		A1000000000000000000005F /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A20000000000000000000019 /* Security.framework */; };
+		A10000000000000000000060 /* NativeBridgeRuntimeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000048 /* NativeBridgeRuntimeStore.swift */; };
+		A10000000000000000000061 /* NativeBridgeRuntimeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000048 /* NativeBridgeRuntimeStore.swift */; };
+		A10000000000000000000062 /* NativeBridgeRuntimeStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000049 /* NativeBridgeRuntimeStoreTests.swift */; };
+		A10000000000000000000063 /* NativeBridgeCodexQuota.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004A /* NativeBridgeCodexQuota.swift */; };
+		A10000000000000000000064 /* NativeBridgeCodexQuota.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004A /* NativeBridgeCodexQuota.swift */; };
+		A10000000000000000000065 /* NativeBridgeCodexQuotaTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004B /* NativeBridgeCodexQuotaTests.swift */; };
+		A10000000000000000000066 /* NativeBridgeProductionFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004C /* NativeBridgeProductionFactory.swift */; };
+		A10000000000000000000067 /* NativeBridgeProductionFactory.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004C /* NativeBridgeProductionFactory.swift */; };
+		A10000000000000000000068 /* NativeBridgeProductionFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004D /* NativeBridgeProductionFactoryTests.swift */; };
+		A10000000000000000000069 /* NativeBridgeClaudeUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004E /* NativeBridgeClaudeUsage.swift */; };
+		A1000000000000000000006A /* NativeBridgeClaudeUsage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004E /* NativeBridgeClaudeUsage.swift */; };
+		A1000000000000000000006B /* NativeBridgeClaudeUsageTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000000000000000000004F /* NativeBridgeClaudeUsageTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		A30000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A40000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A50000000000000000000001;
+			remoteInfo = VibeStickForMac;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		A20000000000000000000001 /* VibeStickForMacApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibeStickForMacApp.swift; sourceTree = "<group>"; };
+		A20000000000000000000002 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		A20000000000000000000003 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A20000000000000000000004 /* Infrastructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Infrastructure.swift; sourceTree = "<group>"; };
+		A20000000000000000000005 /* BridgeClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BridgeClient.swift; sourceTree = "<group>"; };
+		A20000000000000000000006 /* RuntimeServiceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RuntimeServiceManager.swift; sourceTree = "<group>"; };
+		A20000000000000000000007 /* VibeStickStyle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibeStickStyle.swift; sourceTree = "<group>"; };
+		A20000000000000000000008 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* DashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DashboardView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000A /* ConnectionAndRuntimeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionAndRuntimeView.swift; sourceTree = "<group>"; };
+		A2000000000000000000000B /* SectionViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SectionViews.swift; sourceTree = "<group>"; };
+		A2000000000000000000000C /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A2000000000000000000000D /* VibeStickAppTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VibeStickAppTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000000E /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A2000000000000000000000F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000010 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000012 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		A20000000000000000000013 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A20000000000000000000014 /* VibeStick for Mac.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "VibeStick for Mac.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000015 /* VibeStickForMacTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = VibeStickForMacTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000016 /* VibeStick Bridge.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "VibeStick Bridge.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000017 /* VibeStick HUD.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "VibeStick HUD.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A2000000000000000000001D /* VibeStick Paste.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "VibeStick Paste.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000018 /* AppKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppKit.framework; path = System/Library/Frameworks/AppKit.framework; sourceTree = SDKROOT; };
+		A20000000000000000000019 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		A2000000000000000000001A /* ServiceManagement.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ServiceManagement.framework; path = System/Library/Frameworks/ServiceManagement.framework; sourceTree = SDKROOT; };
+		A2000000000000000000001B /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		A2000000000000000000001C /* ApplicationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ApplicationServices.framework; path = System/Library/Frameworks/ApplicationServices.framework; sourceTree = SDKROOT; };
+		A2000000000000000000001E /* TestableLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TestableLogic.swift; sourceTree = "<group>"; };
+		A2000000000000000000001F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		A20000000000000000000020 /* M2Infrastructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M2Infrastructure.swift; sourceTree = "<group>"; };
+		A20000000000000000000021 /* M3CInfrastructure.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M3CInfrastructure.swift; sourceTree = "<group>"; };
+		A20000000000000000000022 /* M4RuntimeInstaller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4RuntimeInstaller.swift; sourceTree = "<group>"; };
+		A20000000000000000000023 /* M4FlashingTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4FlashingTool.swift; sourceTree = "<group>"; };
+		A20000000000000000000024 /* M4FirmwarePayload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4FirmwarePayload.swift; sourceTree = "<group>"; };
+		A20000000000000000000025 /* M4DeviceBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4DeviceBackup.swift; sourceTree = "<group>"; };
+		A20000000000000000000026 /* M4DeviceFlasher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4DeviceFlasher.swift; sourceTree = "<group>"; };
+		A20000000000000000000027 /* M4AcceptancePlanning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4AcceptancePlanning.swift; sourceTree = "<group>"; };
+		A20000000000000000000028 /* M4AcceptanceFixtures.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4AcceptanceFixtures.swift; sourceTree = "<group>"; };
+		A20000000000000000000029 /* M4AcceptancePlanningTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4AcceptancePlanningTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000002A /* M4MigrationTransaction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4MigrationTransaction.swift; sourceTree = "<group>"; };
+		A2000000000000000000002B /* M4MigrationTransactionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4MigrationTransactionTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000002C /* M4OfflineMigrationAdapters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4OfflineMigrationAdapters.swift; sourceTree = "<group>"; };
+		A2000000000000000000002D /* M4OfflineMigrationAdaptersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4OfflineMigrationAdaptersTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000002E /* M4ProductionMigrationAdapters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4ProductionMigrationAdapters.swift; sourceTree = "<group>"; };
+		A2000000000000000000002F /* M4ProductionMigrationAdaptersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4ProductionMigrationAdaptersTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000030 /* M4LiveMigrationEntry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4LiveMigrationEntry.swift; sourceTree = "<group>"; };
+		A20000000000000000000031 /* M4LiveMigrationEntryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4LiveMigrationEntryTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000032 /* M4MigrationUIFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4MigrationUIFlow.swift; sourceTree = "<group>"; };
+		A20000000000000000000033 /* M4MigrationUIFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4MigrationUIFlowTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000034 /* M4DiagnosticExport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4DiagnosticExport.swift; sourceTree = "<group>"; };
+		A20000000000000000000035 /* M4DiagnosticExportTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4DiagnosticExportTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000036 /* M4DiagnosticUIFlow.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4DiagnosticUIFlow.swift; sourceTree = "<group>"; };
+		A20000000000000000000037 /* M4DiagnosticUIFlowTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = M4DiagnosticUIFlowTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000038 /* NativeBridgeCore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeCore.swift; sourceTree = "<group>"; };
+		A20000000000000000000039 /* NativeBridgeCoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeCoreTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000003A /* NativeBridgePersistence.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgePersistence.swift; sourceTree = "<group>"; };
+		A2000000000000000000003B /* NativeBridgePersistenceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgePersistenceTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000003C /* NativeBridgeState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeState.swift; sourceTree = "<group>"; };
+		A2000000000000000000003D /* NativeBridgeStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeStateTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000003E /* NativeBridgeHTTPServer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeHTTPServer.swift; sourceTree = "<group>"; };
+		A2000000000000000000003F /* NativeBridgeHTTPServerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeHTTPServerTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000040 /* NativeBridgeProviders.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeProviders.swift; sourceTree = "<group>"; };
+		A20000000000000000000041 /* NativeBridgeProvidersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeProvidersTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000042 /* NativeBridgeVoice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeVoice.swift; sourceTree = "<group>"; };
+		A20000000000000000000043 /* NativeBridgeVoiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeVoiceTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000044 /* NativeBridgeVoiceAdapters.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeVoiceAdapters.swift; sourceTree = "<group>"; };
+		A20000000000000000000045 /* NativeBridgeVoiceAdaptersTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeVoiceAdaptersTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000046 /* NativeBridgeRuntimeConfiguration.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeRuntimeConfiguration.swift; sourceTree = "<group>"; };
+		A20000000000000000000047 /* NativeBridgeRuntimeConfigurationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeRuntimeConfigurationTests.swift; sourceTree = "<group>"; };
+		A20000000000000000000048 /* NativeBridgeRuntimeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeRuntimeStore.swift; sourceTree = "<group>"; };
+		A20000000000000000000049 /* NativeBridgeRuntimeStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeRuntimeStoreTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000004A /* NativeBridgeCodexQuota.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeCodexQuota.swift; sourceTree = "<group>"; };
+		A2000000000000000000004B /* NativeBridgeCodexQuotaTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeCodexQuotaTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000004C /* NativeBridgeProductionFactory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeProductionFactory.swift; sourceTree = "<group>"; };
+		A2000000000000000000004D /* NativeBridgeProductionFactoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeProductionFactoryTests.swift; sourceTree = "<group>"; };
+		A2000000000000000000004E /* NativeBridgeClaudeUsage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeClaudeUsage.swift; sourceTree = "<group>"; };
+		A2000000000000000000004F /* NativeBridgeClaudeUsageTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeBridgeClaudeUsageTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A60000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000010 /* AppKit.framework in Frameworks */,
+				A10000000000000000000011 /* Security.framework in Frameworks */,
+				A10000000000000000000012 /* ServiceManagement.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A60000000000000000000002 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000001C /* AppKit.framework in Frameworks */, A1000000000000000000001D /* Security.framework in Frameworks */, A1000000000000000000001E /* ServiceManagement.framework in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
+		A60000000000000000000003 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000005F /* Security.framework in Frameworks */,); runOnlyForDeploymentPostprocessing = 0; };
+		A60000000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000013 /* AppKit.framework in Frameworks */,
+				A10000000000000000000014 /* QuartzCore.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A60000000000000000000005 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000015 /* AppKit.framework in Frameworks */,
+				A10000000000000000000016 /* ApplicationServices.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A70000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				A70000000000000000000003 /* VibeStickApp */,
+				A70000000000000000000009 /* VibeStickAppTests */,
+				A7000000000000000000000A /* VibeStickBridge */,
+				A7000000000000000000000B /* VibeStickHUD */,
+				A7000000000000000000000C /* VibeStickPaste */,
+				A7000000000000000000000D /* Frameworks */,
+				A70000000000000000000002 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A70000000000000000000002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000014 /* VibeStick for Mac.app */,
+				A20000000000000000000015 /* VibeStickForMacTests.xctest */,
+				A20000000000000000000016 /* VibeStick Bridge.app */,
+				A20000000000000000000017 /* VibeStick HUD.app */,
+				A2000000000000000000001D /* VibeStick Paste.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		A70000000000000000000003 /* VibeStickApp */ = {
+			isa = PBXGroup;
+			children = (
+				A70000000000000000000004 /* App */,
+				A70000000000000000000005 /* Core */,
+				A70000000000000000000006 /* Features */,
+				A70000000000000000000007 /* Shared */,
+				A70000000000000000000008 /* Resources */,
+			);
+			path = VibeStickApp;
+			sourceTree = "<group>";
+		};
+		A70000000000000000000004 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000001 /* VibeStickForMacApp.swift */,
+				A20000000000000000000002 /* AppModel.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		A70000000000000000000005 /* Core */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000003 /* Models.swift */,
+				A20000000000000000000004 /* Infrastructure.swift */,
+				A20000000000000000000005 /* BridgeClient.swift */,
+				A20000000000000000000006 /* RuntimeServiceManager.swift */,
+				A2000000000000000000001E /* TestableLogic.swift */,
+				A20000000000000000000020 /* M2Infrastructure.swift */,
+				A20000000000000000000021 /* M3CInfrastructure.swift */,
+				A20000000000000000000022 /* M4RuntimeInstaller.swift */,
+				A20000000000000000000023 /* M4FlashingTool.swift */,
+				A20000000000000000000024 /* M4FirmwarePayload.swift */,
+				A20000000000000000000025 /* M4DeviceBackup.swift */,
+				A20000000000000000000026 /* M4DeviceFlasher.swift */,
+				A20000000000000000000027 /* M4AcceptancePlanning.swift */,
+				A2000000000000000000002A /* M4MigrationTransaction.swift */,
+				A2000000000000000000002C /* M4OfflineMigrationAdapters.swift */,
+				A2000000000000000000002E /* M4ProductionMigrationAdapters.swift */,
+				A20000000000000000000030 /* M4LiveMigrationEntry.swift */,
+				A20000000000000000000032 /* M4MigrationUIFlow.swift */,
+				A20000000000000000000034 /* M4DiagnosticExport.swift */,
+				A20000000000000000000036 /* M4DiagnosticUIFlow.swift */,
+			);
+			path = Core;
+			sourceTree = "<group>";
+		};
+		A70000000000000000000006 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000008 /* RootView.swift */,
+				A20000000000000000000009 /* DashboardView.swift */,
+				A2000000000000000000000A /* ConnectionAndRuntimeView.swift */,
+				A2000000000000000000000B /* SectionViews.swift */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		A70000000000000000000007 /* Shared */ = {
+			isa = PBXGroup;
+			children = (A20000000000000000000007 /* VibeStickStyle.swift */,);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		A70000000000000000000008 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000C /* Info.plist */,
+				A2000000000000000000001F /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		A70000000000000000000009 /* VibeStickAppTests */ = {
+			isa = PBXGroup;
+			children = (
+				A2000000000000000000000D /* VibeStickAppTests.swift */,
+				A20000000000000000000028 /* M4AcceptanceFixtures.swift */,
+				A20000000000000000000029 /* M4AcceptancePlanningTests.swift */,
+				A2000000000000000000002B /* M4MigrationTransactionTests.swift */,
+				A2000000000000000000002D /* M4OfflineMigrationAdaptersTests.swift */,
+				A2000000000000000000002F /* M4ProductionMigrationAdaptersTests.swift */,
+				A20000000000000000000031 /* M4LiveMigrationEntryTests.swift */,
+				A20000000000000000000033 /* M4MigrationUIFlowTests.swift */,
+				A20000000000000000000035 /* M4DiagnosticExportTests.swift */,
+				A20000000000000000000037 /* M4DiagnosticUIFlowTests.swift */,
+				A20000000000000000000039 /* NativeBridgeCoreTests.swift */,
+				A2000000000000000000003B /* NativeBridgePersistenceTests.swift */,
+				A2000000000000000000003D /* NativeBridgeStateTests.swift */,
+				A2000000000000000000003F /* NativeBridgeHTTPServerTests.swift */,
+				A20000000000000000000041 /* NativeBridgeProvidersTests.swift */,
+				A20000000000000000000043 /* NativeBridgeVoiceTests.swift */,
+				A20000000000000000000045 /* NativeBridgeVoiceAdaptersTests.swift */,
+				A20000000000000000000047 /* NativeBridgeRuntimeConfigurationTests.swift */,
+				A20000000000000000000049 /* NativeBridgeRuntimeStoreTests.swift */,
+				A2000000000000000000004B /* NativeBridgeCodexQuotaTests.swift */,
+				A2000000000000000000004D /* NativeBridgeProductionFactoryTests.swift */,
+				A2000000000000000000004F /* NativeBridgeClaudeUsageTests.swift */,
+			);
+			path = VibeStickAppTests;
+			sourceTree = "<group>";
+		};
+		A7000000000000000000000A /* VibeStickBridge */ = {
+			isa = PBXGroup;
+			children = (A2000000000000000000000E /* main.swift */, A20000000000000000000038 /* NativeBridgeCore.swift */, A2000000000000000000003A /* NativeBridgePersistence.swift */, A2000000000000000000003C /* NativeBridgeState.swift */, A2000000000000000000003E /* NativeBridgeHTTPServer.swift */, A20000000000000000000040 /* NativeBridgeProviders.swift */, A20000000000000000000042 /* NativeBridgeVoice.swift */, A20000000000000000000044 /* NativeBridgeVoiceAdapters.swift */, A20000000000000000000046 /* NativeBridgeRuntimeConfiguration.swift */, A20000000000000000000048 /* NativeBridgeRuntimeStore.swift */, A2000000000000000000004A /* NativeBridgeCodexQuota.swift */, A2000000000000000000004C /* NativeBridgeProductionFactory.swift */, A2000000000000000000004E /* NativeBridgeClaudeUsage.swift */, A2000000000000000000000F /* Info.plist */,);
+			path = VibeStickBridge;
+			sourceTree = "<group>";
+		};
+		A7000000000000000000000B /* VibeStickHUD */ = {
+			isa = PBXGroup;
+			children = (A20000000000000000000010 /* main.swift */, A20000000000000000000011 /* Info.plist */,);
+			path = VibeStickHUD;
+			sourceTree = "<group>";
+		};
+		A7000000000000000000000C /* VibeStickPaste */ = {
+			isa = PBXGroup;
+			children = (A20000000000000000000012 /* main.swift */, A20000000000000000000013 /* Info.plist */,);
+			path = VibeStickPaste;
+			sourceTree = "<group>";
+		};
+		A7000000000000000000000D /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000018 /* AppKit.framework */,
+				A20000000000000000000019 /* Security.framework */,
+				A2000000000000000000001A /* ServiceManagement.framework */,
+				A2000000000000000000001B /* QuartzCore.framework */,
+				A2000000000000000000001C /* ApplicationServices.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A50000000000000000000001 /* VibeStickForMac */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000001 /* Build configuration list for PBXNativeTarget "VibeStickForMac" */;
+			buildPhases = (A90000000000000000000001 /* Sources */, A60000000000000000000001 /* Frameworks */, AA0000000000000000000001 /* Resources */,);
+			buildRules = ();
+			dependencies = ();
+			name = VibeStickForMac;
+			productName = "VibeStick for Mac";
+			productReference = A20000000000000000000014 /* VibeStick for Mac.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A50000000000000000000002 /* VibeStickForMacTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000002 /* Build configuration list for PBXNativeTarget "VibeStickForMacTests" */;
+			buildPhases = (A90000000000000000000002 /* Sources */, A60000000000000000000002 /* Frameworks */, AA0000000000000000000002 /* Resources */,);
+			buildRules = ();
+			dependencies = ();
+			name = VibeStickForMacTests;
+			productName = VibeStickForMacTests;
+			productReference = A20000000000000000000015 /* VibeStickForMacTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		A50000000000000000000003 /* VibeStickBridge */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000003 /* Build configuration list for PBXNativeTarget "VibeStickBridge" */;
+			buildPhases = (A90000000000000000000003 /* Sources */, A60000000000000000000003 /* Frameworks */, AA0000000000000000000003 /* Resources */,);
+			buildRules = ();
+			dependencies = ();
+			name = VibeStickBridge;
+			productName = "VibeStick Bridge";
+			productReference = A20000000000000000000016 /* VibeStick Bridge.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A50000000000000000000004 /* VibeStickHUD */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000004 /* Build configuration list for PBXNativeTarget "VibeStickHUD" */;
+			buildPhases = (A90000000000000000000004 /* Sources */, A60000000000000000000004 /* Frameworks */, AA0000000000000000000004 /* Resources */,);
+			buildRules = ();
+			dependencies = ();
+			name = VibeStickHUD;
+			productName = "VibeStick HUD";
+			productReference = A20000000000000000000017 /* VibeStick HUD.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A50000000000000000000005 /* VibeStickPaste */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000005 /* Build configuration list for PBXNativeTarget "VibeStickPaste" */;
+			buildPhases = (A90000000000000000000005 /* Sources */, A60000000000000000000005 /* Frameworks */, AA0000000000000000000005 /* Resources */,);
+			buildRules = ();
+			dependencies = ();
+			name = VibeStickPaste;
+			productName = "VibeStick Paste";
+			productReference = A2000000000000000000001D /* VibeStick Paste.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A40000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2660;
+				LastUpgradeCheck = 2660;
+				TargetAttributes = {
+					A50000000000000000000001 = {CreatedOnToolsVersion = 26.0;};
+					A50000000000000000000002 = {CreatedOnToolsVersion = 26.0;};
+					A50000000000000000000003 = {CreatedOnToolsVersion = 26.0;};
+					A50000000000000000000004 = {CreatedOnToolsVersion = 26.0;};
+					A50000000000000000000005 = {CreatedOnToolsVersion = 26.0;};
+				};
+			};
+			buildConfigurationList = A80000000000000000000006 /* Build configuration list for PBXProject "VibeStick" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (en, Base, zh-Hans,);
+			mainGroup = A70000000000000000000001;
+			productRefGroup = A70000000000000000000002 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A50000000000000000000001 /* VibeStickForMac */,
+				A50000000000000000000002 /* VibeStickForMacTests */,
+				A50000000000000000000003 /* VibeStickBridge */,
+				A50000000000000000000004 /* VibeStickHUD */,
+				A50000000000000000000005 /* VibeStickPaste */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA0000000000000000000001 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000001F /* Assets.xcassets in Resources */,); runOnlyForDeploymentPostprocessing = 0; };
+		AA0000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		AA0000000000000000000003 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		AA0000000000000000000004 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		AA0000000000000000000005 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A90000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000001 /* VibeStickForMacApp.swift in Sources */,
+				A10000000000000000000002 /* AppModel.swift in Sources */,
+				A10000000000000000000003 /* Models.swift in Sources */,
+				A10000000000000000000004 /* Infrastructure.swift in Sources */,
+				A10000000000000000000005 /* BridgeClient.swift in Sources */,
+				A10000000000000000000006 /* RuntimeServiceManager.swift in Sources */,
+				A10000000000000000000017 /* TestableLogic.swift in Sources */,
+				A10000000000000000000007 /* VibeStickStyle.swift in Sources */,
+				A10000000000000000000008 /* RootView.swift in Sources */,
+				A10000000000000000000009 /* DashboardView.swift in Sources */,
+				A1000000000000000000000A /* ConnectionAndRuntimeView.swift in Sources */,
+				A1000000000000000000000B /* SectionViews.swift in Sources */,
+				A10000000000000000000020 /* M2Infrastructure.swift in Sources */,
+				A10000000000000000000022 /* M3CInfrastructure.swift in Sources */,
+				A10000000000000000000023 /* M4RuntimeInstaller.swift in Sources */,
+				A10000000000000000000026 /* M4FlashingTool.swift in Sources */,
+				A10000000000000000000028 /* M4FirmwarePayload.swift in Sources */,
+				A1000000000000000000002A /* M4DeviceBackup.swift in Sources */,
+				A1000000000000000000002C /* M4DeviceFlasher.swift in Sources */,
+				A1000000000000000000002E /* M4AcceptancePlanning.swift in Sources */,
+				A10000000000000000000032 /* M4MigrationTransaction.swift in Sources */,
+				A10000000000000000000035 /* M4OfflineMigrationAdapters.swift in Sources */,
+				A10000000000000000000038 /* M4ProductionMigrationAdapters.swift in Sources */,
+				A1000000000000000000003B /* M4LiveMigrationEntry.swift in Sources */,
+				A1000000000000000000003E /* M4MigrationUIFlow.swift in Sources */,
+				A10000000000000000000041 /* M4DiagnosticExport.swift in Sources */,
+				A10000000000000000000044 /* M4DiagnosticUIFlow.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A90000000000000000000002 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000C /* VibeStickAppTests.swift in Sources */, A10000000000000000000018 /* Models.swift in Sources */, A10000000000000000000019 /* VibeStickStyle.swift in Sources */, A1000000000000000000001A /* TestableLogic.swift in Sources */, A1000000000000000000001B /* Infrastructure.swift in Sources */, A10000000000000000000021 /* M2Infrastructure.swift in Sources */, A10000000000000000000024 /* M4RuntimeInstaller.swift in Sources */, A10000000000000000000025 /* RuntimeServiceManager.swift in Sources */, A10000000000000000000027 /* M4FlashingTool.swift in Sources */, A10000000000000000000029 /* M4FirmwarePayload.swift in Sources */, A1000000000000000000002B /* M4DeviceBackup.swift in Sources */, A1000000000000000000002D /* M4DeviceFlasher.swift in Sources */, A1000000000000000000002F /* M4AcceptancePlanning.swift in Sources */, A10000000000000000000033 /* M4MigrationTransaction.swift in Sources */, A10000000000000000000036 /* M4OfflineMigrationAdapters.swift in Sources */, A10000000000000000000039 /* M4ProductionMigrationAdapters.swift in Sources */, A1000000000000000000003C /* M4LiveMigrationEntry.swift in Sources */, A1000000000000000000003F /* M4MigrationUIFlow.swift in Sources */, A10000000000000000000042 /* M4DiagnosticExport.swift in Sources */, A10000000000000000000045 /* M4DiagnosticUIFlow.swift in Sources */, A10000000000000000000030 /* M4AcceptanceFixtures.swift in Sources */, A10000000000000000000031 /* M4AcceptancePlanningTests.swift in Sources */, A10000000000000000000034 /* M4MigrationTransactionTests.swift in Sources */, A10000000000000000000037 /* M4OfflineMigrationAdaptersTests.swift in Sources */, A1000000000000000000003A /* M4ProductionMigrationAdaptersTests.swift in Sources */, A1000000000000000000003D /* M4LiveMigrationEntryTests.swift in Sources */, A10000000000000000000040 /* M4MigrationUIFlowTests.swift in Sources */, A10000000000000000000043 /* M4DiagnosticExportTests.swift in Sources */, A10000000000000000000046 /* M4DiagnosticUIFlowTests.swift in Sources */, A10000000000000000000048 /* NativeBridgeCore.swift in Sources */, A10000000000000000000049 /* NativeBridgeCoreTests.swift in Sources */, A1000000000000000000004B /* NativeBridgePersistence.swift in Sources */, A1000000000000000000004C /* NativeBridgePersistenceTests.swift in Sources */, A1000000000000000000004E /* NativeBridgeState.swift in Sources */, A1000000000000000000004F /* NativeBridgeStateTests.swift in Sources */, A10000000000000000000051 /* NativeBridgeHTTPServer.swift in Sources */, A10000000000000000000052 /* NativeBridgeHTTPServerTests.swift in Sources */, A10000000000000000000054 /* NativeBridgeProviders.swift in Sources */, A10000000000000000000055 /* NativeBridgeProvidersTests.swift in Sources */, A10000000000000000000057 /* NativeBridgeVoice.swift in Sources */, A10000000000000000000058 /* NativeBridgeVoiceTests.swift in Sources */, A1000000000000000000005A /* NativeBridgeVoiceAdapters.swift in Sources */, A1000000000000000000005B /* NativeBridgeVoiceAdaptersTests.swift in Sources */, A1000000000000000000005D /* NativeBridgeRuntimeConfiguration.swift in Sources */, A1000000000000000000005E /* NativeBridgeRuntimeConfigurationTests.swift in Sources */, A10000000000000000000061 /* NativeBridgeRuntimeStore.swift in Sources */, A10000000000000000000062 /* NativeBridgeRuntimeStoreTests.swift in Sources */, A10000000000000000000064 /* NativeBridgeCodexQuota.swift in Sources */, A10000000000000000000065 /* NativeBridgeCodexQuotaTests.swift in Sources */, A10000000000000000000067 /* NativeBridgeProductionFactory.swift in Sources */, A10000000000000000000068 /* NativeBridgeProductionFactoryTests.swift in Sources */, A1000000000000000000006A /* NativeBridgeClaudeUsage.swift in Sources */, A1000000000000000000006B /* NativeBridgeClaudeUsageTests.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		A90000000000000000000003 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000D /* main.swift in Sources */, A10000000000000000000047 /* NativeBridgeCore.swift in Sources */, A1000000000000000000004A /* NativeBridgePersistence.swift in Sources */, A1000000000000000000004D /* NativeBridgeState.swift in Sources */, A10000000000000000000050 /* NativeBridgeHTTPServer.swift in Sources */, A10000000000000000000053 /* NativeBridgeProviders.swift in Sources */, A10000000000000000000056 /* NativeBridgeVoice.swift in Sources */, A10000000000000000000059 /* NativeBridgeVoiceAdapters.swift in Sources */, A1000000000000000000005C /* NativeBridgeRuntimeConfiguration.swift in Sources */, A10000000000000000000060 /* NativeBridgeRuntimeStore.swift in Sources */, A10000000000000000000063 /* NativeBridgeCodexQuota.swift in Sources */, A10000000000000000000066 /* NativeBridgeProductionFactory.swift in Sources */, A10000000000000000000069 /* NativeBridgeClaudeUsage.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		A90000000000000000000004 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000E /* main.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+		A90000000000000000000005 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (A1000000000000000000000F /* main.swift in Sources */,); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		AB0000000000000000000001 /* PBXTargetDependency */ = {isa = PBXTargetDependency; target = A50000000000000000000001 /* VibeStickForMac */; targetProxy = A30000000000000000000001 /* PBXContainerItemProxy */; };
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		AC0000000000000000000001 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
+			ALWAYS_SEARCH_USER_PATHS = NO;
+			ARCHS = arm64;
+			CLANG_ENABLE_MODULES = YES;
+			CLANG_ENABLE_OBJC_ARC = YES;
+			COPY_PHASE_STRIP = NO;
+			DEBUG_INFORMATION_FORMAT = dwarf;
+			ENABLE_STRICT_OBJC_MSGSEND = YES;
+			ENABLE_TESTABILITY = YES;
+			GCC_C_LANGUAGE_STANDARD = gnu17;
+			GCC_NO_COMMON_BLOCKS = YES;
+			MACOSX_DEPLOYMENT_TARGET = 15.0;
+			MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+			ONLY_ACTIVE_ARCH = YES;
+			SDKROOT = macosx;
+			SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+			SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+		}; name = Debug; };
+		AC0000000000000000000002 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
+			ALWAYS_SEARCH_USER_PATHS = NO;
+			ARCHS = arm64;
+			CLANG_ENABLE_MODULES = YES;
+			CLANG_ENABLE_OBJC_ARC = YES;
+			COPY_PHASE_STRIP = YES;
+			DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+			ENABLE_NS_ASSERTIONS = NO;
+			ENABLE_STRICT_OBJC_MSGSEND = YES;
+			GCC_C_LANGUAGE_STANDARD = gnu17;
+			GCC_NO_COMMON_BLOCKS = YES;
+			MACOSX_DEPLOYMENT_TARGET = 15.0;
+			SDKROOT = macosx;
+			SWIFT_COMPILATION_MODE = wholemodule;
+			SWIFT_OPTIMIZATION_LEVEL = "-O";
+			VALIDATE_PRODUCT = YES;
+		}; name = Release; };
+
+		AC0000000000000000000010 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
+			ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+			CODE_SIGN_IDENTITY = "-";
+			CODE_SIGN_STYLE = Manual;
+			CURRENT_PROJECT_VERSION = 10;
+			ENABLE_APP_SANDBOX = NO;
+			GENERATE_INFOPLIST_FILE = NO;
+			INFOPLIST_FILE = VibeStickApp/Resources/Info.plist;
+			LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+			MARKETING_VERSION = 0.2.0;
+			PRODUCT_BUNDLE_IDENTIFIER = io.github.hanminyin.vibestick;
+			PRODUCT_MODULE_NAME = VibeStickForMac;
+			PRODUCT_NAME = "VibeStick for Mac";
+			SWIFT_EMIT_LOC_STRINGS = YES;
+			SWIFT_STRICT_CONCURRENCY = complete;
+			SWIFT_VERSION = 6.0;
+		}; name = Debug; };
+		AC0000000000000000000011 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
+			ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+			CODE_SIGN_IDENTITY = "-";
+			CODE_SIGN_STYLE = Manual;
+			CURRENT_PROJECT_VERSION = 10;
+			ENABLE_APP_SANDBOX = NO;
+			GENERATE_INFOPLIST_FILE = NO;
+			INFOPLIST_FILE = VibeStickApp/Resources/Info.plist;
+			LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/../Frameworks";
+			MARKETING_VERSION = 0.2.0;
+			PRODUCT_BUNDLE_IDENTIFIER = io.github.hanminyin.vibestick;
+			PRODUCT_MODULE_NAME = VibeStickForMac;
+			PRODUCT_NAME = "VibeStick for Mac";
+			SWIFT_EMIT_LOC_STRINGS = YES;
+			SWIFT_STRICT_CONCURRENCY = complete;
+			SWIFT_VERSION = 6.0;
+		}; name = Release; };
+
+		AC0000000000000000000020 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {
+			CODE_SIGN_IDENTITY = "-";
+			CODE_SIGN_STYLE = Manual;
+			BUNDLE_LOADER = "";
+			GENERATE_INFOPLIST_FILE = YES;
+			PRODUCT_BUNDLE_IDENTIFIER = io.github.hanminyin.vibestick.tests;
+			PRODUCT_NAME = "$(TARGET_NAME)";
+			SWIFT_STRICT_CONCURRENCY = complete;
+			SWIFT_VERSION = 6.0;
+			TEST_HOST = "";
+		}; name = Debug; };
+		AC0000000000000000000021 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {
+			CODE_SIGN_IDENTITY = "-";
+			CODE_SIGN_STYLE = Manual;
+			BUNDLE_LOADER = "";
+			GENERATE_INFOPLIST_FILE = YES;
+			PRODUCT_BUNDLE_IDENTIFIER = io.github.hanminyin.vibestick.tests;
+			PRODUCT_NAME = "$(TARGET_NAME)";
+			SWIFT_STRICT_CONCURRENCY = complete;
+			SWIFT_VERSION = 6.0;
+			TEST_HOST = "";
+		}; name = Release; };
+
+		AC0000000000000000000030 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_APP_SANDBOX = NO; EXECUTABLE_NAME = VibeStickBridge; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = VibeStickBridge/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.vibestick.bridge.agent; PRODUCT_NAME = "VibeStick Bridge"; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_VERSION = 5.0;}; name = Debug; };
+		AC0000000000000000000031 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_APP_SANDBOX = NO; EXECUTABLE_NAME = VibeStickBridge; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = VibeStickBridge/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.vibestick.bridge.agent; PRODUCT_NAME = "VibeStick Bridge"; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_VERSION = 5.0;}; name = Release; };
+		AC0000000000000000000040 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_APP_SANDBOX = NO; EXECUTABLE_NAME = VibeStickHUD; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = VibeStickHUD/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.vibestick.hud.agent; PRODUCT_NAME = "VibeStick HUD"; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_VERSION = 5.0;}; name = Debug; };
+		AC0000000000000000000041 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_APP_SANDBOX = NO; EXECUTABLE_NAME = VibeStickHUD; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = VibeStickHUD/Info.plist; PRODUCT_BUNDLE_IDENTIFIER = com.vibestick.hud.agent; PRODUCT_NAME = "VibeStick HUD"; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_VERSION = 5.0;}; name = Release; };
+		AC0000000000000000000050 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_APP_SANDBOX = NO; EXECUTABLE_NAME = VibeStickPaste; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = VibeStickPaste/Info.install.plist; PRODUCT_BUNDLE_IDENTIFIER = com.vibestick.paste; PRODUCT_NAME = "VibeStick Paste"; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_VERSION = 5.0;}; name = Debug; };
+		AC0000000000000000000051 /* Release */ = {isa = XCBuildConfiguration; buildSettings = {CODE_SIGN_IDENTITY = "-"; CODE_SIGN_STYLE = Manual; ENABLE_APP_SANDBOX = NO; EXECUTABLE_NAME = VibeStickPaste; GENERATE_INFOPLIST_FILE = NO; INFOPLIST_FILE = VibeStickPaste/Info.install.plist; PRODUCT_BUNDLE_IDENTIFIER = com.vibestick.paste; PRODUCT_NAME = "VibeStick Paste"; SWIFT_STRICT_CONCURRENCY = minimal; SWIFT_VERSION = 5.0;}; name = Release; };
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A80000000000000000000001 /* Build configuration list for PBXNativeTarget "VibeStickForMac" */ = {isa = XCConfigurationList; buildConfigurations = (AC0000000000000000000010 /* Debug */, AC0000000000000000000011 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A80000000000000000000002 /* Build configuration list for PBXNativeTarget "VibeStickForMacTests" */ = {isa = XCConfigurationList; buildConfigurations = (AC0000000000000000000020 /* Debug */, AC0000000000000000000021 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A80000000000000000000003 /* Build configuration list for PBXNativeTarget "VibeStickBridge" */ = {isa = XCConfigurationList; buildConfigurations = (AC0000000000000000000030 /* Debug */, AC0000000000000000000031 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A80000000000000000000004 /* Build configuration list for PBXNativeTarget "VibeStickHUD" */ = {isa = XCConfigurationList; buildConfigurations = (AC0000000000000000000040 /* Debug */, AC0000000000000000000041 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A80000000000000000000005 /* Build configuration list for PBXNativeTarget "VibeStickPaste" */ = {isa = XCConfigurationList; buildConfigurations = (AC0000000000000000000050 /* Debug */, AC0000000000000000000051 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		A80000000000000000000006 /* Build configuration list for PBXProject "VibeStick" */ = {isa = XCConfigurationList; buildConfigurations = (AC0000000000000000000001 /* Debug */, AC0000000000000000000002 /* Release */,); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+/* End XCConfigurationList section */
+	};
+	rootObject = A40000000000000000000001 /* Project object */;
+}

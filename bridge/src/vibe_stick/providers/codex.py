@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -18,13 +19,16 @@ def observation_from_local_codex(observation: LocalCodexObservation) -> Provider
     alert_type = observation.alert_type or "NONE"
     alert_message = observation.alert_message
     alert_event_id = ""
-    if observation.alert_timestamp is not None and observation.status in {
-        AgentStatus.DONE,
-        AgentStatus.APPROVAL,
-        AgentStatus.ERROR,
+    if observation.alert_timestamp is not None and alert_type in {
+        AgentStatus.DONE.value,
+        AgentStatus.APPROVAL.value,
+        AgentStatus.ERROR.value,
     }:
-        alert_type = alert_type if alert_type != "NONE" else observation.status.value
-        alert_event_id = _stable_event_id(alert_type.lower(), observation.alert_timestamp)
+        alert_event_id = _stable_event_id(
+            alert_type.lower(),
+            observation.alert_timestamp,
+            observation.alert_event_key,
+        )
 
     return ProviderObservation(
         provider_id="codex",
@@ -40,8 +44,13 @@ def observation_from_local_codex(observation: LocalCodexObservation) -> Provider
         alert_message=alert_message,
         alert_event_id=alert_event_id,
         latest_event_timestamp=observation.latest_event_timestamp,
+        quota_source=quota.quota_source if quota is not None else "",
+        quota_observed_at_epoch=quota.quota_observed_at_epoch if quota is not None else 0.0,
     )
 
 
-def _stable_event_id(prefix: str, timestamp: datetime) -> str:
+def _stable_event_id(prefix: str, timestamp: datetime, event_key: str = "") -> str:
+    if event_key:
+        digest = hashlib.sha256(event_key.encode("utf-8")).hexdigest()[:16]
+        return f"evt_{digest}_{prefix}"
     return f"evt_{timestamp.astimezone().strftime('%Y%m%d_%H%M%S')}_{prefix}"

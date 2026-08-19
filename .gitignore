@@ -21,6 +21,7 @@ build/
 .vscode/
 .idea/
 firmware/sticks3/build/
+firmware/sticks3/build-*/
 firmware/sticks3/.pio/
 firmware/sticks3/managed_components/
 firmware/sticks3/sdkconfig

@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   bridge-tests:
     runs-on: ubuntu-latest
@@ -18,7 +21,51 @@ jobs:
           python-version: "3.11"
 
       - name: Compile Python sources
-        run: python3 -m compileall -q bridge/src tests
+        run: python3 -m compileall -q bridge/src scripts/firmware-payload-manifest.py tests
 
       - name: Run unit tests
         run: PYTHONPATH=bridge/src python3 -m unittest discover -s tests
+
+      - name: Verify tracked release firmware
+        run: >-
+          python3 scripts/firmware-payload-manifest.py verify-source
+          release/firmware/sticks3/0.2.0-m4.4a
+          firmware/sticks3
+
+  swift-hostless-tests:
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Build hostless Swift tests
+        env:
+          CI_DERIVED_DATA: ${{ runner.temp }}/VibeStick-CI-DerivedData
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project app/macos/VibeStick.xcodeproj \
+            -scheme VibeStickForMac \
+            -configuration Debug \
+            -destination 'platform=macOS,arch=arm64' \
+            -derivedDataPath "$CI_DERIVED_DATA" \
+            CODE_SIGNING_ALLOWED=NO \
+            REGISTER_APP_WITH_LAUNCH_SERVICES=NO \
+            build-for-testing
+
+      - name: Run hostless Swift tests
+        env:
+          CI_DERIVED_DATA: ${{ runner.temp }}/VibeStick-CI-DerivedData
+        run: |
+          set -euo pipefail
+          test_bundle="$CI_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
+          built_app="$CI_DERIVED_DATA/Build/Products/Debug/VibeStick for Mac.app"
+          lsregister=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+          "$lsregister" -u "$built_app" >/dev/null 2>&1 || true
+          /usr/bin/codesign --force --sign - "$test_bundle"
+          /usr/bin/codesign --verify --deep --strict "$test_bundle"
+          /usr/bin/xcrun xctest "$test_bundle"

@@ -18,7 +18,21 @@ from vibe_stick.audio.recorder import RecordingController
 from vibe_stick.claude.usage import fetch_usage as fetch_claude_usage
 from vibe_stick.claude.usage import to_quota_snapshot as claude_usage_to_quota
 from vibe_stick.codex.quota import QuotaSnapshot, load_quota, save_quota
-from vibe_stick.config.paths import CLAUDE_QUOTA_PATH, QUOTA_PATH, RECORDING_PATH, STATE_PATH, ensure_app_support
+from vibe_stick.codex.rate_limits import fetch_account_quota as fetch_codex_account_quota
+from vibe_stick.config.managed_runtime import ResolvedManagedRuntimeConfiguration
+from vibe_stick.config.paths import (
+    CLAUDE_QUOTA_PATH,
+    PENDING_SEND_PATH,
+    QUOTA_PATH,
+    RECORDING_PATH,
+    STATE_PATH,
+    ensure_app_support,
+)
+from vibe_stick.config.runtime_bootstrap import (
+    ManagedRuntimeBootstrapError,
+    configured_startup_mode,
+    load_runtime_configuration,
+)
 from vibe_stick.desktop.hud import hide_hud
 from vibe_stick.protocol.state import (
     AlertState,
@@ -35,12 +49,16 @@ from vibe_stick.protocol.state import (
 from vibe_stick.providers.base import ProviderObservation
 from vibe_stick.providers.claude import observe_claude
 from vibe_stick.providers.codex import observe_codex
+from vibe_stick.protocol.device_config import DeviceConfigurationStore
+from vibe_stick.protocol.discovery import BonjourAdvertiser, BridgeIdentityStore
+from vibe_stick.protocol.pairing import PairedDeviceRegistry
 
 MANUAL_STATUS_SECONDS = 60
 BRIDGE_NAME = "vibestick-bridge"
 DEFAULT_MAX_RECORDING_AUDIO_BYTES = 2_000_000
 DEFAULT_CLAUDE_USAGE_INTERVAL_SECONDS = 300
 MIN_CLAUDE_USAGE_INTERVAL_SECONDS = 30
+QUOTA_STALE_AFTER_SECONDS = 30 * 60
 PLACEHOLDER_BRIDGE_TOKENS = {
     "change-this-shared-token",
     "paste-generated-token-here",
@@ -50,10 +68,23 @@ PLACEHOLDER_BRIDGE_TOKENS = {
 
 
 class BridgeStateStore:
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        device_registry: PairedDeviceRegistry | None = None,
+        device_configuration: DeviceConfigurationStore | None = None,
+        bridge_identity: BridgeIdentityStore | None = None,
+        runtime_configuration: ResolvedManagedRuntimeConfiguration | None = None,
+    ) -> None:
         ensure_app_support()
         self._lock = threading.RLock()
         self._project_root = _resolve_project_root()
+        self._runtime_agent_provider = _managed_agent_provider(runtime_configuration)
+        self.bridge_token = (
+            _bridge_token(runtime_configuration.bridge_token)
+            if runtime_configuration is not None
+            else _bridge_token()
+        )
         self._manual_status_until = 0.0
         self._state = self._load_state()
         self._last_active_provider = self._state.active_provider or "codex"
@@ -62,13 +93,83 @@ class BridgeStateStore:
             self._claude_quota = _claude_quota_from_state(self._state)
         self._claude_usage_last_attempt = 0.0
         self._claude_usage_last_success = 0.0
-        quota = load_quota(QUOTA_PATH)
-        self._state.codex.quota_5h_remaining = quota.quota_5h_remaining
-        self._state.codex.quota_7d_remaining = quota.quota_7d_remaining
-        self._state.codex.quota_updated_at = quota.quota_updated_at
-        self._state.codex.quota_stale = quota.quota_stale
-        self.recording = RecordingController(RECORDING_PATH)
+        self.device_registry = device_registry or PairedDeviceRegistry()
+        self.device_configuration = device_configuration or DeviceConfigurationStore(
+            managed_project_presentation=runtime_configuration.project_presentation
+            if runtime_configuration is not None
+            else None
+        )
+        self.bridge_id = (bridge_identity or BridgeIdentityStore()).bridge_id()
+        self._device_runtime: dict[str, dict[str, Any]] = {}
+        self._codex_quota = load_quota(QUOTA_PATH)
+        self._codex_quota_refreshing = False
+        self._state.codex.quota_5h_remaining = self._codex_quota.quota_5h_remaining
+        self._state.codex.quota_7d_remaining = self._codex_quota.quota_7d_remaining
+        self._state.codex.quota_updated_at = self._codex_quota.quota_updated_at
+        self._state.codex.quota_stale = self._codex_quota.quota_stale
+        self.recording = RecordingController(
+            RECORDING_PATH,
+            pending_send_path=PENDING_SEND_PATH,
+            managed_asr=(runtime_configuration.asr or {})
+            if runtime_configuration is not None
+            else None,
+            managed_asr_api_key=runtime_configuration.asr_api_key
+            if runtime_configuration is not None
+            else "",
+            managed_send_mode=(runtime_configuration.voice_delivery or {}).get("sendMode", "")
+            if runtime_configuration is not None
+            else None,
+        )
         hide_hud()
+
+    def note_device_request(self, device_id: str, headers: Any) -> None:
+        with self._lock:
+            runtime = self._device_runtime.setdefault(device_id, {})
+            runtime["last_seen_epoch"] = time.time()
+            runtime["firmware_name"] = str(headers.get("X-Vibe-Stick-Firmware-Name", ""))[:32]
+            runtime["firmware_version"] = str(headers.get("X-Vibe-Stick-Firmware-Version", ""))[:32]
+
+    def acknowledge_configuration(self, device_id: str, revision: int) -> dict[str, Any]:
+        current_revision = int(self.device_configuration.current().get("revision", 0))
+        accepted = revision == current_revision
+        with self._lock:
+            runtime = self._device_runtime.setdefault(device_id, {})
+            runtime["last_seen_epoch"] = time.time()
+            if accepted:
+                runtime["last_config_revision"] = revision
+        return {
+            "accepted": accepted,
+            "current_revision": current_revision,
+        }
+
+    def devices_status(self) -> dict[str, Any]:
+        now = time.time()
+        current_revision = int(self.device_configuration.current().get("revision", 0))
+        with self._lock:
+            runtime = {device_id: dict(value) for device_id, value in self._device_runtime.items()}
+        devices = []
+        for paired in self.device_registry.devices():
+            live = runtime.get(paired.device_id, {})
+            last_seen = live.get("last_seen_epoch")
+            online = isinstance(last_seen, (int, float)) and now - float(last_seen) <= 10
+            devices.append(
+                {
+                    "device_id": paired.device_id,
+                    "name": paired.name,
+                    "paired_at": paired.paired_at,
+                    "firmware_version": live.get("firmware_version") or paired.firmware_version,
+                    "online": online,
+                    "last_seen_epoch": last_seen,
+                    "last_config_revision": live.get("last_config_revision"),
+                    "target_config_revision": current_revision,
+                    "revoked": paired.revoked,
+                }
+            )
+        return {
+            "bridge_id": self.bridge_id,
+            "protocol_version": 2,
+            "devices": devices,
+        }
 
     def get_state(self) -> VibeStickState:
         with self._lock:
@@ -106,7 +207,8 @@ class BridgeStateStore:
             return
 
         codex_observation = observe_codex(self._project_root)
-        self._apply_codex_quota(codex_observation, force_stale=True)
+        self._schedule_codex_quota_refresh_locked()
+        self._apply_codex_quota(codex_observation)
         self._state.codex = _codex_state_from_observation(codex_observation)
         if self._state.active_provider == "codex":
             self._state.provider = _provider_state_from_observation(codex_observation)
@@ -120,11 +222,18 @@ class BridgeStateStore:
                 message="",
             )
             self._save_state_locked()
-        return {"recording": session.to_jsonable(), "state": self.get_state().to_jsonable()}
+        return self._recording_response(session)
 
     def stop_recording(self, request: dict[str, Any] | None = None) -> dict[str, Any]:
         session = self.recording.stop(request)
-        return {"recording": session.to_jsonable(), "state": self.get_state().to_jsonable()}
+        return self._recording_response(session)
+
+    def confirm_recording_send(self, request: dict[str, Any] | None = None) -> dict[str, Any]:
+        request = request or {}
+        transition = self.recording.confirm_send(str(request.get("session_id") or ""))
+        response = self._recording_response(self.recording.session)
+        response["confirmation"] = transition.to_jsonable()
+        return response
 
     def upload_recording_audio(
         self,
@@ -142,7 +251,15 @@ class BridgeStateStore:
             channels=channels,
             bits_per_sample=bits_per_sample,
         )
-        return {"recording": session.to_jsonable(), "state": self.get_state().to_jsonable()}
+        return self._recording_response(session)
+
+    def _recording_response(self, session: Any) -> dict[str, Any]:
+        return {
+            "voice_interaction_version": 2,
+            "recording": session.to_jsonable(),
+            "send_session": self.recording.send_session_snapshot().to_jsonable(),
+            "state": self.get_state().to_jsonable(),
+        }
 
     def _refresh_providers_locked(self) -> None:
         codex_observation = observe_codex(self._project_root)
@@ -153,7 +270,7 @@ class BridgeStateStore:
             _apply_manual_codex_state(codex_observation, self._state)
 
         active_provider = _select_active_provider(
-            _configured_provider(),
+            getattr(self, "_runtime_agent_provider", None) or _configured_provider(),
             self._last_active_provider,
             codex_observation,
             claude_observation,
@@ -187,33 +304,75 @@ class BridgeStateStore:
         else:
             self._state.alert = AlertState(event_id="", type=AlertType.NONE, message="")
 
-    def _apply_codex_quota(self, observation: ProviderObservation, *, force_stale: bool = False) -> None:
+    def _apply_codex_quota(self, observation: ProviderObservation) -> None:
+        refreshed = self._current_codex_quota()
         if observation.quota_5h_remaining is not None or observation.quota_7d_remaining is not None:
-            refreshed = QuotaSnapshot(
+            candidate = QuotaSnapshot(
                 quota_5h_remaining=observation.quota_5h_remaining,
                 quota_7d_remaining=observation.quota_7d_remaining,
                 quota_updated_at=observation.quota_updated_at,
                 quota_stale=observation.quota_stale,
+                quota_source=observation.quota_source,
+                quota_observed_at_epoch=observation.quota_observed_at_epoch,
             )
-            save_quota(QUOTA_PATH, refreshed)
-        else:
-            existing = QuotaSnapshot(
-                quota_5h_remaining=self._state.codex.quota_5h_remaining,
-                quota_7d_remaining=self._state.codex.quota_7d_remaining,
-                quota_updated_at=self._state.codex.quota_updated_at,
-                quota_stale=self._state.codex.quota_stale,
-            )
-            if existing.quota_5h_remaining is None and existing.quota_7d_remaining is None:
-                refreshed = existing
-            else:
-                refreshed = _stale_quota(existing)
-            if force_stale:
+            if not _has_quota(refreshed) or _quota_is_newer(candidate, refreshed):
+                refreshed = candidate
+                self._codex_quota = refreshed
                 save_quota(QUOTA_PATH, refreshed)
 
         observation.quota_5h_remaining = refreshed.quota_5h_remaining
         observation.quota_7d_remaining = refreshed.quota_7d_remaining
         observation.quota_updated_at = refreshed.quota_updated_at
         observation.quota_stale = refreshed.quota_stale
+        observation.quota_source = refreshed.quota_source
+        observation.quota_observed_at_epoch = refreshed.quota_observed_at_epoch
+
+    def _schedule_codex_quota_refresh_locked(self) -> None:
+        if self._codex_quota_refreshing:
+            return
+        self._codex_quota_refreshing = True
+        threading.Thread(
+            target=self._refresh_codex_quota_worker,
+            name="vibestick-codex-quota",
+            daemon=True,
+        ).start()
+
+    def _refresh_codex_quota_worker(self) -> None:
+        refreshed = fetch_codex_account_quota()
+        with self._lock:
+            self._codex_quota_refreshing = False
+            if refreshed is None:
+                stale = self._current_codex_quota()
+                if stale.quota_stale and stale != self._codex_quota:
+                    self._codex_quota = stale
+                    save_quota(QUOTA_PATH, stale)
+                return
+            if not _has_quota(self._codex_quota) or _quota_is_newer(refreshed, self._codex_quota):
+                self._codex_quota = refreshed
+                save_quota(QUOTA_PATH, refreshed)
+            self._apply_codex_quota_to_state_locked(self._codex_quota)
+            self._save_state_locked()
+
+    def _current_codex_quota(self) -> QuotaSnapshot:
+        quota = self._codex_quota
+        if (
+            _has_quota(quota)
+            and quota.quota_observed_at_epoch > 0
+            and time.time() - quota.quota_observed_at_epoch > QUOTA_STALE_AFTER_SECONDS
+        ):
+            return _stale_quota(quota)
+        return quota
+
+    def _apply_codex_quota_to_state_locked(self, quota: QuotaSnapshot) -> None:
+        self._state.codex.quota_5h_remaining = quota.quota_5h_remaining
+        self._state.codex.quota_7d_remaining = quota.quota_7d_remaining
+        self._state.codex.quota_updated_at = quota.quota_updated_at
+        self._state.codex.quota_stale = quota.quota_stale
+        if self._state.active_provider == "codex":
+            self._state.provider.quota_5h_remaining = quota.quota_5h_remaining
+            self._state.provider.quota_7d_remaining = quota.quota_7d_remaining
+            self._state.provider.quota_updated_at = quota.quota_updated_at
+            self._state.provider.quota_stale = quota.quota_stale
 
     def _refresh_claude_usage_locked(self, *, force: bool) -> None:
         now = time.monotonic()
@@ -285,27 +444,58 @@ class BridgeStateStore:
         STATE_PATH.write_text(json.dumps(self._state.to_jsonable(), indent=2) + "\n")
 
 
-def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
+def make_handler(
+    store: BridgeStateStore,
+    *,
+    bridge_token: str | None = None,
+) -> type[BaseHTTPRequestHandler]:
+    effective_bridge_token = _bridge_token() if bridge_token is None else _bridge_token(bridge_token)
+
     class VibeStickHandler(BaseHTTPRequestHandler):
         server_version = "VibeStick/0.1"
 
         def do_GET(self) -> None:
-            if self.path == "/state":
+            parsed = urlparse(self.path)
+            if parsed.path == "/state":
+                if not self._is_loopback_request() and not self._is_runtime_authorized():
+                    self._send_error(HTTPStatus.UNAUTHORIZED, "Unauthorized")
+                    return
                 self._send_json(_with_bridge_metadata(store.get_state().to_jsonable()))
-            elif self.path == "/health":
+            elif parsed.path == "/health":
                 self._send_json(
                     {
                         "ok": True,
                         "bridge_name": BRIDGE_NAME,
                         "bridge_version": BRIDGE_VERSION,
+                        "protocol_version": 2,
+                        "voice_interaction_version": 2,
+                        "bridge_id": store.bridge_id,
                     }
                 )
+            elif parsed.path == "/v1/devices":
+                if not self._is_loopback_request():
+                    self._send_error(HTTPStatus.FORBIDDEN, "Local management endpoint")
+                    return
+                self._send_json(store.devices_status())
+            elif parsed.path == "/v1/device/config":
+                device_id = self._paired_device_id()
+                if device_id is None:
+                    self._send_error(HTTPStatus.UNAUTHORIZED, "Paired device required")
+                    return
+                store.note_device_request(device_id, self.headers)
+                self._send_json(store.device_configuration.current())
             else:
                 self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
         def do_POST(self) -> None:
             parsed = urlparse(self.path)
-            if parsed.path in _protected_paths() and not self._is_authorized():
+            if parsed.path == "/recording/send/confirm":
+                device_id = self._paired_device_id()
+                if device_id is None:
+                    self._send_error(HTTPStatus.UNAUTHORIZED, "Paired device required")
+                    return
+                store.note_device_request(device_id, self.headers)
+            elif parsed.path in _protected_paths() and not self._is_runtime_authorized():
                 self._send_error(HTTPStatus.UNAUTHORIZED, "Unauthorized")
                 return
 
@@ -317,7 +507,7 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                 self._send_json({"refreshed": True, "state": state.to_jsonable()})
             elif parsed.path == "/recording/start":
                 body = self._read_json_body()
-                self._send_json(store.start_recording(body))
+                self._send_recording_json(store.start_recording(body))
             elif parsed.path == "/recording/audio":
                 query = parse_qs(parsed.query)
                 content_length = self._content_length()
@@ -329,7 +519,7 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                     )
                     return
                 pcm = self._read_raw_body(content_length)
-                self._send_json(
+                self._send_recording_json(
                     store.upload_recording_audio(
                         pcm,
                         session_id=_first(query, "session_id"),
@@ -340,7 +530,22 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                 )
             elif parsed.path == "/recording/stop":
                 body = self._read_json_body()
-                self._send_json(store.stop_recording(body))
+                self._send_recording_json(store.stop_recording(body))
+            elif parsed.path == "/recording/send/confirm":
+                body = self._read_json_body()
+                self._send_recording_json(store.confirm_recording_send(body))
+            elif parsed.path == "/v1/device/config/ack":
+                device_id = self._paired_device_id()
+                if device_id is None:
+                    self._send_error(HTTPStatus.UNAUTHORIZED, "Paired device required")
+                    return
+                body = self._read_json_body()
+                revision = body.get("revision")
+                if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "Invalid revision")
+                    return
+                store.note_device_request(device_id, self.headers)
+                self._send_json(store.acknowledge_configuration(device_id, revision))
             else:
                 self._send_error(HTTPStatus.NOT_FOUND, "Unknown endpoint")
 
@@ -377,21 +582,50 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
                 return 0
             return max(0, length)
 
-        def _is_authorized(self) -> bool:
-            expected = _bridge_token()
-            if not expected:
+        def _is_runtime_authorized(self) -> bool:
+            paired_device_id = self._paired_device_id()
+            if paired_device_id is not None:
+                store.note_device_request(paired_device_id, self.headers)
                 return True
+            expected = effective_bridge_token
+            if not expected:
+                return self._is_loopback_request()
             supplied = self.headers.get("X-Vibe-Stick-Token", "")
             return hmac.compare_digest(supplied, expected)
 
+        def _paired_device_id(self) -> str | None:
+            device_id = self.headers.get("X-Vibe-Stick-Device-ID", "").strip()
+            supplied = self.headers.get("X-Vibe-Stick-Token", "")
+            if store.device_registry.authenticate(device_id, supplied):
+                return device_id
+            return None
+
+        def _is_loopback_request(self) -> bool:
+            try:
+                return ipaddress.ip_address(self.client_address[0]).is_loopback
+            except ValueError:
+                return False
+
         def _send_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
             data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-            self.send_response(status)
-            self.send_header("Content-Type", "application/json; charset=utf-8")
-            self.send_header("Content-Length", str(len(data)))
-            self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
-            self.end_headers()
-            self.wfile.write(data)
+            try:
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json; charset=utf-8")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("Access-Control-Allow-Origin", "http://127.0.0.1")
+                self.end_headers()
+                self.wfile.write(data)
+            except (BrokenPipeError, ConnectionResetError):
+                # StickS3 may time out or reset after sending a request but
+                # before reading the response. The request has already been
+                # handled, so a disconnected response socket is not a Bridge
+                # failure and should not emit a server traceback.
+                return
+
+        def _send_recording_json(self, payload: dict[str, Any]) -> None:
+            if self.headers.get("X-Vibe-Stick-Firmware-Name", "").strip():
+                payload = _compact_firmware_recording_response(payload)
+            self._send_json(payload)
 
         def _send_error(self, status: HTTPStatus, message: str) -> None:
             self._send_json({"error": message}, status=status)
@@ -399,17 +633,31 @@ def make_handler(store: BridgeStateStore) -> type[BaseHTTPRequestHandler]:
     return VibeStickHandler
 
 
-def run_server(host: str, port: int) -> None:
-    _enforce_bind_security(host)
-    store = BridgeStateStore()
-    server = ThreadingHTTPServer((host, port), make_handler(store))
-    if not _bridge_token():
+def run_server(
+    host: str,
+    port: int,
+    *,
+    runtime_configuration: ResolvedManagedRuntimeConfiguration | None = None,
+) -> None:
+    store = BridgeStateStore(runtime_configuration=runtime_configuration)
+    _enforce_bind_security(host, store.device_registry, bridge_token=store.bridge_token)
+    server = ThreadingHTTPServer(
+        (host, port),
+        make_handler(store, bridge_token=store.bridge_token),
+    )
+    advertiser = BonjourAdvertiser(bridge_id=store.bridge_id, port=port)
+    advertiser.start()
+    if not store.bridge_token and not store.device_registry.devices():
         print(
             "WARNING: VIBE_STICK_BRIDGE_TOKEN is not set; POST endpoints are unauthenticated on loopback only.",
             flush=True,
         )
     print(f"VibeStick Bridge listening on http://{host}:{port}", flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        advertiser.stop()
+        server.server_close()
 
 
 def _protected_paths() -> set[str]:
@@ -419,21 +667,33 @@ def _protected_paths() -> set[str]:
         "/recording/start",
         "/recording/audio",
         "/recording/stop",
+        "/recording/send/confirm",
     }
 
 
-def _bridge_token() -> str:
-    token = os.environ.get("VIBE_STICK_BRIDGE_TOKEN", "").strip()
+def _bridge_token(explicit: str | None = None) -> str:
+    token = (
+        os.environ.get("VIBE_STICK_BRIDGE_TOKEN", "")
+        if explicit is None
+        else explicit
+    ).strip()
     if token.lower() in PLACEHOLDER_BRIDGE_TOKENS:
         return ""
     return token
 
 
-def _enforce_bind_security(host: str) -> None:
-    if _host_requires_token(host) and not _bridge_token():
+def _enforce_bind_security(
+    host: str,
+    registry: PairedDeviceRegistry | None = None,
+    *,
+    bridge_token: str | None = None,
+) -> None:
+    paired_devices = (registry or PairedDeviceRegistry()).devices()
+    if _host_requires_token(host) and not _bridge_token(bridge_token) and not paired_devices:
         raise SystemExit(
             "Refusing to bind VibeStick Bridge outside loopback without "
-            "VIBE_STICK_BRIDGE_TOKEN. Set a strong shared token or use --host 127.0.0.1."
+            "a paired device or VIBE_STICK_BRIDGE_TOKEN. Pair over USB, set a strong legacy token, "
+            "or use --host 127.0.0.1."
         )
 
 
@@ -475,11 +735,19 @@ def _stale_quota(existing: QuotaSnapshot) -> QuotaSnapshot:
         quota_7d_remaining=existing.quota_7d_remaining,
         quota_updated_at=existing.quota_updated_at,
         quota_stale=True,
+        quota_source=existing.quota_source,
+        quota_observed_at_epoch=existing.quota_observed_at_epoch,
     )
 
 
 def _has_quota(snapshot: QuotaSnapshot) -> bool:
     return snapshot.quota_5h_remaining is not None or snapshot.quota_7d_remaining is not None
+
+
+def _quota_is_newer(candidate: QuotaSnapshot, current: QuotaSnapshot) -> bool:
+    if candidate.quota_observed_at_epoch != current.quota_observed_at_epoch:
+        return candidate.quota_observed_at_epoch > current.quota_observed_at_epoch
+    return candidate.quota_source == "codex-app-server" and current.quota_source != "codex-app-server"
 
 
 def _claude_quota_from_state(state: VibeStickState) -> QuotaSnapshot:
@@ -506,9 +774,41 @@ def _with_bridge_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def _compact_firmware_recording_response(payload: dict[str, Any]) -> dict[str, Any]:
+    """Return only the bounded recording fields consumed by StickS3 firmware.
+
+    Full transcripts, audio paths, provider state, target fingerprints, and the
+    duplicated confirmation snapshot remain available to local desktop clients
+    but must not make a device response larger than its fixed capture buffer.
+    """
+    recording = payload.get("recording")
+    send_session = payload.get("send_session")
+    compact_recording = recording if isinstance(recording, dict) else {}
+    compact_send_session = send_session if isinstance(send_session, dict) else {}
+    return {
+        "voice_interaction_version": payload.get("voice_interaction_version", 1),
+        "recording": {
+            "session_id": compact_recording.get("session_id", ""),
+            "status": compact_recording.get("status", ""),
+        },
+        "send_session": {
+            "session_id": compact_send_session.get("session_id", ""),
+            "phase": compact_send_session.get("phase", ""),
+        },
+    }
+
+
 def _configured_provider() -> str:
     value = os.environ.get("VIBE_STICK_PROVIDER", "auto").strip().lower()
     return value if value in {"codex", "claude", "auto"} else "auto"
+
+
+def _managed_agent_provider(
+    runtime_configuration: ResolvedManagedRuntimeConfiguration | None,
+) -> str | None:
+    if runtime_configuration is None:
+        return None
+    return runtime_configuration.agent_provider or "auto"
 
 
 def _select_active_provider(
@@ -619,4 +919,14 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
-    run_server(args.host, args.port)
+    try:
+        runtime_configuration = load_runtime_configuration(
+            expected_mode=configured_startup_mode()
+        )
+    except ManagedRuntimeBootstrapError:
+        raise SystemExit("VibeStick Bridge: managed runtime configuration is unavailable") from None
+    run_server(
+        args.host,
+        args.port,
+        runtime_configuration=runtime_configuration,
+    )

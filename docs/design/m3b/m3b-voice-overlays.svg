@@ -1,0 +1,149 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="325" viewBox="0 0 1280 650" role="img" aria-labelledby="title desc">
+  <title id="title">VibeStick M3-B voice interaction overlays</title>
+  <desc id="desc">Five deterministic 135 by 240 screen mockups for recording, transcribing, pending send, sent, and failed states.</desc>
+  <defs>
+    <filter id="shadow" x="-30%" y="-20%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#111827" flood-opacity="0.22"/>
+    </filter>
+    <linearGradient id="blueGlow" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#55B2FF"/>
+      <stop offset="1" stop-color="#0A84FF"/>
+    </linearGradient>
+    <style>
+      .board-title { font: 700 30px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; fill: #111827; }
+      .board-subtitle { font: 400 15px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; fill: #667085; }
+      .panel-number { font: 700 12px -apple-system, BlinkMacSystemFont, sans-serif; fill: #0A84FF; letter-spacing: 1px; }
+      .panel-name { font: 650 18px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; fill: #111827; }
+      .panel-note { font: 400 12px -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; fill: #667085; }
+      .eyebrow { font: 600 7px -apple-system, BlinkMacSystemFont, sans-serif; fill: #8B9098; letter-spacing: 1.1px; }
+      .title { font: 650 16px -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #F4F5F7; }
+      .hint { font: 500 9px -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #AEB4BF; }
+      .minor { font: 450 7px -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #686E78; }
+      .status { font: 650 6px -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 0.8px; }
+    </style>
+    <g id="screen-base">
+      <rect x="-3" y="-3" width="141" height="246" rx="12" fill="#2A2D33" filter="url(#shadow)"/>
+      <rect width="135" height="240" rx="9" fill="#050608"/>
+      <rect x="0.5" y="0.5" width="134" height="239" rx="8.5" fill="none" stroke="#202631"/>
+      <text x="9" y="16" class="eyebrow">VOICE</text>
+      <line x1="9" y1="218" x2="126" y2="218" stroke="#191D24" stroke-width="1"/>
+      <rect x="50" y="227" width="35" height="4" rx="2" fill="#202631"/>
+    </g>
+  </defs>
+
+  <rect width="1280" height="650" fill="#F4F5F7"/>
+  <circle cx="1145" cy="-20" r="240" fill="#E9F4FF"/>
+  <circle cx="1215" cy="45" r="125" fill="#D9ECFF" opacity="0.65"/>
+  <text x="40" y="54" class="board-title">M3-B · 语音与发送覆盖层</text>
+  <text x="40" y="82" class="board-subtitle">135 × 240 deterministic mockups · Codex Focus visual system · no transcript on device</text>
+  <rect x="40" y="103" width="1200" height="1" fill="#D9DEE7"/>
+
+  <!-- Recording -->
+  <g transform="translate(35 165)">
+    <text x="0" y="-42" class="panel-number">01</text>
+    <text x="28" y="-42" class="panel-name">录音</text>
+    <text x="0" y="-20" class="panel-note">长按期间保持</text>
+    <g transform="scale(1.6)">
+      <use href="#screen-base"/>
+      <circle cx="124" cy="13" r="3" fill="#0A84FF"/>
+      <g fill="#F4F5F7">
+        <rect x="37" y="70" width="5" height="22" rx="2.5"/>
+        <rect x="48" y="62" width="5" height="38" rx="2.5"/>
+        <rect x="59" y="53" width="5" height="56" rx="2.5"/>
+        <rect x="70" y="60" width="5" height="42" rx="2.5"/>
+        <rect x="81" y="68" width="5" height="26" rx="2.5"/>
+        <rect x="92" y="75" width="5" height="12" rx="2.5"/>
+      </g>
+      <text x="67.5" y="143" text-anchor="middle" class="title">正在聆听</text>
+      <text x="67.5" y="163" text-anchor="middle" class="hint">松开蓝键完成</text>
+      <circle cx="47" cy="205" r="2" fill="#0A84FF"/>
+      <text x="53" y="207" class="status" fill="#8CBFFF">HOLDING</text>
+    </g>
+  </g>
+
+  <!-- Transcribing -->
+  <g transform="translate(285 165)">
+    <text x="0" y="-42" class="panel-number">02</text>
+    <text x="28" y="-42" class="panel-name">识别</text>
+    <text x="0" y="-20" class="panel-note">按键暂时锁定</text>
+    <g transform="scale(1.6)">
+      <use href="#screen-base"/>
+      <circle cx="124" cy="13" r="3" fill="#0A84FF"/>
+      <circle cx="67.5" cy="81" r="29" fill="none" stroke="#202631" stroke-width="4"/>
+      <path d="M67.5 52 A29 29 0 0 1 94 70" fill="none" stroke="url(#blueGlow)" stroke-width="4" stroke-linecap="round"/>
+      <circle cx="67.5" cy="81" r="8" fill="#F4F5F7"/>
+      <circle cx="67.5" cy="81" r="3" fill="#0A84FF"/>
+      <text x="67.5" y="143" text-anchor="middle" class="title">正在识别</text>
+      <text x="67.5" y="163" text-anchor="middle" class="hint">请稍候</text>
+      <circle cx="49" cy="205" r="2" fill="#0A84FF"/>
+      <text x="55" y="207" class="status" fill="#8CBFFF">WORKING</text>
+    </g>
+  </g>
+
+  <!-- Pending -->
+  <g transform="translate(535 165)">
+    <text x="0" y="-42" class="panel-number">03</text>
+    <text x="28" y="-42" class="panel-name">待发送</text>
+    <text x="0" y="-20" class="panel-note">确认模式的关键状态</text>
+    <g transform="scale(1.6)">
+      <use href="#screen-base"/>
+      <circle cx="124" cy="13" r="3" fill="#FFB547"/>
+      <rect x="35" y="51" width="65" height="57" rx="13" fill="#0C0F14" stroke="#0A84FF" stroke-width="1.5"/>
+      <rect x="48" y="66" width="39" height="4" rx="2" fill="#596273"/>
+      <rect x="48" y="77" width="30" height="4" rx="2" fill="#596273"/>
+      <rect x="48" y="88" width="35" height="4" rx="2" fill="#596273"/>
+      <rect x="88" y="64" width="2" height="31" rx="1" fill="#0A84FF"/>
+      <circle cx="67.5" cy="117" r="11" fill="#0A84FF"/>
+      <path d="M62 117 L72 117 M69 113 L73 117 L69 121" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="67.5" y="148" text-anchor="middle" class="title">待发送</text>
+      <text x="67.5" y="168" text-anchor="middle" class="hint">单击蓝键发送</text>
+      <text x="67.5" y="183" text-anchor="middle" class="minor">长按开始新录音</text>
+      <circle cx="48" cy="205" r="2" fill="#FFB547"/>
+      <text x="54" y="207" class="status" fill="#FFCE7A">PENDING</text>
+    </g>
+  </g>
+
+  <!-- Sent -->
+  <g transform="translate(785 165)">
+    <text x="0" y="-42" class="panel-number">04</text>
+    <text x="28" y="-42" class="panel-name">成功</text>
+    <text x="0" y="-20" class="panel-note">短暂停留后返回</text>
+    <g transform="scale(1.6)">
+      <use href="#screen-base"/>
+      <circle cx="124" cy="13" r="3" fill="#32D583"/>
+      <circle cx="67.5" cy="81" r="31" fill="#0B1D16" stroke="#1C6647" stroke-width="1.5"/>
+      <circle cx="67.5" cy="81" r="22" fill="#32D583"/>
+      <path d="M57 81 L64 88 L79 72" fill="none" stroke="#04140D" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+      <text x="67.5" y="143" text-anchor="middle" class="title">已发送</text>
+      <text x="67.5" y="163" text-anchor="middle" class="hint">即将返回首页</text>
+      <circle cx="52" cy="205" r="2" fill="#32D583"/>
+      <text x="58" y="207" class="status" fill="#7BE5B6">DONE</text>
+    </g>
+  </g>
+
+  <!-- Failed -->
+  <g transform="translate(1035 165)">
+    <text x="0" y="-42" class="panel-number">05</text>
+    <text x="28" y="-42" class="panel-name">失败</text>
+    <text x="0" y="-20" class="panel-note">保证未发送</text>
+    <g transform="scale(1.6)">
+      <use href="#screen-base"/>
+      <circle cx="124" cy="13" r="3" fill="#FF5A67"/>
+      <circle cx="67.5" cy="81" r="31" fill="#241013" stroke="#7B2D35" stroke-width="1.5"/>
+      <circle cx="67.5" cy="81" r="22" fill="#FF5A67"/>
+      <rect x="65.5" y="67" width="4" height="18" rx="2" fill="#250609"/>
+      <circle cx="67.5" cy="92" r="2.5" fill="#250609"/>
+      <text x="67.5" y="143" text-anchor="middle" class="title">发送失败</text>
+      <text x="67.5" y="163" text-anchor="middle" class="hint">切回原输入框重试</text>
+      <text x="67.5" y="181" text-anchor="middle" class="minor">长按可重新录音</text>
+      <circle cx="43" cy="205" r="2" fill="#FF5A67"/>
+      <text x="49" y="207" class="status" fill="#FF9CA4">NOT SENT</text>
+    </g>
+  </g>
+
+  <g transform="translate(40 590)">
+    <rect width="1200" height="36" rx="10" fill="#FFFFFF" stroke="#D9DEE7"/>
+    <circle cx="20" cy="18" r="4" fill="#0A84FF"/>
+    <text x="34" y="23" class="board-subtitle">Overlay visible: voice state owns front click, double click, long press and side click; M3-A page controls resume only after exit.</text>
+  </g>
+</svg>

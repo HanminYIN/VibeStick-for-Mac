@@ -5,6 +5,14 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 ENV_PATH="$ROOT_DIR/.env"
 SECRETS_PATH="$ROOT_DIR/firmware/sticks3/include/vibe_stick_secrets.h"
 APP_SUPPORT_DIR="$HOME/Library/Application Support/VibeStick"
+COMPONENTS_DIR="$APP_SUPPORT_DIR/Components.noindex"
+BRIDGE_PLIST_PATH="$HOME/Library/LaunchAgents/com.vibestick.bridge.plist"
+HUD_PLIST_PATH="$HOME/Library/LaunchAgents/com.vibestick.hud.plist"
+BRIDGE_BINARY_PATH="$COMPONENTS_DIR/VibeStick Bridge.app/Contents/MacOS/VibeStickBridge"
+HUD_BINARY_PATH="$COMPONENTS_DIR/VibeStick HUD.app/Contents/MacOS/VibeStickHUD"
+PASTE_BINARY_PATH="$COMPONENTS_DIR/VibeStick Paste.app/Contents/MacOS/VibeStickPaste"
+PASTE_APP_PATH="$COMPONENTS_DIR/VibeStick Paste.app"
+LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 
 PASS_COUNT=0
 WARN_COUNT=0
@@ -203,6 +211,76 @@ check_bridge_health() {
   fi
 }
 
+check_named_background_services() {
+  bridge_program="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$BRIDGE_PLIST_PATH" 2>/dev/null || true)"
+  hud_program="$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$HUD_PLIST_PATH" 2>/dev/null || true)"
+  if [ "$bridge_program" = "$BRIDGE_BINARY_PATH" ] && [ -x "$BRIDGE_BINARY_PATH" ]; then
+    pass "VibeStick Bridge uses its named macOS launcher."
+  else
+    warn "VibeStick Bridge still uses a missing or legacy background launcher; rerun scripts/install.sh."
+  fi
+  if [ "$hud_program" = "$HUD_BINARY_PATH" ] && [ -x "$HUD_BINARY_PATH" ]; then
+    pass "VibeStick HUD uses its named macOS launcher."
+  else
+    warn "VibeStick HUD still uses a missing or legacy background launcher; rerun scripts/install.sh."
+  fi
+  if [ -x "$PASTE_BINARY_PATH" ]; then
+    pass "VibeStick Paste helper is installed."
+    if python3 - "$PASTE_APP_PATH" <<'PY' >/dev/null 2>&1
+import json
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+app = Path(sys.argv[1])
+with tempfile.TemporaryDirectory(prefix="vibestick-paste-check-") as tmp:
+    request = Path(tmp) / "request.json"
+    response = Path(tmp) / "response.json"
+    request.write_text(json.dumps({"operation": "check"}))
+    try:
+        subprocess.run(
+            [
+                "/usr/bin/open", "-W", "-g", "-n", str(app), "--args",
+                "--request", str(request), "--response", str(response),
+            ],
+            check=False,
+            capture_output=True,
+            timeout=8,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        raise SystemExit(2)
+
+    deadline = time.monotonic() + 8
+    while time.monotonic() < deadline:
+        if response.exists():
+            try:
+                data = json.loads(response.read_text())
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                raise SystemExit(2)
+            if not isinstance(data, dict) or type(data.get("success")) is not bool:
+                raise SystemExit(2)
+            raise SystemExit(0 if data.get("success") else 1)
+        time.sleep(0.1)
+    raise SystemExit(2)
+PY
+    then
+      pass "VibeStick Paste has Accessibility permission."
+    else
+      paste_check_status="$?"
+      if [ "$paste_check_status" -eq 1 ]; then
+        warn "Enable VibeStick Paste in System Settings -> Privacy & Security -> Accessibility."
+      else
+        warn "VibeStick Paste permission check could not complete; the helper was not reported as unauthorized."
+      fi
+    fi
+    "$LSREGISTER_PATH" -u "$PASTE_APP_PATH" >/dev/null 2>&1 || true
+  else
+    warn "VibeStick Paste helper is missing; rerun scripts/install.sh."
+  fi
+}
+
 check_asr() {
   if python3 - "$ENV_PATH" "$APP_SUPPORT_DIR" <<'PY'
 import os
@@ -347,8 +425,9 @@ check_dotenv
 check_secrets
 check_token_match
 check_bridge_health
+check_named_background_services
 check_asr
 check_claude_token
 
-printf 'INFO macOS permissions: grant Microphone permission for recording and Accessibility permission for the bridge runner/terminal that performs paste injection.\n'
+printf 'INFO macOS permissions: grant Accessibility permission to VibeStick Paste for automatic text insertion.\n'
 printf 'SUMMARY pass=%s warn=%s fail=%s\n' "$PASS_COUNT" "$WARN_COUNT" "$FAIL_COUNT"
