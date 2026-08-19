@@ -2,11 +2,18 @@
 
 [English README](README.md)
 
+[![GitHub Pre-release](https://img.shields.io/badge/GitHub_Pre--release-v0.2.0--rc.1-2f81f7?logo=github)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+[![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-0A84FF)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+
 > **项目状态：**这是基于
 > [Gary Zhang 原始 VibeStick](https://github.com/GaryGaryyy/VibeStick)、面向 macOS
 > 独立维护的衍生项目。原作者版权、MIT 许可和项目历史均完整保留。
 
 ![VibeStick for Mac 英文产品图，设备区域保留真实 StickS3 首页布局](assets/brand/vibestick-for-mac-hero.png)
+
+[**下载 Apple Silicon 版 RC 1**](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.1/VibeStick-for-Mac-0.2.0-rc.1.dmg)
+· [发布页面与完整性信息](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
 
 VibeStick for Mac 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：显示状态、可用额度窗口和提醒，并支持长按说话后自动转写粘贴到 Mac。
 
@@ -32,15 +39,15 @@ ESP-IDF。版本为 `0.2.0 (10)`，支持 Apple Silicon 与 macOS 15 及以上�
 安装、升级、隐私、恢复和已知限制见
 [RC 1 双语发布说明](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_RELEASE_NOTES.md)。
 
-该 RC 使用 ad-hoc 签名，尚未公证。本地验收证据与候选文件分别记录；发布到
-GitHub 仍需维护者单独执行。
+该 RC 使用 ad-hoc 签名，尚未公证，目前已经作为
+[GitHub Pre-release v0.2.0-rc.1](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+公开发布；发布前证据保留在
+[RC 1 本地验收记录](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md)。
 
 ### 安装 RC
 
-GitHub Pre-release 发布后：
-
-1. 从 [GitHub Releases](https://github.com/HanminYIN/VibeStick-for-Mac/releases)
-   下载 `VibeStick-for-Mac-0.2.0-rc.1.dmg`。
+1. 从官方 GitHub Pre-release
+   [下载 `VibeStick-for-Mac-0.2.0-rc.1.dmg`](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.1/VibeStick-for-Mac-0.2.0-rc.1.dmg)。
 2. 打开 DMG，把 **VibeStick for Mac** 拖入“应用程序”。
 3. RC 1 仍是 ad-hoc 签名且尚未公证，首次启动可能需要在 Finder 中按住 Control
    点按 App，再选择“打开”。

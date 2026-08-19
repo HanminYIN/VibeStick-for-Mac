@@ -2,8 +2,10 @@
 
 ## 中文
 
-这是首个准备交付到 GitHub Pre-release 的 VibeStick for Mac 候选版，版本
-为 `0.2.0 (10)`。它只支持 Apple Silicon 和 macOS 15 或更高版本。
+这是首个已经发布到
+[GitHub Pre-release](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+的 VibeStick for Mac 候选版，版本为 `0.2.0 (10)`。它只支持 Apple Silicon
+和 macOS 15 或更高版本。
 
 ### 最重要的变化
 
@@ -53,13 +55,15 @@ Python 运行时的回退副本，再切换原生组件。配置文件与 Keycha
 
 本地候选的测试数量、文件大小、SHA-256、签名、架构、清单和只读挂载证据见
 `docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md`。本地验收已经完成；
-GitHub Pre-release 尚未创建，本文件不代表已经发布。
+公开下载、SHA-256 与当前发布状态以
+[GitHub Pre-release v0.2.0-rc.1](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+为准。
 
 ## English
 
-This is the first VibeStick for Mac candidate intended for a GitHub
-pre-release. Its version is `0.2.0 (10)`, for Apple Silicon on macOS 15 or
-newer.
+This is the first VibeStick for Mac candidate published as a
+[GitHub Pre-release](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1).
+Its version is `0.2.0 (10)`, for Apple Silicon on macOS 15 or newer.
 
 ### Headline change
 
@@ -121,5 +125,7 @@ the old files and the prior service state.
 Local test totals, byte size, SHA-256, signatures, architectures, manifests,
 and read-only mount evidence are recorded in
 `docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md`. Local acceptance is
-complete; no GitHub Pre-release has been created, and this document does not
-imply that one exists.
+complete. Use
+[GitHub Pre-release v0.2.0-rc.1](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+as the authority for the public download, SHA-256, and current publication
+state.

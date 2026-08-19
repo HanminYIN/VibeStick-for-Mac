@@ -2,11 +2,18 @@
 
 [中文说明](README.zh-CN.md)
 
+[![GitHub Pre-release](https://img.shields.io/badge/GitHub_Pre--release-v0.2.0--rc.1-2f81f7?logo=github)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+[![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-0A84FF)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+
 > **Project status:** independently maintained, macOS-focused derivative of
 > [Gary Zhang's VibeStick](https://github.com/GaryGaryyy/VibeStick). The original
 > copyright, MIT license, and project history are retained.
 
 ![VibeStick for Mac with the real StickS3 home-screen layout and English product messaging](assets/brand/vibestick-for-mac-hero.png)
+
+[**Download RC 1 for Apple Silicon**](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.1/VibeStick-for-Mac-0.2.0-rc.1.dmg)
+· [Release page and integrity details](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
 
 VibeStick for Mac turns an M5Stack StickS3 into a tiny desktop companion for
 coding agents: glanceable status and quota windows on the device, plus
@@ -40,17 +47,15 @@ Silicon on macOS 15 or newer. See the bilingual
 [RC 1 release notes](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_RELEASE_NOTES.md) for install,
 upgrade, privacy, recovery, and known limitations.
 
-This RC is ad-hoc signed and not notarized. Its local acceptance evidence is
-recorded in the
-[RC 1 local acceptance report](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md),
-and GitHub release publication remains an explicit maintainer action.
+This RC is ad-hoc signed and not notarized. It is published as
+[GitHub Pre-release v0.2.0-rc.1](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1),
+with its pre-publication evidence preserved in the
+[RC 1 local acceptance report](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md).
 
 ### Install the RC
 
-After the GitHub pre-release is published:
-
-1. Download `VibeStick-for-Mac-0.2.0-rc.1.dmg` from
-   [GitHub Releases](https://github.com/HanminYIN/VibeStick-for-Mac/releases).
+1. [Download `VibeStick-for-Mac-0.2.0-rc.1.dmg`](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.1/VibeStick-for-Mac-0.2.0-rc.1.dmg)
+   from the official GitHub Pre-release.
 2. Open the DMG and drag **VibeStick for Mac** to Applications.
 3. Because RC 1 is ad-hoc signed and not notarized, the first launch may require
    Control-clicking the App in Finder and choosing **Open**.

@@ -56,10 +56,19 @@ First GitHub pre-release candidate for VibeStick for Mac. The App version is
 - A second clean Mac or external clean boot environment was unavailable, so
   clean-machine first-install and rollback acceptance remains unexecuted, not
   passed.
-- Authorized source commits, branch pushes, and Draft PR creation are complete.
-  The RC remains intentionally stopped before merge, tag, GitHub pre-release
-  creation, or artifact upload.
 - Intel Macs and macOS 14 or older are unsupported.
+
+### Publication
+
+- Published as
+  [GitHub Pre-release v0.2.0-rc.1](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+  on 2026-08-19.
+- The tag points to `a4b59536b432de41f881a20385d941fda10c3a33`; the DMG was
+  built from `5479663a32273f6314de5cb5f0cd8d8f27332a2a`. Product source
+  paths are unchanged between those commits; the intervening changes are
+  documentation and CI only.
+- The published 3,546,855-byte asset retains SHA-256
+  `9117578032af78fcd5f2ec723983b460daf5c4b9ebd0d7d009c6e7da411600e8`.
 
 ### Validation
 
