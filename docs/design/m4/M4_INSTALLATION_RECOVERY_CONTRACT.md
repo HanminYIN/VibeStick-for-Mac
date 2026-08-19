@@ -1625,8 +1625,9 @@ or access USB/devices.
 Strict clean-machine first-install and fault-rollback acceptance remains
 environment-limited and unexecuted because no second clean Mac or external clean
 boot environment is available. This amendment must not label that gate passed.
-Commit, push, tag, GitHub Pre-release creation, and artifact upload remain separate
-post-acceptance actions requiring explicit authorization.
+Source commit, push, and Draft PR creation were separately authorized and are
+complete. Merge, tag, GitHub Pre-release creation, and artifact upload remain
+separate post-acceptance actions requiring explicit authorization.
 
 Final local RC evidence on 2026-08-19: the isolated acceptance chain passed with
 App, Bridge, HUD, and Paste all at `0.2.0 (10)`, thin arm64, and a macOS 15.0
@@ -1634,7 +1635,7 @@ minimum. Strict deep ad-hoc signatures, the exact native runtime manifest, 25
 offline license/notice files, icons, forbidden-file scanning, and firmware scope
 passed. The distributed runtime contains the three native App bundles and its
 Swift/CryptoKit manifest, with zero Python payload files. The complete hostless
-result is 269 Swift tests in 21 suites; all 194 retained Python compatibility tests
+result is 270 Swift tests in 21 suites; all 194 retained Python compatibility tests
 also pass.
 
 The firmware manifest and all three images are byte-identical to the accepted
@@ -1650,14 +1651,15 @@ and without reading the excluded local secret header or rebuilding firmware.
 The final DMG verified, attached read-only with `nobrowse`, repeated all mounted-App
 checks, and detached without a residual mount or isolated-build Launch Services
 registration. No candidate executable was launched. The artifact is
-`.build/macos.noindex/RC1-FinalSnapshot/VibeStick-for-Mac-0.2.0-rc.1.dmg`, 3,546,767
-bytes, with SHA-256
-`6cd183a4c65cfc6eab632ff401fb67316d11e38e1b180dd65d1ea103f282599c`.
+`.build/macos.noindex/RC1-FinalSnapshot-5479663/VibeStick-for-Mac-0.2.0-rc.1.dmg`,
+3,546,855 bytes, with SHA-256
+`9117578032af78fcd5f2ec723983b460daf5c4b9ebd0d7d009c6e7da411600e8`.
 The M4-5K DMG remains byte-for-byte identified by its original 3,137,499-byte size
 and SHA-256
 `960769a7c9b9ec42586c3ddb4c7b2ad9993a8cac047707da7531930fcf28c450`.
 
-After that isolated gate, a separately authorized local installation exposed two
+After the predecessor candidate's isolated gate, a separately authorized local
+installation exposed two
 macOS integration requirements. First, the existing Keychain ACL accepted the
 fixed Apple `/usr/bin/security` client but rejected direct Security.framework
 access from the newly signed helper. The production reader therefore invokes only
@@ -1675,10 +1677,11 @@ Live acceptance then found that synchronous provider/session observation for
 `/health`. `NativeBridgeRequestCoordinator` now executes ordinary state-changing
 routes on a dedicated serialized queue while the immutable health response stays
 available on the listener path. The regression test blocks a fictional state read
-and proves health still responds. With the final installed main App forcing three
-real state refreshes, 40 of 40 concurrent health probes passed.
+and proves health still responds. With the installed predecessor main App forcing
+three real state refreshes, 40 of 40 concurrent health probes passed.
 
-The installed main App and Bridge are byte-identical to the final candidate. App,
+The installed main App and Bridge were byte-identical to the predecessor candidate
+`6cd183a4c65cfc6eab632ff401fb67316d11e38e1b180dd65d1ea103f282599c`. App,
 Bridge, HUD, and Paste are all `0.2.0 (10)`, thin arm64, minimum macOS 15.0, and
 strict-signature valid. Bridge and HUD are running; the final receipt records
 `installed`, payload `0.2.0-rc.1-native`, and preserved Paste identity. The local
@@ -1686,15 +1689,19 @@ installation used normal bounded managed-configuration and fixed-Keychain startu
 reads but did not read logs, call the production diagnostic adapter, access
 USB/devices, or perform firmware or Git mutations. The exact acceptance record is
 `docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md`. Clean-machine acceptance
-remains unexecuted, and publication remains separately authorized.
+remains unexecuted. The final candidate adds only the diagnostic path-redaction
+fix covered by the complete hostless and isolated DMG verification; it was not
+installed or launched.
 
 The prospective tag snapshot contains a read-only GitHub Actions job for the
 hostless Swift suite on `macos-15` arm64 in addition to retained Python tests and
 tracked-payload source-identity verification. Its local clean-snapshot equivalent
-passed; the first hosted result remains pending a separately authorized push. The
-final local replacement retained both App and runtime rollback copies, reinstalled
-payload `0.2.0-rc.1-native`, preserved Paste build identity and Accessibility, and
-left Bridge/HUD running. The GUI reported `0.2.0 (10) · RC 1`, three forced home
+passed locally, and the Python and macOS Swift hosted jobs both pass at
+`5479663`. The predecessor local replacement retained both App and runtime
+rollback copies, reinstalled payload `0.2.0-rc.1-native`, preserved Paste build
+identity and Accessibility, and left Bridge/HUD running. The GUI reported
+`0.2.0 (10) · RC 1`, three forced home
 refreshes stayed healthy, diagnostics remained ungenerated with logs off, USB
 remained uninspected, and 40 of 40 concurrent health probes succeeded. No Git or
-GitHub mutation occurred.
+GitHub mutation occurred during that local replacement; subsequent source commits,
+pushes, and Draft PR creation were separately authorized.

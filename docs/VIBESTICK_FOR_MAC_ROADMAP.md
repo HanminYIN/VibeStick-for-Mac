@@ -924,16 +924,16 @@ Helper；只允许编译、hostless 测试、签名/架构/最低系统/清单/�
 校验与只读挂载检查。
 
 全新环境首次安装及故障回退仍因缺少第二台干净 Mac 或外置干净启动环境而未
-执行，既不得记为失败，也不得记为通过。Git commit、push、tag、GitHub
-Pre-release 创建和 DMG 上传全部停留在本地 RC 验收之后，必须另行授权。
+执行，既不得记为失败，也不得记为通过。源码 commit、push 与 Draft PR 已另行
+授权完成；merge、tag、GitHub Pre-release 创建和 DMG 上传仍须分别授权。
 
 同日的最终隔离放行完整通过：App、Bridge、HUD 与 Paste 均为 `0.2.0 (10)`、
 thin arm64、最低 macOS 15.0，严格深度 ad-hoc 签名、原生运行时清单、25 份离线
 许可证/NOTICE、图标、禁止文件面和精确固件范围均通过。运行时载荷仅含三个
 原生 App 与 Swift/CryptoKit 清单，Python 载荷文件数为零。最终发布前回归为
-269 项 Swift（21 个套件）和 194 项 Python。GitHub Actions 已补入固定
-`macos-15` arm64 的 hostless Swift 作业；其本地等价门禁已从隔离源码快照通过，
-首次托管运行仍等待后续单独授权的 push。固件三镜像与清单同 M4-5K 已验收载荷
+270 项 Swift（21 个套件）和 194 项 Python。GitHub Actions 已补入固定
+`macos-15` arm64 的 hostless Swift 作业；Python 与 macOS Swift 托管作业均已在
+`5479663` 通过。固件三镜像与清单同 M4-5K 已验收载荷
 逐字节一致，现固定保存于 `release/firmware/sticks3/0.2.0-m4.4a`，21 份审计
 许可文本保存于 `release/licenses/firmware`。构建门会校验清单同当前非秘密固件
 源码摘要一致并默认禁止重建，因此 tag 快照不再依赖被忽略的旧 App、ESP-IDF 或
@@ -942,13 +942,13 @@ managed-components 目录，也未读取本机秘密头文件。
 最终 DMG 经校验并以只读、`nobrowse` 方式挂载复验；根目录仅有 App 与
 `/Applications` 链接，未运行镜像内程序，随后卸载且无残留挂载或隔离构建路径
 的 Launch Services 登记。产物为
-`.build/macos.noindex/RC1-FinalSnapshot/VibeStick-for-Mac-0.2.0-rc.1.dmg`，大小
-`3,546,767` 字节，SHA-256 为
-`6cd183a4c65cfc6eab632ff401fb67316d11e38e1b180dd65d1ea103f282599c`。M4-5K
+`.build/macos.noindex/RC1-FinalSnapshot-5479663/VibeStick-for-Mac-0.2.0-rc.1.dmg`，大小
+`3,546,855` 字节，SHA-256 为
+`9117578032af78fcd5f2ec723983b460daf5c4b9ebd0d7d009c6e7da411600e8`。M4-5K
 DMG 仍为 `3,137,499` 字节且 SHA-256 保持
 `960769a7c9b9ec42586c3ddb4c7b2ad9993a8cac047707da7531930fcf28c450`。
 
-隔离放行后又经本机更新授权完成真实安装闭环。最初的原生 Bridge 启动故障分
+前一候选隔离放行后又经本机更新授权完成真实安装闭环。最初的原生 Bridge 启动故障分
 别定位为旧 Keychain ACL 对直接 Security.framework 调用的拒绝，以及 macOS 15
 本地网络隐私对 Bonjour/NWListener 的等待。生产读取器改用固定 Apple
 `/usr/bin/security` 客户端并只保留稳定脱敏错误码；App 与 Bridge 增加非空本地
@@ -959,16 +959,17 @@ Keychain 与本地网络系统提示；实际配置和固定 Keychain 账号仅�
 
 随后又发现 App `/state` 刷新的 provider/session 观察会在串行 HTTP 队列上短暂
 阻塞 `/health`。新增独立串行普通路由队列，继续保持状态、录音和配置操作有序，
-同时让健康路由不等待慢观察；对应回归测试进入 269 项完整套件。最终
-`/Applications` 主 App 与安装 Bridge 均同候选逐字节一致，App、Bridge、HUD、
+同时让健康路由不等待慢观察；对应回归测试现包含在 270 项完整套件中。当时的
+`/Applications` 主 App 与安装 Bridge 均同前一候选逐字节一致，App、Bridge、HUD、
 Paste 全部为 `0.2.0 (10)`、thin arm64、最低 macOS 15.0、严格签名有效；Bridge
 与 HUD 正在运行，安装回执为 `installed / 0.2.0-rc.1-native`，Paste 身份和辅助
 功能授权保留。主 App 连续强制刷新 3 次期间，Bridge `/health` 40/40 成功。
-本机闭环没有读取日志、调用生产诊断适配器、访问 USB/设备或执行固件与 Git
-操作；全新环境首次安装/故障回退仍是未执行缺口。完整证据见
+该本机闭环没有读取日志、调用生产诊断适配器、访问 USB/设备或执行固件与 Git
+操作。最终候选在此后补入完整路径脱敏修复，已完成 hostless 与隔离 DMG 验证，
+但未重新安装或启动；全新环境首次安装/故障回退仍是未执行缺口。完整证据见
 `docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md`。
 
-最终候选重新替换本机 App 并通过 App 内事务重新安装
+前一候选重新替换本机 App 并通过 App 内事务重新安装
 `0.2.0-rc.1-native` 后，旧 App 与运行时均保留私有可回退副本，Bridge/HUD
 重新加载，Paste 构建身份与辅助功能授权保留。GUI 明确显示 `0.2.0 (10) · RC
 1`，首页连续刷新三次仍为全部就绪，高级设置仍未生成诊断预览且日志选项关闭，

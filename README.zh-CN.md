@@ -54,7 +54,7 @@ GitHub Pre-release 发布后：
 | 设备流程 | USB 配对、每设备独立信任、Bonjour 恢复、revision/ACK 配置同步 |
 | 语音流程 | StickS3 录音、ASR、HUD、粘贴和确认状态 |
 | 安全边界 | Keychain 密钥、脱敏诊断、事务式后台迁移、分别确认的固件操作 |
-| 发布验证 | 269 项 Swift 测试、194 项 Python 兼容性测试、隔离 Release 构建、组件签名检查和只读 DMG 验证 |
+| 发布验证 | 270 项 Swift 测试、194 项 Python 兼容性测试、隔离 Release 构建、组件签名检查和只读 DMG 验证 |
 
 详细实现过程和真机证据放在里程碑文档中，避免首页变成开发流水账：
 

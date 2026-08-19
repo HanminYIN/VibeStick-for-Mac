@@ -65,7 +65,7 @@ After the GitHub pre-release is published:
 | Device workflow | USB pairing, per-device trust, Bonjour recovery, revision/ACK configuration sync |
 | Voice workflow | StickS3 recording, ASR, HUD, paste, and confirmation states |
 | Safety | Keychain-backed secrets, redacted diagnostics, transactional helper migration, separately confirmed firmware operations |
-| Release | 269 Swift tests, 194 Python compatibility tests, isolated Release build, signed component checks, read-only DMG verification |
+| Release | 270 Swift tests, 194 Python compatibility tests, isolated Release build, signed component checks, read-only DMG verification |
 
 Detailed implementation history and real-device acceptance evidence live in
 the milestone documents rather than on this front page:

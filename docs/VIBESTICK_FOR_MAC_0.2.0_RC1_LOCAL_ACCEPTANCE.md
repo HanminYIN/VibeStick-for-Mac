@@ -4,28 +4,33 @@ Date: 2026-08-19
 
 ## Result
 
-The isolated local release candidate passed the authorized pre-publication
-acceptance chain. It is ready for a maintainer to commit, push, tag, create a
-GitHub Pre-release, and upload the DMG only after those Git/GitHub actions are
-separately authorized.
+The isolated local release candidate built from commit `5479663` passed the
+authorized pre-publication acceptance chain. Its source is published to Draft
+PR #1, and both required GitHub Actions jobs pass at that head. It is ready for
+maintainer review; merge, tag, GitHub Pre-release creation, and DMG upload remain
+separate publication boundaries.
 
-After isolated acceptance, the candidate was installed locally under separate
-authorization. The main App was atomically replaced with a recoverable backup,
-then its transaction installer backed up and upgraded Bridge, HUD, and Paste.
+Before the final diagnostic-redaction fix, the predecessor candidate was
+installed locally under separate authorization. The main App was atomically
+replaced with a recoverable backup, then its transaction installer backed up and
+upgraded Bridge, HUD, and Paste.
 Normal managed startup read the existing bounded configuration and fixed
 Keychain accounts. The previously granted macOS Keychain, Local Network, and
 Accessibility permissions remained valid, so this final replacement required no
 new system prompt.
 No credential value was printed, retained by a probe, or written to this record.
-The acceptance did not read logs, call a production diagnostic adapter, access
-USB or a device, or perform a firmware operation. Git use was limited to read-only
-file/status queries for the prospective tag snapshot; no Git mutation occurred.
+The final candidate was not installed or launched. Its only executable delta
+from the installed predecessor is the diagnostic path-redaction fix covered by
+the complete hostless suite and isolated release verification. The acceptance
+did not read logs, call a production diagnostic adapter, access USB or a device,
+or perform a firmware operation.
 
 ## Candidate identity
 
-- File: `.build/macos.noindex/RC1-FinalSnapshot/VibeStick-for-Mac-0.2.0-rc.1.dmg`
-- Size: `3,546,767` bytes
-- SHA-256: `6cd183a4c65cfc6eab632ff401fb67316d11e38e1b180dd65d1ea103f282599c`
+- Build source: `5479663a32273f6314de5cb5f0cd8d8f27332a2a`
+- File: `.build/macos.noindex/RC1-FinalSnapshot-5479663/VibeStick-for-Mac-0.2.0-rc.1.dmg`
+- Size: `3,546,855` bytes
+- SHA-256: `9117578032af78fcd5f2ec723983b460daf5c4b9ebd0d7d009c6e7da411600e8`
 - Main App: `0.2.0 (10)`, thin arm64, minimum macOS 15.0
 - Bridge: `0.2.0 (10)`, thin arm64, minimum macOS 15.0
 - HUD: `0.2.0 (10)`, thin arm64, minimum macOS 15.0
@@ -56,11 +61,12 @@ firmware components, C libraries, and applicable toolchain runtime terms.
 
 ## Verification evidence
 
-- Hostless Swift: 269 tests in 21 suites passed.
+- Hostless Swift: 270 tests in 21 suites passed.
 - Retained Python compatibility suite: 194 tests passed.
 - GitHub Actions now contains a read-only `macos-15` arm64 hostless Swift job in
-  addition to the Python job. The clean-snapshot equivalents passed locally;
-  the first hosted run remains pending the separately authorized push.
+  addition to the Python job. Both required jobs passed on GitHub at commit
+  `5479663`; duplicate successful check sets reflect the configured `push` and
+  `pull_request` triggers.
 - The prospective tag snapshot was assembled from tracked and non-ignored
   intended source files only. It contained no `.git`, `.build`, `.env`, local
   firmware secret header, generated ESP-IDF tree, or prior accepted App.
@@ -75,10 +81,14 @@ firmware components, C libraries, and applicable toolchain runtime terms.
 - No executable inside the DMG was launched. The image was detached and its
   temporary mount point removed; no residual RC mount remained.
 
-## Authorized installed-runtime evidence
+## Earlier authorized installed-runtime evidence
 
-- `/Applications/VibeStick for Mac.app` and the installed Bridge binary are
-  byte-identical to the final isolated candidate.
+The following runtime evidence applies to the predecessor candidate
+`6cd183a4c65cfc6eab632ff401fb67316d11e38e1b180dd65d1ea103f282599c`.
+The final candidate identified above has not been installed or launched.
+
+- `/Applications/VibeStick for Mac.app` and the installed Bridge binary were
+  byte-identical to that predecessor candidate at acceptance time.
 - App, Bridge, HUD, and Paste are all `0.2.0 (10)`, thin arm64, minimum macOS
   15.0, and pass strict deep signature verification.
 - The generated Bridge LaunchAgent associates itself with
@@ -129,6 +139,7 @@ unexecuted because no second clean Mac or external clean boot environment is
 available. This is neither a pass nor a failure and must be disclosed in the
 GitHub Pre-release notes.
 
-The local RC is intentionally stopped before all Git/GitHub mutations: commit,
-push, tag, Pre-release creation, and DMG upload. Those actions are outside this
-acceptance and require separate explicit authorization.
+Authorized source commits, branch pushes, and Draft PR creation are complete.
+The RC remains intentionally stopped before merge, tag, Pre-release creation,
+and DMG upload. Those actions remain outside this acceptance and require
+separate explicit authorization.

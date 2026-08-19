@@ -42,7 +42,8 @@ First GitHub pre-release candidate for VibeStick for Mac. The App version is
 - Managed startup uses the fixed Apple `/usr/bin/security` client already
   covered by the Keychain item ACL and reports only bounded failure categories.
 - Diagnostic preview and local export remain separate explicit actions, with
-  no upload or telemetry.
+  no upload or telemetry. Absolute and home-relative local paths are fully
+  redacted, including roots and names containing spaces or punctuation.
 - Firmware download, preparation, USB access, backup, write, verification, and
   recovery remain separate confirmation gates.
 
@@ -55,8 +56,9 @@ First GitHub pre-release candidate for VibeStick for Mac. The App version is
 - A second clean Mac or external clean boot environment was unavailable, so
   clean-machine first-install and rollback acceptance remains unexecuted, not
   passed.
-- This local RC build is intentionally stopped before Git commit, push, tag,
-  GitHub pre-release creation, or artifact upload.
+- Authorized source commits, branch pushes, and Draft PR creation are complete.
+  The RC remains intentionally stopped before merge, tag, GitHub pre-release
+  creation, or artifact upload.
 - Intel Macs and macOS 14 or older are unsupported.
 
 ### Validation
@@ -64,16 +66,19 @@ First GitHub pre-release candidate for VibeStick for Mac. The App version is
 - Native Bridge behavior is covered with injected tests for protocol routing,
   persistence, provider observation, quota transport, ASR, voice delivery,
   production configuration, and runtime installation/rollback.
-- 269 hostless Swift tests in 21 suites and 194 retained Python compatibility
+- 270 hostless Swift tests in 21 suites and 194 retained Python compatibility
   tests pass.
 - The trusted M4-5K firmware payload and its audited notices are tracked release
   inputs, so a clean source/tag snapshot no longer depends on ignored build or
-  ESP-IDF directories. CI now includes hostless Swift on `macos-15` arm64.
-- The 3,546,767-byte DMG has SHA-256
-  `6cd183a4c65cfc6eab632ff401fb67316d11e38e1b180dd65d1ea103f282599c`.
-- The authorized local upgrade installed payload `0.2.0-rc.1-native`, preserved
-  Paste identity, and passed 40/40 Bridge health probes while the main App
-  performed three forced state refreshes.
+  ESP-IDF directories. CI Python and `macos-15` arm64 Swift jobs pass at
+  `5479663`.
+- The final 3,546,855-byte DMG has SHA-256
+  `9117578032af78fcd5f2ec723983b460daf5c4b9ebd0d7d009c6e7da411600e8`.
+- The earlier authorized local upgrade used predecessor candidate
+  `6cd183a4c65cfc6eab632ff401fb67316d11e38e1b180dd65d1ea103f282599c`,
+  installed payload `0.2.0-rc.1-native`, preserved Paste identity, and passed
+  40/40 Bridge health probes while the main App performed three forced state
+  refreshes. The final candidate was not installed or launched.
 - Architectures, minimum OS, versions, signatures, manifests, licenses,
   forbidden-file boundaries, trusted firmware identity, and read-only mounted
   contents pass the completed local acceptance record.
