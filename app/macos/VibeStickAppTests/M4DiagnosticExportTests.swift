@@ -54,17 +54,21 @@ struct M4DiagnosticExportTests {
         #expect(redacted.contains("[REDACTED_IDENTITY]"))
     }
 
-    @Test("redactor consumes complete local paths containing spaces")
-    func redactorReplacesPathsContainingSpaces() throws {
-        let raw = #"app_path=/Users/alice/Library/Application Support/VibeStick/bridge.log phase=ready volume='/Volumes/External Drive/VibeStick Logs/hud.log'"#
+    @Test("redactor consumes complete local paths across roots and punctuation")
+    func redactorReplacesCompleteLocalPaths() throws {
+        let raw = #"app_path=/Users/alice/Library/Application Support/VibeStick/bridge.log phase=ready volume='/Volumes/External Drive/VibeStick Logs/hud.log' network_path=/Network/Shared Folder/log vendor='/Users/alice/Foo, Inc; Archive/log'"#
 
         let redacted = try M4DiagnosticRedactor.redact(line: raw)
 
         #expect(!redacted.contains("Application Support"))
         #expect(!redacted.contains("External Drive"))
         #expect(!redacted.contains("VibeStick Logs"))
+        #expect(!redacted.contains("Shared Folder"))
+        #expect(!redacted.contains("Foo, Inc; Archive"))
         #expect(redacted.contains("app_path=[REDACTED_PATH] phase=ready"))
         #expect(redacted.contains("volume='[REDACTED_PATH]'"))
+        #expect(redacted.contains("network_path=[REDACTED_PATH]"))
+        #expect(redacted.contains("vendor='[REDACTED_PATH]'"))
     }
 
     @Test
