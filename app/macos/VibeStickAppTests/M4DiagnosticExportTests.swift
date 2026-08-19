@@ -54,6 +54,19 @@ struct M4DiagnosticExportTests {
         #expect(redacted.contains("[REDACTED_IDENTITY]"))
     }
 
+    @Test("redactor consumes complete local paths containing spaces")
+    func redactorReplacesPathsContainingSpaces() throws {
+        let raw = #"app_path=/Users/alice/Library/Application Support/VibeStick/bridge.log phase=ready volume='/Volumes/External Drive/VibeStick Logs/hud.log'"#
+
+        let redacted = try M4DiagnosticRedactor.redact(line: raw)
+
+        #expect(!redacted.contains("Application Support"))
+        #expect(!redacted.contains("External Drive"))
+        #expect(!redacted.contains("VibeStick Logs"))
+        #expect(redacted.contains("app_path=[REDACTED_PATH] phase=ready"))
+        #expect(redacted.contains("volume='[REDACTED_PATH]'"))
+    }
+
     @Test
     func previewWithoutLogsNeverReadsALogSource() async throws {
         let reader = FictionalDiagnosticEvidenceReader(
