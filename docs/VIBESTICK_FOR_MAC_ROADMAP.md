@@ -1,8 +1,8 @@
 # VibeStick for Mac 二次开发 Roadmap
 
-> 状态：0.2.0 RC 1 原生 Swift Bridge 已通过隔离 App/DMG 放行和本机事务安装/稳态验收；M4-5K 基线与产物保留不覆盖，全新环境验收因条件不足明确跳过且不得视为通过，Git/GitHub 发布仍为独立门禁
-> 更新日期：2026-08-19
-> 开发分支：vibestick-for-mac
+> 状态：0.2.0 RC 2 已作为公开 GitHub prerelease 发布；原生 Swift Bridge 已修复真实会话历史导致的状态读取超时与误报离线，最终候选已通过隔离 App/DMG 验证但尚未安装或启动；M4-5K 基线与产物保留不覆盖，全新环境验收因条件不足明确跳过且不得视为通过
+> 更新日期：2026-08-20
+> 当前发布：`v0.2.0-rc.2` / `af15c179ec3eddd26e37dadca34d94e43c6ae2eb`
 > M1 稳定基线：92f8a0b03a2246eecb20ba49b2491c0efd9f137c
 > M2 稳定基线：8ced6ebd609df18996631491c4b9163432d5a2df
 > M3-A 稳定基线：e2113ba04a5c4d0f75389ace470392e203ffa452

@@ -2,9 +2,9 @@
 
 [中文说明](README.zh-CN.md)
 
-[![GitHub Pre-release](https://img.shields.io/badge/GitHub_Pre--release-v0.2.0--rc.1-2f81f7?logo=github)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
-[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
-[![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-0A84FF)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+[![GitHub Pre-release](https://img.shields.io/badge/GitHub_Pre--release-v0.2.0--rc.2-2f81f7?logo=github)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
+[![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-0A84FF)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
 
 > **Project status:** independently maintained, macOS-focused derivative of
 > [Gary Zhang's VibeStick](https://github.com/GaryGaryyy/VibeStick). The original
@@ -12,8 +12,8 @@
 
 ![VibeStick for Mac with the real StickS3 home-screen layout and English product messaging](assets/brand/vibestick-for-mac-hero.png)
 
-[**Download RC 1 for Apple Silicon**](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.1/VibeStick-for-Mac-0.2.0-rc.1.dmg)
-· [Release page and integrity details](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+[**Download RC 2 for Apple Silicon**](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.2/VibeStick-for-Mac-0.2.0-rc.2.dmg)
+· [Release page and integrity details](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
 
 VibeStick for Mac turns an M5Stack StickS3 into a tiny desktop companion for
 coding agents: glanceable status and quota windows on the device, plus
@@ -38,39 +38,42 @@ engineering, and safety review. The product also integrates with the local
 Codex workflow to display session state and quota windows; it does not expose
 Codex credentials through its Bridge API.
 
-## 0.2.0 RC 1
+## 0.2.0 RC 2
 
-The first delivery candidate uses a fully native Swift Bridge. The release DMG
-contains the App plus native arm64 Bridge, HUD, and Paste components; end users do
-not need Python, Homebrew, Xcode, or ESP-IDF. Version `0.2.0 (10)` supports Apple
-Silicon on macOS 15 or newer. See the bilingual
-[RC 1 release notes](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_RELEASE_NOTES.md) for install,
-upgrade, privacy, recovery, and known limitations.
+RC 2 keeps the fully native Swift App, Bridge, HUD, and Paste distribution and
+fixes false Offline reports when real Codex session history makes provider
+observation slower than the device request timeout. State reads now use the
+latest in-memory snapshot while refresh work stays asynchronous, single-flight,
+and cache-aware. Version `0.2.0 (11)` supports Apple Silicon on macOS 15 or
+newer without requiring Python, Homebrew, Xcode, or ESP-IDF for normal use.
 
 This RC is ad-hoc signed and not notarized. It is published as
-[GitHub Pre-release v0.2.0-rc.1](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1),
-with its pre-publication evidence preserved in the
-[RC 1 local acceptance report](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md).
+[GitHub Pre-release v0.2.0-rc.2](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2);
+the release page contains the install steps, integrity details, validation
+evidence, and known limitations. The earlier
+[RC 1 local acceptance report](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md)
+remains available as historical evidence.
 
 ### Install the RC
 
-1. [Download `VibeStick-for-Mac-0.2.0-rc.1.dmg`](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.1/VibeStick-for-Mac-0.2.0-rc.1.dmg)
+1. [Download `VibeStick-for-Mac-0.2.0-rc.2.dmg`](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.2/VibeStick-for-Mac-0.2.0-rc.2.dmg)
    from the official GitHub Pre-release.
 2. Open the DMG and drag **VibeStick for Mac** to Applications.
-3. Because RC 1 is ad-hoc signed and not notarized, the first launch may require
+3. Because RC 2 is ad-hoc signed and not notarized, the first launch may require
    Control-clicking the App in Finder and choosing **Open**.
 4. Inspect the status first. Helpers, USB access, pairing, and firmware work
    begin only after their corresponding action and confirmation.
 
 ### What has been validated
 
-| Area | RC 1 evidence |
+| Area | RC 2 evidence |
 | --- | --- |
 | Native runtime | Swift App, Bridge, HUD, and Paste; arm64; macOS 15+ |
+| Status refresh | 10/10 live state reads in about 2.3–5.9 ms; bounded refresh; stable RSS in a 20-second sample |
 | Device workflow | USB pairing, per-device trust, Bonjour recovery, revision/ACK configuration sync |
 | Voice workflow | StickS3 recording, ASR, HUD, paste, and confirmation states |
 | Safety | Keychain-backed secrets, redacted diagnostics, transactional helper migration, separately confirmed firmware operations |
-| Release | 270 Swift tests, 194 Python compatibility tests, isolated Release build, signed component checks, read-only DMG verification |
+| Release | 277 Swift tests across 21 suites, 194 Python compatibility tests, isolated Release build, signed component checks, read-only DMG verification, green CI |
 
 Detailed implementation history and real-device acceptance evidence live in
 the milestone documents rather than on this front page:
@@ -346,7 +349,7 @@ idf.py build
 
 ## Current limits
 
-- RC 1 has a native Swift runtime and isolated App/DMG acceptance. Strict clean-machine first-install and fault-rollback acceptance remains unexecuted because no second clean Mac or clean external boot environment was available; this is neither a pass nor a failure.
+- RC 2 has a native Swift runtime and isolated App/DMG acceptance. The final RC 2 candidate was verified offline but was not installed or launched before publication. Strict clean-machine first-install and fault-rollback acceptance remains unexecuted because no second clean Mac or clean external boot environment was available; this is neither a pass nor a failure.
 - M3-B has passed controlled real-device acceptance, and M3-C has passed an explicitly authorized SiliconFlow fixed-audio GUI test without using a Mac microphone. Their implementation and evidence are retained in the repository milestones.
 - The firmware targets M5Stack StickS3 only.
 - The Mac app targets Apple Silicon and macOS 15 or newer; it is ad-hoc signed and not notarized.

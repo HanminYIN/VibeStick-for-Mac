@@ -2,9 +2,9 @@
 
 [English README](README.md)
 
-[![GitHub Pre-release](https://img.shields.io/badge/GitHub_Pre--release-v0.2.0--rc.1-2f81f7?logo=github)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
-[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
-[![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-0A84FF)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+[![GitHub Pre-release](https://img.shields.io/badge/GitHub_Pre--release-v0.2.0--rc.2-2f81f7?logo=github)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
+[![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
+[![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-0A84FF)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
 
 > **项目状态：**这是基于
 > [Gary Zhang 原始 VibeStick](https://github.com/GaryGaryyy/VibeStick)、面向 macOS
@@ -12,8 +12,8 @@
 
 ![VibeStick for Mac 英文产品图，设备区域保留真实 StickS3 首页布局](assets/brand/vibestick-for-mac-hero.png)
 
-[**下载 Apple Silicon 版 RC 1**](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.1/VibeStick-for-Mac-0.2.0-rc.1.dmg)
-· [发布页面与完整性信息](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
+[**下载 Apple Silicon 版 RC 2**](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.2/VibeStick-for-Mac-0.2.0-rc.2.dmg)
+· [发布页面与完整性信息](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
 
 VibeStick for Mac 把 M5Stack StickS3 变成一个桌面 AI agent 小终端：显示状态、可用额度窗口和提醒，并支持长按说话后自动转写粘贴到 Mac。
 
@@ -31,37 +31,39 @@ VibeStick for Mac 以 OpenAI Codex 作为主要工程协作者，覆盖产品设
 测试、发布工程和安全审计。产品本身也接入本地 Codex 工作流，用来显示会话状态与
 额度窗口；Bridge API 不会暴露 Codex 凭据。
 
-## 0.2.0 RC 1
+## 0.2.0 RC 2
 
-第一个可交付候选已经使用完全原生的 Swift Bridge。发布 DMG 内含主 App 与
-arm64 原生 Bridge、HUD、Paste；普通用户不需要 Python、Homebrew、Xcode 或
-ESP-IDF。版本为 `0.2.0 (10)`，支持 Apple Silicon 与 macOS 15 及以上。
-安装、升级、隐私、恢复和已知限制见
-[RC 1 双语发布说明](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_RELEASE_NOTES.md)。
+RC 2 延续完全原生的 Swift App、Bridge、HUD、Paste 分发，并修复真实 Codex
+会话历史较多、provider 观察时间超过设备请求超时时出现的误报离线。状态读取现在
+直接使用最新内存快照，刷新在后台异步执行，并受到单飞、最小间隔和缓存约束。
+版本为 `0.2.0 (11)`，支持 Apple Silicon 与 macOS 15 及以上；普通用户不需要
+Python、Homebrew、Xcode 或 ESP-IDF。
 
 该 RC 使用 ad-hoc 签名，尚未公证，目前已经作为
-[GitHub Pre-release v0.2.0-rc.1](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.1)
-公开发布；发布前证据保留在
-[RC 1 本地验收记录](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md)。
+[GitHub Pre-release v0.2.0-rc.2](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
+公开发布；发布页面包含安装步骤、完整性信息、验证证据和已知限制。此前的
+[RC 1 本地验收记录](docs/VIBESTICK_FOR_MAC_0.2.0_RC1_LOCAL_ACCEPTANCE.md)
+继续作为历史证据保留。
 
 ### 安装 RC
 
 1. 从官方 GitHub Pre-release
-   [下载 `VibeStick-for-Mac-0.2.0-rc.1.dmg`](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.1/VibeStick-for-Mac-0.2.0-rc.1.dmg)。
+   [下载 `VibeStick-for-Mac-0.2.0-rc.2.dmg`](https://github.com/HanminYIN/VibeStick-for-Mac/releases/download/v0.2.0-rc.2/VibeStick-for-Mac-0.2.0-rc.2.dmg)。
 2. 打开 DMG，把 **VibeStick for Mac** 拖入“应用程序”。
-3. RC 1 仍是 ad-hoc 签名且尚未公证，首次启动可能需要在 Finder 中按住 Control
+3. RC 2 仍是 ad-hoc 签名且尚未公证，首次启动可能需要在 Finder 中按住 Control
    点按 App，再选择“打开”。
 4. 先查看状态。只有选择对应操作并确认后，App 才会安装后台、访问 USB、配对或处理固件。
 
 ### 已验证内容
 
-| 范围 | RC 1 证据 |
+| 范围 | RC 2 证据 |
 | --- | --- |
 | 原生运行时 | Swift App、Bridge、HUD、Paste；arm64；macOS 15+ |
+| 状态刷新 | 10/10 次真实状态读取约 2.3–5.9 ms；刷新有界；20 秒采样内 RSS 稳定 |
 | 设备流程 | USB 配对、每设备独立信任、Bonjour 恢复、revision/ACK 配置同步 |
 | 语音流程 | StickS3 录音、ASR、HUD、粘贴和确认状态 |
 | 安全边界 | Keychain 密钥、脱敏诊断、事务式后台迁移、分别确认的固件操作 |
-| 发布验证 | 270 项 Swift 测试、194 项 Python 兼容性测试、隔离 Release 构建、组件签名检查和只读 DMG 验证 |
+| 发布验证 | 21 个 suite 共 277 项 Swift 测试、194 项 Python 兼容性测试、隔离 Release 构建、组件签名检查、只读 DMG 验证和绿色 CI |
 
 详细实现过程和真机证据放在里程碑文档中，避免首页变成开发流水账：
 
@@ -332,7 +334,7 @@ idf.py build
 
 ## 当前限制
 
-- RC 1 已使用原生 Swift 运行时，并完成隔离 App/DMG 验收。由于没有第二台全新 Mac 或可用的外置干净启动环境，严格的全新环境首次安装与故障回退验收仍未执行；这既不是通过，也不是失败。
+- RC 2 已使用原生 Swift 运行时，并完成隔离 App/DMG 验收。最终 RC 2 候选在发布前完成离线验证，但没有安装或启动。由于没有第二台全新 Mac 或可用的外置干净启动环境，严格的全新环境首次安装与故障回退验收仍未执行；这既不是通过，也不是失败。
 - 固件只面向 M5Stack StickS3。
 - Mac App 只支持 Apple Silicon 和 macOS 15 或更高版本；当前为 ad-hoc 签名且未经 Apple 公证。
 - Codex 额度平时跟随本地任务 `rate_limits` 事件，不额外启动进程；手动刷新时才单次调用与当前版本绑定的本机 Codex app-server 协议，获取更新的账户级读数。两者都不是公开额度 API。
