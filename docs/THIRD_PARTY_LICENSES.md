@@ -1,6 +1,6 @@
 # Third-party licenses in the VibeStick for Mac RC binary
 
-This inventory covers the files distributed inside the `0.2.0 RC 1` App/DMG.
+This inventory covers the files distributed inside the `0.2.0 RC 2` App/DMG.
 The macOS App, native Swift Bridge, HUD, and Paste helper use Apple system
 frameworks and do not embed a third-party language runtime or package manager.
 

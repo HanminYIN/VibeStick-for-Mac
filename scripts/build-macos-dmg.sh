@@ -5,7 +5,7 @@ ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
 BUILD_ROOT="${VIBESTICK_BUILD_ROOT:-$ROOT_DIR/.build/macos.noindex}"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 STAGING_PATH="$BUILD_ROOT/dmg-root"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-0.2.0-rc.1.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-0.2.0-rc.2.dmg"
 
 "$ROOT_DIR/scripts/build-macos-app.sh"
 
@@ -16,7 +16,7 @@ ln -s /Applications "$STAGING_PATH/Applications"
 rm -f "$DMG_PATH"
 
 /usr/bin/hdiutil create \
-  -volname "VibeStick for Mac 0.2.0 RC 1" \
+  -volname "VibeStick for Mac 0.2.0 RC 2" \
   -srcfolder "$STAGING_PATH" \
   -ov \
   -format UDZO \

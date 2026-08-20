@@ -6,7 +6,7 @@ PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="${VIBESTICK_BUILD_ROOT:-$ROOT_DIR/.build/macos.noindex}"
 APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
 APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-0.2.0-rc.1.dmg"
+DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-0.2.0-rc.2.dmg"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
@@ -37,11 +37,11 @@ assert_bundle_version() {
   info_plist="$bundle_path/Contents/Info.plist"
   short_version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$info_plist")"
   build_version="$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$info_plist")"
-  if [ "$short_version" != "0.2.0" ] || [ "$build_version" != "10" ]; then
-    printf '%s\n' "FAIL: $bundle_label version is $short_version ($build_version), expected 0.2.0 (10)" >&2
+  if [ "$short_version" != "0.2.0" ] || [ "$build_version" != "11" ]; then
+    printf '%s\n' "FAIL: $bundle_label version is $short_version ($build_version), expected 0.2.0 (11)" >&2
     exit 1
   fi
-  printf '%s\n' "PASS: $bundle_label version is 0.2.0 (10)"
+  printf '%s\n' "PASS: $bundle_label version is 0.2.0 (11)"
 }
 
 assert_local_network_metadata() {
