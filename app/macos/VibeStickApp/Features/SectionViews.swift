@@ -1495,7 +1495,7 @@ struct AdvancedSettingsView: View {
                     systemImage: "hammer.fill",
                     tone: .inactive
                 ) {
-                    Text("这是 VibeStick for Mac 0.2.0 RC 1：Bridge 已迁移为原生 Swift，保留 Codex Focus、语音发送、显式迁移与受管运行时。诊断预览只在主动点击后生成，诊断包只写入用户选择的本地文件夹，不包含原始日志，也不会自动上传。安装后台组件或操作设备仍需逐项确认。")
+                    Text("这是 VibeStick for Mac 0.2.0 RC 2：Bridge 已迁移为原生 Swift，保留 Codex Focus、语音发送、显式迁移与受管运行时。诊断预览只在主动点击后生成，诊断包只写入用户选择的本地文件夹，不包含原始日志，也不会自动上传。安装后台组件或操作设备仍需逐项确认。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }

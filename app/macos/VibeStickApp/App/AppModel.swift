@@ -178,7 +178,7 @@ final class AppModel: ObservableObject {
             ?? "0.2.0-dev"
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "local"
-        return "\(version) (\(build)) · RC 1"
+        return "\(version) (\(build)) · RC 2"
     }
 
     func start() {
