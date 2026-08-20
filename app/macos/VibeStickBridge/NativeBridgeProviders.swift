@@ -50,6 +50,26 @@ enum NativeProviderObservationEngine {
         fallbackProject: String,
         now: Date = Date()
     ) -> NativeProviderObservation {
+        observeCodex(
+            snapshots: sessions.map {
+                NativeCodexSessionSnapshot(
+                    userInitiated: $0.userInitiated,
+                    metadataWorkingDirectory: $0.metadataWorkingDirectory,
+                    observation: codexSessionObservation($0)
+                )
+            },
+            online: online,
+            fallbackProject: fallbackProject,
+            now: now
+        )
+    }
+
+    fileprivate static func observeCodex(
+        snapshots: [NativeCodexSessionSnapshot],
+        online: Bool,
+        fallbackProject: String,
+        now: Date
+    ) -> NativeProviderObservation {
         var latestProject: (Date, String)?
         var latestRunningProject: (Date, String)?
         var latestEvent: NativeDatedEvent?
@@ -61,10 +81,10 @@ enum NativeProviderObservationEngine {
         var userSessionFound = false
         var userTaskRunning = false
 
-        for input in sessions {
-            let session = codexSessionObservation(input, now: now)
+        for snapshot in snapshots {
+            let session = snapshot.observation
             latestQuota = preferredQuota(latestQuota, session.quota)
-            if input.userInitiated != true {
+            if snapshot.userInitiated != true {
                 latestFallbackEvent = newerEvent(latestFallbackEvent, session.latestEvent)
                 continue
             }
@@ -73,7 +93,7 @@ enum NativeProviderObservationEngine {
             latestEvent = newerEvent(latestEvent, session.latestEvent)
             let running = sessionIsRunning(session, now: now)
             userTaskRunning = userTaskRunning || running
-            let projectPath = session.latestWorkingDirectory?.1 ?? input.metadataWorkingDirectory
+            let projectPath = session.latestWorkingDirectory?.1 ?? snapshot.metadataWorkingDirectory
             let projectTimestamp = session.latestEvent?.timestamp ?? session.latestWorkingDirectory?.0
             if let projectPath, let projectTimestamp {
                 let candidate = (projectTimestamp, projectName(from: projectPath, fallback: fallbackProject))
@@ -118,7 +138,10 @@ enum NativeProviderObservationEngine {
             status = "IDLE"
         }
 
-        let quota = latestQuota?.snapshot ?? NativeQuotaSnapshot()
+        let quota = (latestQuota?.snapshot ?? NativeQuotaSnapshot()).staleIfOlder(
+            than: quotaStaleAfter,
+            now: now
+        )
         return NativeProviderObservation(
             providerID: "codex",
             displayName: "Codex",
@@ -139,34 +162,47 @@ enum NativeProviderObservationEngine {
         project: String,
         now: Date = Date()
     ) -> NativeProviderObservation {
+        observeClaude(
+            sessions: [claudeSessionObservation(events)],
+            online: online,
+            project: project,
+            now: now
+        )
+    }
+
+    fileprivate static func observeClaude(
+        sessions: [NativeClaudeSessionObservation],
+        online: Bool,
+        project: String,
+        now: Date
+    ) -> NativeProviderObservation {
         var latestEvent: (Date, String, String)?
         var latestError: (Date, String, String)?
         var latestDone: (Date, String, String)?
         var latestToolUse: (Date, String, String)?
         var sessionModes: [String: (Date, String)] = [:]
 
-        for event in events {
-            guard let timestamp = date(event["timestamp"]) else { continue }
-            let sessionID = event["sessionId"] as? String ?? ""
-            let eventType = event["type"] as? String ?? ""
-            if !eventType.isEmpty, latestEvent == nil || timestamp > latestEvent!.0 {
-                latestEvent = (timestamp, eventType, sessionID)
+        for session in sessions {
+            if let candidate = session.latestEvent,
+               latestEvent == nil || candidate.0 > latestEvent!.0 {
+                latestEvent = candidate
             }
-            if let mode = event["permissionMode"] as? String, !mode.isEmpty, !sessionID.isEmpty,
-               sessionModes[sessionID] == nil || timestamp > sessionModes[sessionID]!.0 {
-                sessionModes[sessionID] = (timestamp, mode)
+            if let candidate = session.latestError,
+               latestError == nil || candidate.0 > latestError!.0 {
+                latestError = candidate
             }
-            if claudeHasError(event) {
-                let candidate = (timestamp, claudeEventID("claude_error", event: event, timestamp: timestamp), claudeMessage(event).isEmpty ? "Claude task failed or needs attention" : claudeMessage(event))
-                if latestError == nil || timestamp > latestError!.0 { latestError = candidate }
+            if let candidate = session.latestDone,
+               latestDone == nil || candidate.0 > latestDone!.0 {
+                latestDone = candidate
             }
-            if eventType == "assistant", claudeStopReason(event) == "tool_use" {
-                let candidate = (timestamp, claudeEventID("claude_approval", event: event, timestamp: timestamp), sessionID)
-                if latestToolUse == nil || timestamp > latestToolUse!.0 { latestToolUse = candidate }
+            if let candidate = session.latestToolUse,
+               latestToolUse == nil || candidate.0 > latestToolUse!.0 {
+                latestToolUse = candidate
             }
-            if eventType == "assistant", claudeTurnComplete(event) {
-                let candidate = (timestamp, claudeEventID("claude_done", event: event, timestamp: timestamp), "Claude task completed")
-                if latestDone == nil || timestamp > latestDone!.0 { latestDone = candidate }
+            for (sessionID, candidate) in session.sessionModes {
+                if sessionModes[sessionID] == nil || candidate.0 > sessionModes[sessionID]!.0 {
+                    sessionModes[sessionID] = candidate
+                }
             }
         }
 
@@ -269,63 +305,190 @@ enum NativeProviderObservationEngine {
 }
 
 final class NativeProviderFileSource {
-    func codexSessions(root: URL) -> [NativeCodexSessionInput] {
+    private struct FileSignature: Equatable {
+        let modifiedAt: TimeInterval
+        let size: Int64
+    }
+
+    private struct SessionFile {
+        let url: URL
+        let signature: FileSignature
+    }
+
+    private struct CodexIdentity {
+        let sessionID: String
+        let userInitiated: Bool?
+        let workingDirectory: String?
+    }
+
+    private struct Cached<Value> {
+        let signature: FileSignature
+        let value: Value
+    }
+
+    private let readPrefix: (URL, Int) throws -> Data?
+    private let readTail: (URL, Int) throws -> Data?
+    private var codexIdentityCache: [String: Cached<CodexIdentity>] = [:]
+    private var codexSnapshotCache: [String: Cached<NativeCodexSessionSnapshot>] = [:]
+    private var claudeSessionCache: [String: Cached<NativeClaudeSessionObservation>] = [:]
+
+    init(
+        readPrefix: @escaping (URL, Int) throws -> Data? = {
+            try NativeBridgeSecureFile.readPrefix(at: $0, maximumBytes: $1)
+        },
+        readTail: @escaping (URL, Int) throws -> Data? = {
+            try NativeBridgeSecureFile.readTail(at: $0, maximumBytes: $1)
+        }
+    ) {
+        self.readPrefix = readPrefix
+        self.readTail = readTail
+    }
+
+    func codexObservation(
+        root: URL,
+        online: Bool,
+        fallbackProject: String,
+        now: Date
+    ) -> NativeProviderObservation {
         let files = sessionFiles(root: root, maximum: 160)
-        var user: [NativeCodexSessionInput] = []
-        var unknown: [NativeCodexSessionInput] = []
-        var internalSessions: [NativeCodexSessionInput] = []
+        let currentPaths = Set(files.map { $0.url.standardizedFileURL.path })
+        codexIdentityCache = codexIdentityCache.filter { currentPaths.contains($0.key) }
+        codexSnapshotCache = codexSnapshotCache.filter { currentPaths.contains($0.key) }
+        var user: [NativeCodexSessionSnapshot] = []
+        var unknown: [NativeCodexSessionSnapshot] = []
+        var internalSessions: [NativeCodexSessionSnapshot] = []
         for file in files {
             let identity = codexIdentity(file)
+            if identity.userInitiated == true, user.count >= 40 { continue }
+            if identity.userInitiated == nil, unknown.count >= 10 { continue }
+            if identity.userInitiated == false, internalSessions.count >= 40 { continue }
             let tailBytes = identity.userInitiated == false ? 262_144 : 1_500_000
-            let input = NativeCodexSessionInput(
-                sessionID: identity.sessionID,
-                userInitiated: identity.userInitiated,
-                metadataWorkingDirectory: identity.workingDirectory,
-                events: jsonLines(try? NativeBridgeSecureFile.readTail(at: file, maximumBytes: tailBytes))
-            )
-            if identity.userInitiated == true, user.count < 40 { user.append(input) }
-            else if identity.userInitiated == nil, unknown.count < 10 { unknown.append(input) }
-            else if identity.userInitiated == false, internalSessions.count < 40 { internalSessions.append(input) }
+            let snapshot = codexSnapshot(file, identity: identity, tailBytes: tailBytes)
+            if identity.userInitiated == true { user.append(snapshot) }
+            else if identity.userInitiated == nil { unknown.append(snapshot) }
+            else { internalSessions.append(snapshot) }
         }
-        return user + unknown + internalSessions
+        return NativeProviderObservationEngine.observeCodex(
+            snapshots: user + unknown + internalSessions,
+            online: online,
+            fallbackProject: fallbackProject,
+            now: now
+        )
     }
 
-    func claudeEvents(root: URL) -> [[String: Any]] {
-        sessionFiles(root: root, maximum: 40).flatMap {
-            jsonLines(try? NativeBridgeSecureFile.readTail(at: $0, maximumBytes: 1_500_000))
+    func claudeObservation(
+        root: URL,
+        online: Bool,
+        project: String,
+        now: Date
+    ) -> NativeProviderObservation {
+        let files = sessionFiles(root: root, maximum: 40)
+        let currentPaths = Set(files.map { $0.url.standardizedFileURL.path })
+        claudeSessionCache = claudeSessionCache.filter { currentPaths.contains($0.key) }
+        let sessions = files.map { file in
+            let key = file.url.standardizedFileURL.path
+            if let cached = claudeSessionCache[key], cached.signature == file.signature {
+                return cached.value
+            }
+            let events = jsonLines(try? readTail(file.url, 1_500_000))
+            let session = claudeSessionObservation(events)
+            claudeSessionCache[key] = Cached(signature: file.signature, value: session)
+            return session
         }
+        return NativeProviderObservationEngine.observeClaude(
+            sessions: sessions,
+            online: online,
+            project: project,
+            now: now
+        )
     }
 
-    private func codexIdentity(_ file: URL) -> (sessionID: String, userInitiated: Bool?, workingDirectory: String?) {
-        guard let prefix = try? NativeBridgeSecureFile.readPrefix(at: file, maximumBytes: 262_144),
+    private func codexIdentity(_ file: SessionFile) -> CodexIdentity {
+        let key = file.url.standardizedFileURL.path
+        if let cached = codexIdentityCache[key], cached.signature == file.signature {
+            return cached.value
+        }
+        let identity: CodexIdentity
+        if let prefix = try? readPrefix(file.url, 262_144),
               let lineEnd = prefix.firstIndex(of: 0x0A),
               let event = try? JSONSerialization.jsonObject(with: prefix[..<lineEnd]) as? [String: Any],
               event["type"] as? String == "session_meta",
               let payload = event["payload"] as? [String: Any],
               let sessionID = payload["id"] as? String,
               !sessionID.isEmpty,
-              file.lastPathComponent.hasSuffix("\(sessionID).jsonl") else {
-            return ("", nil, nil)
+              file.url.lastPathComponent.hasSuffix("\(sessionID).jsonl") {
+            let source = payload["source"]
+            let initiated: Bool?
+            if let source = source as? [String: Any], source["subagent"] != nil { initiated = false }
+            else if source == nil || source is NSNull { initiated = nil }
+            else { initiated = true }
+            identity = CodexIdentity(
+                sessionID: sessionID,
+                userInitiated: initiated,
+                workingDirectory: payload["cwd"] as? String
+            )
+        } else {
+            identity = CodexIdentity(sessionID: "", userInitiated: nil, workingDirectory: nil)
         }
-        let source = payload["source"]
-        let initiated: Bool?
-        if let source = source as? [String: Any], source["subagent"] != nil { initiated = false }
-        else if source == nil || source is NSNull { initiated = nil }
-        else { initiated = true }
-        return (sessionID, initiated, payload["cwd"] as? String)
+        codexIdentityCache[key] = Cached(signature: file.signature, value: identity)
+        return identity
     }
 
-    private func sessionFiles(root: URL, maximum: Int) -> [URL] {
+    private func codexSnapshot(
+        _ file: SessionFile,
+        identity: CodexIdentity,
+        tailBytes: Int
+    ) -> NativeCodexSessionSnapshot {
+        let key = file.url.standardizedFileURL.path
+        if let cached = codexSnapshotCache[key], cached.signature == file.signature {
+            return cached.value
+        }
+        let input = NativeCodexSessionInput(
+            sessionID: identity.sessionID,
+            userInitiated: identity.userInitiated,
+            metadataWorkingDirectory: identity.workingDirectory,
+            events: jsonLines(try? readTail(file.url, tailBytes))
+        )
+        let snapshot = NativeCodexSessionSnapshot(
+            userInitiated: input.userInitiated,
+            metadataWorkingDirectory: input.metadataWorkingDirectory,
+            observation: codexSessionObservation(input)
+        )
+        codexSnapshotCache[key] = Cached(signature: file.signature, value: snapshot)
+        return snapshot
+    }
+
+    private func sessionFiles(root: URL, maximum: Int) -> [SessionFile] {
         guard let enumerator = FileManager.default.enumerator(
             at: root,
-            includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [
+                .isRegularFileKey,
+                .isSymbolicLinkKey,
+                .contentModificationDateKey,
+                .fileSizeKey,
+            ],
             options: [.skipsHiddenFiles, .skipsPackageDescendants]
         ) else { return [] }
-        var candidates: [(URL, Date)] = []
+        var candidates: [(SessionFile, Date)] = []
         for case let url as URL in enumerator where url.pathExtension == "jsonl" {
-            guard let values = try? url.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey]),
+            guard let values = try? url.resourceValues(forKeys: [
+                    .isRegularFileKey,
+                    .isSymbolicLinkKey,
+                    .contentModificationDateKey,
+                    .fileSizeKey,
+                  ]),
                   values.isRegularFile == true, values.isSymbolicLink != true else { continue }
-            candidates.append((url, values.contentModificationDate ?? .distantPast))
+            let modifiedAt = values.contentModificationDate ?? .distantPast
+            candidates.append((
+                SessionFile(
+                    url: url,
+                    signature: FileSignature(
+                        modifiedAt: modifiedAt.timeIntervalSince1970,
+                        size: Int64(values.fileSize ?? 0)
+                    )
+                ),
+                modifiedAt
+            ))
         }
         return candidates.sorted { $0.1 > $1.1 }.prefix(maximum).map(\.0)
     }
@@ -358,26 +521,26 @@ enum NativeSystemProcessSource {
     }
 }
 
-private struct NativeDatedEvent {
+fileprivate struct NativeDatedEvent {
     let timestamp: Date
     let type: String
     let message: String
 }
 
-private struct NativeAlertCandidate {
+fileprivate struct NativeAlertCandidate {
     let timestamp: Date
     let kind: String
     let message: String
     let eventKey: String
 }
 
-private struct NativeQuotaCandidate {
+fileprivate struct NativeQuotaCandidate {
     let timestamp: Date
     let snapshot: NativeQuotaSnapshot
     let accountWide: Bool
 }
 
-private struct NativeCodexSessionObservation {
+fileprivate struct NativeCodexSessionObservation {
     var latestEvent: NativeDatedEvent?
     var latestWorkingDirectory: (Date, String)?
     var latestLifecycle: (Date, String)?
@@ -388,7 +551,21 @@ private struct NativeCodexSessionObservation {
     var quota: NativeQuotaCandidate?
 }
 
-private func codexSessionObservation(_ input: NativeCodexSessionInput, now: Date) -> NativeCodexSessionObservation {
+fileprivate struct NativeCodexSessionSnapshot {
+    let userInitiated: Bool?
+    let metadataWorkingDirectory: String?
+    let observation: NativeCodexSessionObservation
+}
+
+fileprivate struct NativeClaudeSessionObservation {
+    var latestEvent: (Date, String, String)?
+    var latestError: (Date, String, String)?
+    var latestDone: (Date, String, String)?
+    var latestToolUse: (Date, String, String)?
+    var sessionModes: [String: (Date, String)] = [:]
+}
+
+fileprivate func codexSessionObservation(_ input: NativeCodexSessionInput) -> NativeCodexSessionObservation {
     var result = NativeCodexSessionObservation()
     for event in input.events {
         guard let timestamp = date(event["timestamp"]) else { continue }
@@ -412,7 +589,7 @@ private func codexSessionObservation(_ input: NativeCodexSessionInput, now: Date
             result.latestLifecycle = (timestamp, normalized)
             if !turnID.isEmpty { result.activeTurns.remove(turnID) }
         }
-        if let quota = codexQuota(payload, timestamp: timestamp, now: now) {
+        if let quota = codexQuota(payload, timestamp: timestamp) {
             result.quota = preferredQuota(result.quota, quota)
         }
         if let alert = codexAlert(candidateType, payload: payload, sessionID: input.sessionID, turnID: turnID, timestamp: timestamp) {
@@ -424,7 +601,58 @@ private func codexSessionObservation(_ input: NativeCodexSessionInput, now: Date
     return result
 }
 
-private func codexQuota(_ payload: [String: Any], timestamp: Date, now: Date) -> NativeQuotaCandidate? {
+fileprivate func claudeSessionObservation(_ events: [[String: Any]]) -> NativeClaudeSessionObservation {
+    var result = NativeClaudeSessionObservation()
+    for event in events {
+        guard let timestamp = date(event["timestamp"]) else { continue }
+        let sessionID = event["sessionId"] as? String ?? ""
+        let eventType = event["type"] as? String ?? ""
+        if !eventType.isEmpty,
+           result.latestEvent == nil || timestamp > result.latestEvent!.0 {
+            result.latestEvent = (timestamp, eventType, sessionID)
+        }
+        if let mode = event["permissionMode"] as? String,
+           !mode.isEmpty,
+           !sessionID.isEmpty,
+           result.sessionModes[sessionID] == nil || timestamp > result.sessionModes[sessionID]!.0 {
+            result.sessionModes[sessionID] = (timestamp, mode)
+        }
+        if claudeHasError(event) {
+            let message = claudeMessage(event)
+            let candidate = (
+                timestamp,
+                claudeEventID("claude_error", event: event, timestamp: timestamp),
+                message.isEmpty ? "Claude task failed or needs attention" : message
+            )
+            if result.latestError == nil || timestamp > result.latestError!.0 {
+                result.latestError = candidate
+            }
+        }
+        if eventType == "assistant", claudeStopReason(event) == "tool_use" {
+            let candidate = (
+                timestamp,
+                claudeEventID("claude_approval", event: event, timestamp: timestamp),
+                sessionID
+            )
+            if result.latestToolUse == nil || timestamp > result.latestToolUse!.0 {
+                result.latestToolUse = candidate
+            }
+        }
+        if eventType == "assistant", claudeTurnComplete(event) {
+            let candidate = (
+                timestamp,
+                claudeEventID("claude_done", event: event, timestamp: timestamp),
+                "Claude task completed"
+            )
+            if result.latestDone == nil || timestamp > result.latestDone!.0 {
+                result.latestDone = candidate
+            }
+        }
+    }
+    return result
+}
+
+private func codexQuota(_ payload: [String: Any], timestamp: Date) -> NativeQuotaCandidate? {
     guard payload["type"] as? String == "token_count",
           let limits = payload["rate_limits"] as? [String: Any] else { return nil }
     var fiveHour: Int?
@@ -449,7 +677,7 @@ private func codexQuota(_ payload: [String: Any], timestamp: Date, now: Date) ->
         quota5HRemaining: fiveHour,
         quota7DRemaining: sevenDay,
         quotaUpdatedAt: formatter.string(from: timestamp),
-        quotaStale: now.timeIntervalSince(timestamp) > NativeProviderObservationEngine.quotaStaleAfter,
+        quotaStale: false,
         quotaSource: "codex-session-log",
         quotaObservedAtEpoch: timestamp.timeIntervalSince1970
     )
