@@ -48,6 +48,43 @@ struct NativeBridgeCoreTests {
         #expect(healthReturned.wait(timeout: .now() + 0.25) == .success)
     }
 
+    @Test("state and device reads stay responsive while a mutation is slow")
+    func readFastLane() {
+        let mutationStarted = DispatchSemaphore(value: 0)
+        let releaseMutation = DispatchSemaphore(value: 0)
+        let stateReturned = DispatchSemaphore(value: 0)
+        let devicesReturned = DispatchSemaphore(value: 0)
+        let store = MockNativeBridgeStore()
+        store.startRecordingHandler = { request in
+            mutationStarted.signal()
+            releaseMutation.wait()
+            return store.recordingPayload(request: request)
+        }
+        let coordinator = NativeBridgeRequestCoordinator(
+            router: NativeBridgeRouter(store: store)
+        )
+
+        coordinator.respond(
+            to: NativeBridgeHTTPRequest(method: "POST", target: "/recording/start", body: Data("{}".utf8))
+        ) { _ in }
+        defer { releaseMutation.signal() }
+        #expect(mutationStarted.wait(timeout: .now() + 1) == .success)
+
+        coordinator.respond(
+            to: NativeBridgeHTTPRequest(method: "GET", target: "/state")
+        ) { response in
+            if response.status == 200 { stateReturned.signal() }
+        }
+        coordinator.respond(
+            to: NativeBridgeHTTPRequest(method: "GET", target: "/v1/devices")
+        ) { response in
+            if response.status == 200 { devicesReturned.signal() }
+        }
+
+        #expect(stateReturned.wait(timeout: .now() + 0.25) == .success)
+        #expect(devicesReturned.wait(timeout: .now() + 0.25) == .success)
+    }
+
     @Test("state is local by default and remote access needs an exact token")
     func stateAuthorization() throws {
         let store = MockNativeBridgeStore()
@@ -214,6 +251,7 @@ private final class MockNativeBridgeStore: NativeBridgeRoutingStore {
     var acknowledgements: [Int] = []
     var audioDeliveries = 0
     var currentStateHandler: (() -> [String: Any])?
+    var startRecordingHandler: (([String: Any]) -> [String: Any])?
 
     func authenticateDevice(id: String, token: String) -> Bool {
         id == acceptedDeviceID && token == acceptedDeviceToken && !id.isEmpty
@@ -243,7 +281,10 @@ private final class MockNativeBridgeStore: NativeBridgeRoutingStore {
 
     func update(event: [String: Any]) -> [String: Any] { currentState() }
     func refreshQuota() -> [String: Any] { currentState() }
-    func startRecording(request: [String: Any]) -> [String: Any] { recordingPayload(request: request) }
+    func startRecording(request: [String: Any]) -> [String: Any] {
+        if let startRecordingHandler { return startRecordingHandler(request) }
+        return recordingPayload(request: request)
+    }
 
     func attachRecordingAudio(
         _ data: Data,
@@ -259,7 +300,7 @@ private final class MockNativeBridgeStore: NativeBridgeRoutingStore {
     func stopRecording(request: [String: Any]) -> [String: Any] { recordingPayload(request: request) }
     func confirmRecordingSend(request: [String: Any]) -> [String: Any] { recordingPayload(request: request) }
 
-    private func recordingPayload(request: [String: Any]) -> [String: Any] {
+    fileprivate func recordingPayload(request: [String: Any]) -> [String: Any] {
         let sessionID = request["session_id"] as? String ?? "0123456789abcdef0123456789abcdef"
         return [
             "voice_interaction_version": 2,

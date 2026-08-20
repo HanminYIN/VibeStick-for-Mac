@@ -5,6 +5,63 @@ struct NativeProviderObservationPair {
     var claude: NativeProviderObservation
 }
 
+private final class NativeProviderObservationCache: @unchecked Sendable {
+    private let observe: () -> NativeProviderObservationPair
+    private let now: () -> Date
+    private let minimumRefreshInterval: TimeInterval
+    private let queue = DispatchQueue(
+        label: "com.vibestick.native-bridge.provider-observation",
+        qos: .utility
+    )
+    private let lock = NSLock()
+
+    private var pair: NativeProviderObservationPair
+    private var lastRefreshStartedEpoch: TimeInterval
+    private var refreshInFlight = false
+
+    init(
+        observe: @escaping () -> NativeProviderObservationPair,
+        now: @escaping () -> Date,
+        minimumRefreshInterval: TimeInterval = 2
+    ) {
+        self.observe = observe
+        self.now = now
+        self.minimumRefreshInterval = max(0, minimumRefreshInterval)
+        let observedAtEpoch = max(0, now().timeIntervalSince1970)
+        self.pair = observe()
+        self.lastRefreshStartedEpoch = observedAtEpoch
+    }
+
+    func current() -> NativeProviderObservationPair {
+        scheduleRefreshIfNeeded()
+        return lock.withLock { pair }
+    }
+
+    private func scheduleRefreshIfNeeded() {
+        let shouldRefresh = lock.withLock { () -> Bool in
+            let timestamp = max(0, now().timeIntervalSince1970)
+            guard !refreshInFlight,
+                  timestamp >= lastRefreshStartedEpoch,
+                  timestamp - lastRefreshStartedEpoch >= minimumRefreshInterval else {
+                return false
+            }
+            refreshInFlight = true
+            lastRefreshStartedEpoch = timestamp
+            return true
+        }
+        guard shouldRefresh else { return }
+
+        queue.async { [weak self] in
+            guard let self else { return }
+            let refreshed = observe()
+            lock.withLock {
+                self.pair = refreshed
+                self.refreshInFlight = false
+            }
+        }
+    }
+}
+
 final class NativeProviderRuntimeObserver {
     private let homeDirectory: URL
     private let fallbackProject: String
@@ -30,18 +87,14 @@ final class NativeProviderRuntimeObserver {
         let commands = processCommands()
         let date = now()
         return NativeProviderObservationPair(
-            codex: NativeProviderObservationEngine.observeCodex(
-                sessions: fileSource.codexSessions(
-                    root: homeDirectory.appendingPathComponent(".codex/sessions", isDirectory: true)
-                ),
+            codex: fileSource.codexObservation(
+                root: homeDirectory.appendingPathComponent(".codex/sessions", isDirectory: true),
                 online: NativeProviderObservationEngine.codexProcessRunning(commands: commands),
                 fallbackProject: fallbackProject,
                 now: date
             ),
-            claude: NativeProviderObservationEngine.observeClaude(
-                events: fileSource.claudeEvents(
-                    root: homeDirectory.appendingPathComponent(".claude/projects", isDirectory: true)
-                ),
+            claude: fileSource.claudeObservation(
+                root: homeDirectory.appendingPathComponent(".claude/projects", isDirectory: true),
                 online: NativeProviderObservationEngine.claudeProcessRunning(commands: commands),
                 project: fallbackProject,
                 now: date
@@ -88,7 +141,7 @@ final class NativeBridgeRuntimeStore: NativeBridgeRoutingStore {
     private let quotaStore: NativeQuotaStore
     private let claudeQuotaStore: NativeQuotaStore
     private let voice: NativeVoiceRecordingController
-    private let observeProviders: () -> NativeProviderObservationPair
+    private let providerObservations: NativeProviderObservationCache
     private let fetchAccountQuota: () -> NativeQuotaSnapshot?
     private let fetchClaudeQuota: () -> NativeQuotaSnapshot?
     private let now: () -> Date
@@ -104,6 +157,7 @@ final class NativeBridgeRuntimeStore: NativeBridgeRoutingStore {
     private var manualStatusUntil: TimeInterval = 0
     private var deviceRuntime: [String: NativeDeviceRuntime] = [:]
     private var lastClaudeAttemptEpoch: TimeInterval = 0
+    private var lastSavedState: NativeBridgeStateModel?
 
     init(
         bridgeID: String,
@@ -134,7 +188,10 @@ final class NativeBridgeRuntimeStore: NativeBridgeRoutingStore {
         self.quotaStore = quotaStore
         self.claudeQuotaStore = claudeQuotaStore
         self.voice = voice
-        self.observeProviders = observeProviders
+        self.providerObservations = NativeProviderObservationCache(
+            observe: observeProviders,
+            now: now
+        )
         self.fetchAccountQuota = fetchAccountQuota
         self.fetchClaudeQuota = fetchClaudeQuota
         self.claudeUsageEnabled = claudeUsageEnabled
@@ -174,8 +231,9 @@ final class NativeBridgeRuntimeStore: NativeBridgeRoutingStore {
     }
 
     func currentState() -> [String: Any] {
-        withLock {
-            refreshProvidersLocked()
+        let providerPair = providerObservations.current()
+        return withLock {
+            refreshProvidersLocked(providerPair)
             saveStateLocked()
             return state.json(now: now())
         }
@@ -227,7 +285,8 @@ final class NativeBridgeRuntimeStore: NativeBridgeRoutingStore {
     }
 
     func update(event: [String: Any]) -> [String: Any] {
-        withLock {
+        let providerPair = providerObservations.current()
+        return withLock {
             let eventName = event["event"] as? String ?? ""
             if let requested = event["codex_status"] as? String
                 ?? event["status"] as? String,
@@ -242,16 +301,17 @@ final class NativeBridgeRuntimeStore: NativeBridgeRoutingStore {
             } else if eventName == "button_short" {
                 state.alert = NativeAlertState()
             }
-            refreshProvidersLocked()
+            refreshProvidersLocked(providerPair)
             saveStateLocked()
             return state.json(now: now())
         }
     }
 
     func refreshQuota() -> [String: Any] {
-        withLock {
+        let providerPair = providerObservations.current()
+        return withLock {
             refreshQuotaLocked()
-            refreshProvidersLocked()
+            refreshProvidersLocked(providerPair)
             saveStateLocked()
             return state.json(now: now())
         }
@@ -295,8 +355,8 @@ final class NativeBridgeRuntimeStore: NativeBridgeRoutingStore {
         return result
     }
 
-    private func refreshProvidersLocked() {
-        var pair = observeProviders()
+    private func refreshProvidersLocked(_ observationPair: NativeProviderObservationPair) {
+        var pair = observationPair
         pair.codex.quota = preferredCodexQuota(pair.codex.quota)
         let timestamp = finiteEpoch(now().timeIntervalSince1970)
         if timestamp < manualStatusUntil {
@@ -426,7 +486,13 @@ final class NativeBridgeRuntimeStore: NativeBridgeRoutingStore {
     }
 
     private func saveStateLocked() {
-        try? stateDocument.save(state, now: now())
+        guard state != lastSavedState else { return }
+        do {
+            try stateDocument.save(state, now: now())
+            lastSavedState = state
+        } catch {
+            // Keep the snapshot dirty so the next request retries the atomic save.
+        }
     }
 
     private func eventTimestamp() -> String {

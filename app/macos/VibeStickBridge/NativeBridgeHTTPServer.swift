@@ -137,15 +137,21 @@ enum NativeBridgeBonjour {
 
 final class NativeBridgeRequestCoordinator: @unchecked Sendable {
     private let router: NativeBridgeRouter
+    private let readRouteQueue: DispatchQueue
     private let serializedRouteQueue: DispatchQueue
 
     init(
         router: NativeBridgeRouter,
+        readRouteQueue: DispatchQueue = DispatchQueue(
+            label: "com.vibestick.native-bridge.read-routes",
+            attributes: .concurrent
+        ),
         serializedRouteQueue: DispatchQueue = DispatchQueue(
             label: "com.vibestick.native-bridge.routes"
         )
     ) {
         self.router = router
+        self.readRouteQueue = readRouteQueue
         self.serializedRouteQueue = serializedRouteQueue
     }
 
@@ -157,15 +163,33 @@ final class NativeBridgeRequestCoordinator: @unchecked Sendable {
             completion(router.response(to: request))
             return
         }
+        if Self.isFastReadRequest(request) {
+            readRouteQueue.async { [self] in
+                completion(router.response(to: request))
+            }
+            return
+        }
         serializedRouteQueue.async { [self] in
             completion(router.response(to: request))
         }
     }
 
     private static func isHealthRequest(_ request: NativeBridgeHTTPRequest) -> Bool {
+        request.method == "GET" && path(for: request) == "/health"
+    }
+
+    private static func isFastReadRequest(_ request: NativeBridgeHTTPRequest) -> Bool {
         guard request.method == "GET" else { return false }
-        let components = URLComponents(string: "http://vibestick.local\(request.target)")
-        return components?.path == "/health"
+        switch path(for: request) {
+        case "/state", "/v1/devices":
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func path(for request: NativeBridgeHTTPRequest) -> String? {
+        URLComponents(string: "http://vibestick.local\(request.target)")?.path
     }
 }
 

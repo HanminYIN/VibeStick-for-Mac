@@ -132,6 +132,139 @@ struct NativeBridgeProvidersTests {
         ) == "claude")
     }
 
+    @Test("unchanged Codex session files reuse their parsed input")
+    func unchangedSessionsAreCached() throws {
+        try withProviderTemporaryDirectory { directory in
+            try writeCodexSession(id: "cached-session", source: "cli", to: directory)
+            let reads = ProviderFileReadCounter()
+            let source = NativeProviderFileSource(
+                readPrefix: { url, maximumBytes in
+                    reads.notePrefix()
+                    return try NativeBridgeSecureFile.readPrefix(at: url, maximumBytes: maximumBytes)
+                },
+                readTail: { url, maximumBytes in
+                    reads.noteTail()
+                    return try NativeBridgeSecureFile.readTail(at: url, maximumBytes: maximumBytes)
+                }
+            )
+
+            let first = source.codexObservation(
+                root: directory,
+                online: true,
+                fallbackProject: "VibeStick",
+                now: now
+            )
+            let second = source.codexObservation(
+                root: directory,
+                online: true,
+                fallbackProject: "VibeStick",
+                now: now
+            )
+            #expect(first.status == "RUNNING")
+            #expect(second.status == "RUNNING")
+            #expect(reads.prefixCount == 1)
+            #expect(reads.tailCount == 1)
+        }
+    }
+
+    @Test("an appended Codex session invalidates its cached input")
+    func changedSessionInvalidatesCache() throws {
+        try withProviderTemporaryDirectory { directory in
+            let id = "changing-session"
+            try writeCodexSession(id: id, source: "cli", to: directory)
+            let reads = ProviderFileReadCounter()
+            let source = NativeProviderFileSource(
+                readPrefix: { url, maximumBytes in
+                    reads.notePrefix()
+                    return try NativeBridgeSecureFile.readPrefix(at: url, maximumBytes: maximumBytes)
+                },
+                readTail: { url, maximumBytes in
+                    reads.noteTail()
+                    return try NativeBridgeSecureFile.readTail(at: url, maximumBytes: maximumBytes)
+                }
+            )
+
+            let first = source.codexObservation(
+                root: directory,
+                online: true,
+                fallbackProject: "VibeStick",
+                now: now
+            )
+            #expect(first.status == "RUNNING")
+            try appendCodexEvent(id: id, to: directory)
+            let second = source.codexObservation(
+                root: directory,
+                online: true,
+                fallbackProject: "VibeStick",
+                now: now
+            )
+
+            #expect(second.status == "DONE")
+            #expect(reads.prefixCount == 2)
+            #expect(reads.tailCount == 2)
+        }
+    }
+
+    @Test("Codex category limits are applied before reading event tails")
+    func categoryLimitsBoundTailReads() throws {
+        try withProviderTemporaryDirectory { directory in
+            for index in 0..<12 {
+                try writeCodexSession(id: "unknown-\(index)", source: nil, to: directory)
+            }
+            let reads = ProviderFileReadCounter()
+            let source = NativeProviderFileSource(
+                readPrefix: { url, maximumBytes in
+                    reads.notePrefix()
+                    return try NativeBridgeSecureFile.readPrefix(at: url, maximumBytes: maximumBytes)
+                },
+                readTail: { url, maximumBytes in
+                    reads.noteTail()
+                    return try NativeBridgeSecureFile.readTail(at: url, maximumBytes: maximumBytes)
+                }
+            )
+
+            _ = source.codexObservation(
+                root: directory,
+                online: true,
+                fallbackProject: "VibeStick",
+                now: now
+            )
+            #expect(reads.prefixCount == 12)
+            #expect(reads.tailCount == 10)
+        }
+    }
+
+    @Test("unchanged Claude session files reuse their compact observation")
+    func unchangedClaudeSessionsAreCached() throws {
+        try withProviderTemporaryDirectory { directory in
+            try writeClaudeSession(to: directory)
+            let reads = ProviderFileReadCounter()
+            let source = NativeProviderFileSource(
+                readTail: { url, maximumBytes in
+                    reads.noteTail()
+                    return try NativeBridgeSecureFile.readTail(at: url, maximumBytes: maximumBytes)
+                }
+            )
+
+            let first = source.claudeObservation(
+                root: directory,
+                online: true,
+                project: "VibeStick",
+                now: now
+            )
+            let second = source.claudeObservation(
+                root: directory,
+                online: true,
+                project: "VibeStick",
+                now: now
+            )
+
+            #expect(first.status == "RUNNING")
+            #expect(second.status == "RUNNING")
+            #expect(reads.tailCount == 1)
+        }
+    }
+
     private func codexSession(
         _ id: String,
         user: Bool?,
@@ -211,4 +344,73 @@ struct NativeBridgeProvidersTests {
             latestEventTimestamp: timestamp
         )
     }
+}
+
+private final class ProviderFileReadCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var prefixes = 0
+    private var tails = 0
+
+    var prefixCount: Int { lock.withLock { prefixes } }
+    var tailCount: Int { lock.withLock { tails } }
+
+    func notePrefix() { lock.withLock { prefixes += 1 } }
+    func noteTail() { lock.withLock { tails += 1 } }
+}
+
+private func withProviderTemporaryDirectory(_ operation: (URL) throws -> Void) throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent(
+        "vibestick-provider-tests-\(UUID().uuidString)",
+        isDirectory: true
+    )
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    try operation(directory)
+}
+
+private func writeCodexSession(id: String, source: String?, to directory: URL) throws {
+    var payload: [String: Any] = ["id": id, "cwd": "/workspace/VibeStick"]
+    if let source { payload["source"] = source }
+    let metadata: [String: Any] = ["type": "session_meta", "payload": payload]
+    let event: [String: Any] = [
+        "timestamp": "2026-08-20T12:00:00.000Z",
+        "type": "event_msg",
+        "payload": ["type": "task_started", "turn_id": "turn-1"],
+    ]
+    let lines = try [metadata, event].map {
+        String(decoding: try JSONSerialization.data(withJSONObject: $0), as: UTF8.self)
+    }.joined(separator: "\n") + "\n"
+    try Data(lines.utf8).write(
+        to: directory.appendingPathComponent("rollout-\(id).jsonl"),
+        options: .atomic
+    )
+}
+
+private func appendCodexEvent(id: String, to directory: URL) throws {
+    let event: [String: Any] = [
+        "timestamp": "2026-08-20T12:00:01.000Z",
+        "type": "event_msg",
+        "payload": ["type": "task_complete", "turn_id": "turn-1"],
+    ]
+    var data = try JSONSerialization.data(withJSONObject: event)
+    data.append(0x0A)
+    let path = directory.appendingPathComponent("rollout-\(id).jsonl")
+    let handle = try FileHandle(forWritingTo: path)
+    defer { try? handle.close() }
+    try handle.seekToEnd()
+    try handle.write(contentsOf: data)
+}
+
+private func writeClaudeSession(to directory: URL) throws {
+    let event: [String: Any] = [
+        "timestamp": "2026-08-20T12:00:00.000Z",
+        "type": "user",
+        "sessionId": "claude-session",
+    ]
+    var data = try JSONSerialization.data(withJSONObject: event)
+    data.append(0x0A)
+    try data.write(
+        to: directory.appendingPathComponent("claude-session.jsonl"),
+        options: .atomic
+    )
 }

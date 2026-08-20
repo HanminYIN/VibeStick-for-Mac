@@ -3,6 +3,64 @@ import Testing
 
 @Suite("Native Swift Bridge production state store")
 struct NativeBridgeRuntimeStoreTests {
+    @Test("cached state stays responsive while provider observation is slow")
+    func cachedStateDuringSlowObservation() throws {
+        try withStoreTemporaryDirectory { directory in
+            let clock = FictionalStoreClock(epoch: 1_787_090_000)
+            let slowObservationStarted = DispatchSemaphore(value: 0)
+            let releaseSlowObservation = DispatchSemaphore(value: 0)
+            let backgroundReadFinished = DispatchSemaphore(value: 0)
+            var observationCalls = 0
+            let store = try makeStore(directory: directory, clock: clock) {
+                observationCalls += 1
+                if observationCalls == 1 {
+                    return observationPair(codexStatus: "RUNNING")
+                }
+                if observationCalls == 2 {
+                    slowObservationStarted.signal()
+                    releaseSlowObservation.wait()
+                }
+                return observationPair(codexStatus: "DONE")
+            }
+            let sendableStore = SendableRuntimeStore(value: store)
+            clock.epoch += 3
+
+            let initial = store.currentState()
+            #expect((initial["codex"] as? [String: Any])?["status"] as? String == "RUNNING")
+
+            DispatchQueue.global().async {
+                _ = sendableStore.value.currentState()
+                backgroundReadFinished.signal()
+            }
+            defer {
+                releaseSlowObservation.signal()
+                _ = backgroundReadFinished.wait(timeout: .now() + 1)
+            }
+            #expect(slowObservationStarted.wait(timeout: .now() + 1) == .success)
+
+            DispatchQueue.global().asyncAfter(deadline: .now() + 0.25) {
+                releaseSlowObservation.signal()
+            }
+            let monotonic = ContinuousClock()
+            let started = monotonic.now
+            let whileSlow = store.currentState()
+            let elapsed = started.duration(to: monotonic.now)
+            #expect(elapsed < .milliseconds(100))
+            #expect((whileSlow["codex"] as? [String: Any])?["status"] as? String == "RUNNING")
+
+            #expect(backgroundReadFinished.wait(timeout: .now() + 1) == .success)
+            let refreshDeadline = ContinuousClock.now + .seconds(1)
+            var refreshed = store.currentState()
+            while (refreshed["codex"] as? [String: Any])?["status"] as? String != "DONE",
+                  ContinuousClock.now < refreshDeadline {
+                Thread.sleep(forTimeInterval: 0.001)
+                refreshed = store.currentState()
+            }
+            #expect((refreshed["codex"] as? [String: Any])?["status"] as? String == "DONE")
+            #expect(observationCalls == 2)
+        }
+    }
+
     @Test("provider observation becomes the compatible state document")
     func providerState() throws {
         try withStoreTemporaryDirectory { directory in
@@ -28,6 +86,27 @@ struct NativeBridgeRuntimeStoreTests {
                 with: Data(contentsOf: directory.appendingPathComponent("state.json"))
             ) as? [String: Any]
             #expect((persisted?["provider"] as? [String: Any])?["id"] as? String == "codex")
+        }
+    }
+
+    @Test("unchanged state reads do not rewrite the persisted snapshot")
+    func unchangedStateAvoidsDiskWrite() throws {
+        try withStoreTemporaryDirectory { directory in
+            let clock = FictionalStoreClock(epoch: 1_787_090_000)
+            let store = try makeStore(directory: directory, clock: clock) {
+                observationPair(codexStatus: "RUNNING")
+            }
+            let path = directory.appendingPathComponent("state.json")
+
+            _ = store.currentState()
+            let firstAttributes = try FileManager.default.attributesOfItem(atPath: path.path)
+            let firstInode = try #require(firstAttributes[.systemFileNumber] as? NSNumber)
+
+            _ = store.currentState()
+            let secondAttributes = try FileManager.default.attributesOfItem(atPath: path.path)
+            let secondInode = try #require(secondAttributes[.systemFileNumber] as? NSNumber)
+
+            #expect(firstInode.uint64Value == secondInode.uint64Value)
         }
     }
 
@@ -274,6 +353,11 @@ struct NativeBridgeRuntimeStoreTests {
             now: { Date(timeIntervalSince1970: clock.epoch) }
         )
     }
+}
+
+private final class SendableRuntimeStore: @unchecked Sendable {
+    let value: NativeBridgeRuntimeStore
+    init(value: NativeBridgeRuntimeStore) { self.value = value }
 }
 
 private final class FictionalStoreClock {
