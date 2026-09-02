@@ -4,9 +4,17 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 ## Conventions
 
-Resolve `<origin-repo>` from `git remote get-url origin` before using `gh`.
-Always pass `--repo <origin-repo>` explicitly: a clone with both `origin` and
-`upstream` can otherwise make `gh` select the read-only upstream repository.
+Resolve the origin URL to the `OWNER/REPO` format accepted by `gh` before any
+tracker operation:
+
+```sh
+origin_repo=$(gh repo view "$(git remote get-url origin)" --json nameWithOwner --jq .nameWithOwner)
+```
+
+Use that value as `<origin-repo>` and always pass `--repo <origin-repo>`
+explicitly: a clone with both `origin` and `upstream` can otherwise make `gh`
+select the read-only upstream repository. Do not pass the raw remote URL to
+`--repo`.
 
 - **Create an issue**: `gh issue create --repo <origin-repo> --title "..." --body "..."`.
 - **Read an issue**: `gh issue view <number> --repo <origin-repo> --comments`, including labels and relevant comments.
