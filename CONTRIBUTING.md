@@ -18,6 +18,8 @@ Bridge (Python 3.11+):
 Firmware: install ESP-IDF v5.5.x (see README), then `cd firmware/sticks3 && idf.py build`.
 Run the host-side firmware diagnostics contract with
 `scripts/test-firmware-network-diagnostics.sh`.
+Verify the tracked release payload against the source revision pinned in its
+manifest with `scripts/verify-tracked-release-firmware.sh`.
 CI runs the Bridge, firmware host, and Swift hostless checks on every push / PR.
 
 ## Guidelines

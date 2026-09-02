@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@v7
@@ -27,10 +29,7 @@ jobs:
         run: PYTHONPATH=bridge/src python3 -m unittest discover -s tests
 
       - name: Verify tracked release firmware
-        run: >-
-          python3 scripts/firmware-payload-manifest.py verify-source
-          release/firmware/sticks3/0.2.0-m4.4a
-          firmware/sticks3
+        run: scripts/verify-tracked-release-firmware.sh
 
   firmware-host-tests:
     runs-on: ubuntu-latest
