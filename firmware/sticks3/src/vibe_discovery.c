@@ -8,6 +8,7 @@
 #include "esp_netif.h"
 #include "mdns.h"
 #include "vibe_device_config.h"
+#include "vibe_network_diagnostics.h"
 
 static const char *TAG = "vibe_discovery";
 
@@ -22,6 +23,11 @@ void vibe_bridge_discovery_use_fallback(void)
     strlcpy(s_host, config->fallback_host, sizeof(s_host));
     s_port = config->bridge_port;
     s_bonjour = false;
+    vibe_network_diagnostics_set_target(
+        s_host,
+        s_port,
+        VIBE_NETWORK_TARGET_FALLBACK
+    );
 }
 
 esp_err_t vibe_bridge_discovery_init(void)
@@ -61,10 +67,16 @@ esp_err_t vibe_bridge_discovery_resolve(void)
     const vibe_device_config_t *config = vibe_device_config_get();
     if (!config->paired || config->bridge_id[0] == '\0') {
         vibe_bridge_discovery_use_fallback();
+        vibe_network_diagnostics_note_discovery_result(ESP_ERR_INVALID_STATE);
         return ESP_ERR_INVALID_STATE;
     }
     if (!s_initialized) {
-        ESP_RETURN_ON_ERROR(vibe_bridge_discovery_init(), TAG, "mdns init");
+        esp_err_t init_err = vibe_bridge_discovery_init();
+        if (init_err != ESP_OK) {
+            ESP_LOGE(TAG, "mdns init: %s", esp_err_to_name(init_err));
+            vibe_network_diagnostics_note_discovery_result(init_err);
+            return init_err;
+        }
     }
 
     mdns_result_t *results = NULL;
@@ -72,7 +84,9 @@ esp_err_t vibe_bridge_discovery_resolve(void)
     if (err != ESP_OK || !results) {
         if (results) mdns_query_results_free(results);
         vibe_bridge_discovery_use_fallback();
-        return err == ESP_OK ? ESP_ERR_NOT_FOUND : err;
+        esp_err_t result = err == ESP_OK ? ESP_ERR_NOT_FOUND : err;
+        vibe_network_diagnostics_note_discovery_result(result);
+        return result;
     }
 
     bool found = false;
@@ -87,8 +101,15 @@ esp_err_t vibe_bridge_discovery_resolve(void)
     mdns_query_results_free(results);
     if (!found) {
         vibe_bridge_discovery_use_fallback();
+        vibe_network_diagnostics_note_discovery_result(ESP_ERR_NOT_FOUND);
         return ESP_ERR_NOT_FOUND;
     }
+    vibe_network_diagnostics_set_target(
+        s_host,
+        s_port,
+        VIBE_NETWORK_TARGET_BONJOUR
+    );
+    vibe_network_diagnostics_note_discovery_result(ESP_OK);
     ESP_LOGI(TAG, "paired bridge discovered at %s:%u", s_host, (unsigned)s_port);
     return ESP_OK;
 }

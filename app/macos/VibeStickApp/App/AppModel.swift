@@ -39,6 +39,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var deviceConfiguration = DeviceConfiguration.standard
     @Published private(set) var bridgeDevices: BridgeDevicesDTO?
     @Published private(set) var pairingPhase: PairingPhase = .idle
+    @Published private(set) var deviceNetworkSnapshot: DeviceNetworkSnapshot?
     @Published private(set) var isRefreshing = false
     @Published private(set) var serviceActionInProgress = false
     @Published private(set) var runtimeInstallInProgress = false
@@ -46,6 +47,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var deviceBackupActionInProgress = false
     @Published private(set) var deviceFlashActionInProgress = false
     @Published private(set) var deviceConfigurationSaveInProgress = false
+    @Published private(set) var deviceNetworkSnapshotReadInProgress = false
     @Published private(set) var asrSettingsSaveInProgress = false
     @Published var presentedMessage: AppMessage?
     @Published var runtimeInstallConfirmationPresented = false
@@ -72,6 +74,7 @@ final class AppModel: ObservableObject {
     private let deviceConfigurationStore: DeviceConfigurationStore
     private let usbDeviceDetector: USBDeviceDetector
     private let devicePairingManager: DevicePairingManager
+    private let deviceSerialClient: DeviceSerialClient
     private let asrSecretManager: any ASRSecretManaging
     private let managedASRSettingsStore: any M4ManagedASRSettingsManaging
     private let asrTestService: any ASRTesting
@@ -102,6 +105,7 @@ final class AppModel: ObservableObject {
         deviceConfigurationStore: DeviceConfigurationStore = DeviceConfigurationStore(),
         usbDeviceDetector: USBDeviceDetector = USBDeviceDetector(),
         devicePairingManager: DevicePairingManager = DevicePairingManager(),
+        deviceSerialClient: DeviceSerialClient = DeviceSerialClient(),
         asrSecretManager: any ASRSecretManaging = ASRKeychainManager(),
         managedASRSettingsStore: any M4ManagedASRSettingsManaging =
             M4ManagedASRSettingsStore(),
@@ -124,6 +128,7 @@ final class AppModel: ObservableObject {
         self.deviceConfigurationStore = deviceConfigurationStore
         self.usbDeviceDetector = usbDeviceDetector
         self.devicePairingManager = devicePairingManager
+        self.deviceSerialClient = deviceSerialClient
         self.asrSecretManager = asrSecretManager
         self.managedASRSettingsStore = managedASRSettingsStore
         self.asrTestService = asrTestService
@@ -283,12 +288,37 @@ final class AppModel: ObservableObject {
 
     func detectUSBDevice() {
         guard pairingPhase != .detecting else { return }
+        deviceNetworkSnapshot = nil
         pairingPhase = .detecting
         Task {
             if let candidate = await usbDeviceDetector.detect() {
                 pairingPhase = .ready(candidate)
             } else {
                 pairingPhase = .unavailable("未检测到 StickS3；请确认使用 USB-C 数据线")
+            }
+        }
+    }
+
+    func readDetectedDeviceNetworkSnapshot() {
+        guard case .ready(let candidate) = pairingPhase,
+              !deviceNetworkSnapshotReadInProgress else { return }
+        deviceNetworkSnapshotReadInProgress = true
+        Task {
+            defer { deviceNetworkSnapshotReadInProgress = false }
+            do {
+                let snapshot = try await deviceSerialClient.readNetworkSnapshot(
+                    portPath: candidate.portPath
+                )
+                deviceNetworkSnapshot = snapshot
+                presentedMessage = AppMessage(
+                    title: snapshot.findingLabel,
+                    message: snapshot.findingDetail
+                )
+            } catch {
+                presentedMessage = AppMessage(
+                    title: "网络诊断未完成",
+                    message: error.localizedDescription
+                )
             }
         }
     }
@@ -314,6 +344,7 @@ final class AppModel: ObservableObject {
             return false
         }
         let provisionsWiFi = wifiCredentials != nil
+        deviceNetworkSnapshot = nil
         pairingPhase = .pairing
         Task {
             do {

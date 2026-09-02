@@ -130,10 +130,7 @@ struct ConnectionAndRuntimeView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                if case .detecting = model.pairingPhase {
-                    ProgressView().controlSize(.small)
-                }
-                if case .pairing = model.pairingPhase {
+                if pairingBusy {
                     ProgressView().controlSize(.small)
                 }
             }
@@ -158,6 +155,28 @@ struct ConnectionAndRuntimeView: View {
                         || !model.bridgeSnapshot.isM2PairingReady
                         || wifiValidationMessage != nil
                 )
+
+                Button("读取设备网络快照") {
+                    model.readDetectedDeviceNetworkSnapshot()
+                }
+                .buttonStyle(.bordered)
+                .disabled(!canPair || pairingBusy)
+            }
+
+            if let snapshot = model.deviceNetworkSnapshot {
+                Divider()
+                LabeledContent("Bridge 可达性判断", value: snapshot.findingLabel)
+                LabeledContent("当前 Bridge 目标", value: snapshot.currentTarget.description)
+                if let attempt = snapshot.lastBridgeAttempt {
+                    LabeledContent("最近 Bridge 请求", value: attempt.target.description)
+                }
+                LabeledContent(
+                    "HTTP 请求",
+                    value: "\(snapshot.httpSuccesses) 次成功 / \(snapshot.httpAttempts) 次尝试"
+                )
+                Text("设备网络快照只在点击读取时通过 USB 获取；不会增加后台轮询。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Divider()
@@ -222,6 +241,7 @@ struct ConnectionAndRuntimeView: View {
     }
 
     private var pairingBusy: Bool {
+        if model.deviceNetworkSnapshotReadInProgress { return true }
         if case .detecting = model.pairingPhase { return true }
         if case .pairing = model.pairingPhase { return true }
         return false

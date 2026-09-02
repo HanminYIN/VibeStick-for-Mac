@@ -11,6 +11,7 @@
 #include "mbedtls/base64.h"
 #include "vibe_device_config.h"
 #include "vibe_discovery.h"
+#include "vibe_network_diagnostics.h"
 #include "vibe_stick_config.h"
 
 static const char *TAG = "vibe_usb_pair";
@@ -19,7 +20,7 @@ static const char *TAG = "vibe_usb_pair";
 
 static void send_response(const char *json)
 {
-    char response[512];
+    char response[768];
     int length = snprintf(response, sizeof(response), "VIBESTICK_RESPONSE %s\n", json);
     if (length <= 0 || length >= (int)sizeof(response)) return;
     (void)usb_serial_jtag_write_bytes(response, (size_t)length, pdMS_TO_TICKS(500));
@@ -38,6 +39,21 @@ static void send_identify(void)
              "\"pairing_id\":\"%s\"}}",
              config->device_id, FIRMWARE_VERSION,
              config->wifi_configured ? "true" : "false", config->pairing_id);
+    send_response(json);
+}
+
+static void send_network_diagnostics(void)
+{
+    const vibe_device_config_t *config = vibe_device_config_get();
+    char json[704];
+    if (!vibe_network_diagnostics_format_response(
+            json,
+            sizeof(json),
+            config->paired
+        )) {
+        send_response("{\"command\":\"network_diagnostics\",\"ok\":false,\"error\":\"response too large\"}");
+        return;
+    }
     send_response(json);
 }
 
@@ -84,6 +100,10 @@ static void handle_line(char *line)
     }
     if (strcmp(line, "VIBESTICK IDENTIFY") == 0) {
         send_identify();
+        return;
+    }
+    if (strcmp(line, "VIBESTICK NETWORK_DIAGNOSTICS") == 0) {
+        send_network_diagnostics();
         return;
     }
     const char *prefix = "VIBESTICK PAIR ";

@@ -32,6 +32,16 @@ jobs:
           release/firmware/sticks3/0.2.0-m4.4a
           firmware/sticks3
 
+  firmware-host-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Run network diagnostics contract tests
+        run: scripts/test-firmware-network-diagnostics.sh
+
   swift-hostless-tests:
     runs-on: macos-15
     timeout-minutes: 30

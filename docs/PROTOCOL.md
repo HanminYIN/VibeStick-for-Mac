@@ -81,6 +81,47 @@ VIBESTICK PAIR <payload>
 
 The device validates its own ID, token length and alphabet, transaction UUID, Bridge UUID, host, and port before committing the pairing record to NVS. Repeating the same transaction is idempotent. If the final USB acknowledgement is lost, the Mac retries the identical command and can then use the non-secret `pairing_id` in the identify response to reconcile an already committed rotation. Logs and responses never contain the token.
 
+Read-only network diagnostics:
+
+```text
+VIBESTICK NETWORK_DIAGNOSTICS
+```
+
+The response reports only current Wi-Fi and pairing booleans, the selected local
+Bridge target, and bounded discovery/HTTP counters. The most recent completed
+Bridge request keeps its own target and numeric result even if the firmware has
+since returned to the configured fallback:
+
+```json
+{
+  "command": "network_diagnostics",
+  "ok": true,
+  "network": {
+    "wifi_connected": true,
+    "paired": true,
+    "current_target_source": "fallback",
+    "current_target_host": "192.168.1.25",
+    "current_target_port": 8765,
+    "discovery_attempts": 3,
+    "last_discovery_error": 0,
+    "http_attempts": 4,
+    "http_successes": 2,
+    "last_request_target_source": "bonjour",
+    "last_request_target_host": "192.168.1.20",
+    "last_request_target_port": 8765,
+    "last_http_error": 28674,
+    "last_http_status": 500
+  }
+}
+```
+
+The response never includes the SSID, Wi-Fi password, pairing token, pairing ID,
+or HTTP path. A positive HTTP status is classified as a Bridge response: 401/403
+means authentication rejection, other non-2xx values mean an unexpected response,
+and 2xx means the Bridge was reached. A transport failure means no HTTP status was
+received. Counters are updated inside the existing discovery and HTTP paths; the
+command adds no timer, task, or network request and is read only.
+
 ## Bonjour discovery
 
 The Bridge advertises `_vibestick._tcp` with these TXT records:

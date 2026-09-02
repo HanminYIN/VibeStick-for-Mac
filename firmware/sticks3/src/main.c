@@ -7,6 +7,7 @@
 #include "vibe_board.h"
 #include "vibe_device_config.h"
 #include "vibe_discovery.h"
+#include "vibe_network_diagnostics.h"
 #include "vibe_stick_config.h"
 #include "vibe_usb_pairing.h"
 #include "vibe_ui.h"
@@ -130,6 +131,12 @@ typedef struct {
     int capacity;
     int used;
 } http_response_capture_t;
+
+typedef struct {
+    char host[64];
+    uint16_t port;
+    vibe_network_target_source_t source;
+} http_request_target_t;
 
 static QueueHandle_t s_event_queue;
 static SemaphoreHandle_t s_lvgl_lock;
@@ -724,12 +731,40 @@ static void set_firmware_headers(esp_http_client_handle_t client)
     }
 }
 
+static http_request_target_t current_http_request_target(void)
+{
+    http_request_target_t target = {
+        .port = vibe_bridge_discovery_port(),
+        .source = vibe_bridge_discovery_is_bonjour()
+            ? VIBE_NETWORK_TARGET_BONJOUR
+            : VIBE_NETWORK_TARGET_FALLBACK,
+    };
+    strlcpy(target.host, vibe_bridge_discovery_host(), sizeof(target.host));
+    return target;
+}
+
+static void note_http_result(
+    const http_request_target_t *target,
+    esp_err_t error,
+    int status
+)
+{
+    vibe_network_diagnostics_note_http_result(
+        target->host,
+        target->port,
+        target->source,
+        error,
+        status
+    );
+}
+
 static esp_err_t http_request_timeout(const char *method, const char *path, const char *body,
                                       char *response, int response_len, int timeout_ms)
 {
+    http_request_target_t request_target = current_http_request_target();
     char url[160];
-    snprintf(url, sizeof(url), "http://%s:%u%s", vibe_bridge_discovery_host(),
-             (unsigned)vibe_bridge_discovery_port(), path);
+    snprintf(url, sizeof(url), "http://%s:%u%s", request_target.host,
+             (unsigned)request_target.port, path);
     http_response_capture_t capture = {
         .data = response,
         .capacity = response_len,
@@ -747,7 +782,11 @@ static esp_err_t http_request_timeout(const char *method, const char *path, cons
         .user_data = &capture,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
-    ESP_RETURN_ON_FALSE(client != NULL, ESP_ERR_NO_MEM, TAG, "http init");
+    if (!client) {
+        note_http_result(&request_target, ESP_ERR_NO_MEM, 0);
+        ESP_LOGE(TAG, "http init");
+        return ESP_ERR_NO_MEM;
+    }
     esp_http_client_set_method(client, strcmp(method, "POST") == 0 ? HTTP_METHOD_POST : HTTP_METHOD_GET);
     set_firmware_headers(client);
     if (body) {
@@ -761,8 +800,9 @@ static esp_err_t http_request_timeout(const char *method, const char *path, cons
     }
     esp_http_client_cleanup(client);
     if (err == ESP_OK && (status_code < 200 || status_code >= 300)) {
-        return ESP_ERR_INVALID_RESPONSE;
+        err = ESP_ERR_INVALID_RESPONSE;
     }
+    note_http_result(&request_target, err, status_code);
     return err;
 }
 
@@ -775,9 +815,10 @@ static esp_err_t http_request(const char *method, const char *path, const char *
 static esp_err_t http_post_binary(const char *path, const uint8_t *body, size_t body_len,
                                   char *response, int response_len)
 {
+    http_request_target_t request_target = current_http_request_target();
     char url[192];
-    snprintf(url, sizeof(url), "http://%s:%u%s", vibe_bridge_discovery_host(),
-             (unsigned)vibe_bridge_discovery_port(), path);
+    snprintf(url, sizeof(url), "http://%s:%u%s", request_target.host,
+             (unsigned)request_target.port, path);
     http_response_capture_t capture = {
         .data = response,
         .capacity = response_len,
@@ -795,7 +836,11 @@ static esp_err_t http_post_binary(const char *path, const uint8_t *body, size_t 
         .user_data = &capture,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
-    ESP_RETURN_ON_FALSE(client != NULL, ESP_ERR_NO_MEM, TAG, "http init");
+    if (!client) {
+        note_http_result(&request_target, ESP_ERR_NO_MEM, 0);
+        ESP_LOGE(TAG, "http init");
+        return ESP_ERR_NO_MEM;
+    }
     esp_http_client_set_method(client, HTTP_METHOD_POST);
     set_firmware_headers(client);
     esp_http_client_set_header(client, "Content-Type", "application/octet-stream");
@@ -810,8 +855,9 @@ static esp_err_t http_post_binary(const char *path, const uint8_t *body, size_t 
     }
     esp_http_client_cleanup(client);
     if (err == ESP_OK && (status_code < 200 || status_code >= 300)) {
-        return ESP_ERR_INVALID_RESPONSE;
+        err = ESP_ERR_INVALID_RESPONSE;
     }
+    note_http_result(&request_target, err, status_code);
     return err;
 }
 
@@ -1542,10 +1588,12 @@ static void wifi_event_handler(void *arg, esp_event_base_t event_base,
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         s_wifi_connected = false;
+        vibe_network_diagnostics_set_wifi_connected(false);
         esp_wifi_connect();
         render_state();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         s_wifi_connected = true;
+        vibe_network_diagnostics_set_wifi_connected(true);
         render_state();
         queue_event(VIBE_STICK_EVENT_POLL_STATE);
     }
