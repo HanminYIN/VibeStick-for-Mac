@@ -4,20 +4,24 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 
 ## Conventions
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`.
-- **Read an issue**: `gh issue view <number> --comments`, including labels and relevant comments.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments` with suitable label and state filters.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`.
-- **Apply or remove labels**: `gh issue edit <number> --add-label "..."` or `--remove-label "..."`.
-- **Close an issue**: `gh issue close <number> --comment "..."`.
+Resolve `<origin-repo>` from `git remote get-url origin` before using `gh`.
+Always pass `--repo <origin-repo>` explicitly: a clone with both `origin` and
+`upstream` can otherwise make `gh` select the read-only upstream repository.
 
-Infer the repository from the current clone and its `origin` remote.
+- **Create an issue**: `gh issue create --repo <origin-repo> --title "..." --body "..."`.
+- **Read an issue**: `gh issue view <number> --repo <origin-repo> --comments`, including labels and relevant comments.
+- **List issues**: `gh issue list --repo <origin-repo> --state open --json number,title,body,labels,comments` with suitable label and state filters.
+- **Comment on an issue**: `gh issue comment <number> --repo <origin-repo> --body "..."`.
+- **Apply or remove labels**: `gh issue edit <number> --repo <origin-repo> --add-label "..."` or `--remove-label "..."`.
+- **Close an issue**: `gh issue close <number> --repo <origin-repo> --comment "..."`.
 
 ## Pull requests as a triage surface
 
 **PRs as a request surface: no.**
 
-GitHub shares one number space across issues and pull requests. Resolve an ambiguous `#<number>` with `gh pr view <number>` and fall back to `gh issue view <number>`.
+GitHub shares one number space across issues and pull requests. Resolve an
+ambiguous `#<number>` with `gh pr view <number> --repo <origin-repo>` and fall
+back to `gh issue view <number> --repo <origin-repo>`.
 
 ## Publishing
 
