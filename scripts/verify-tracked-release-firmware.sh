@@ -18,11 +18,14 @@ fi
 
 VIBESTICK_RELEASE_TMP=$(mktemp -d /tmp/vibestick-release-source.XXXXXX)
 trap 'rm -rf -- "$VIBESTICK_RELEASE_TMP"' EXIT HUP INT TERM
+VIBESTICK_SOURCE_ARCHIVE="$VIBESTICK_RELEASE_TMP/source.tar"
 
 git -C "$VIBESTICK_ROOT" archive \
+  --format=tar \
+  --output="$VIBESTICK_SOURCE_ARCHIVE" \
   "$VIBESTICK_SOURCE_REVISION" \
-  firmware/sticks3 \
-  | tar -x -C "$VIBESTICK_RELEASE_TMP"
+  firmware/sticks3
+tar -xf "$VIBESTICK_SOURCE_ARCHIVE" -C "$VIBESTICK_RELEASE_TMP"
 
 python3 "$VIBESTICK_TOOL" verify-source \
   "$VIBESTICK_PAYLOAD" \
