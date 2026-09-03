@@ -16,7 +16,11 @@ Bridge (Python 3.11+):
     python3 -m compileall -q bridge/src tests
     PYTHONPATH=bridge/src python3 -m unittest discover -s tests
 Firmware: install ESP-IDF v5.5.x (see README), then `cd firmware/sticks3 && idf.py build`.
-CI runs the bridge checks on every push / PR.
+Run the host-side firmware diagnostics contract with
+`scripts/test-firmware-network-diagnostics.sh`.
+Verify the tracked release payload against the source revision pinned in its
+manifest with `scripts/verify-tracked-release-firmware.sh`.
+CI runs the Bridge, firmware host, and Swift hostless checks on every push / PR.
 
 ## Guidelines
 - No third-party Python dependencies — the bridge uses only the standard library; keep it that way.

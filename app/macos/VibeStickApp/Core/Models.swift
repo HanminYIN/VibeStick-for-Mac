@@ -988,6 +988,157 @@ struct DeviceIdentity: Codable, Equatable, Sendable {
     }
 }
 
+enum BridgeReachabilityFinding: Equatable, Sendable {
+    case wifiDisconnected
+    case unpaired
+    case pollingNotObserved
+    case transportFailure
+    case authenticationRejected
+    case bridgeReached
+    case unexpectedResponse
+}
+
+enum BridgeTargetSource: String, Codable, Equatable, Sendable {
+    case unknown
+    case fallback
+    case bonjour
+
+    var label: String {
+        switch self {
+        case .unknown: "来源未知"
+        case .fallback: "回退地址"
+        case .bonjour: "Bonjour"
+        }
+    }
+}
+
+struct BridgeTarget: Equatable, Sendable {
+    let source: BridgeTargetSource
+    let host: String
+    let port: Int
+
+    var description: String {
+        let address = host.isEmpty ? "尚无目标" : "\(host):\(port)"
+        return "\(address)（\(source.label)）"
+    }
+}
+
+struct LastBridgeAttempt: Equatable, Sendable {
+    let target: BridgeTarget
+    let error: Int32
+    let status: Int
+}
+
+struct DeviceNetworkSnapshot: Codable, Equatable, Sendable {
+    let wifiConnected: Bool
+    let paired: Bool
+    let currentTargetSource: BridgeTargetSource
+    let currentTargetHost: String
+    let currentTargetPort: Int
+    let discoveryAttempts: UInt32
+    let lastDiscoveryError: Int32
+    let httpAttempts: UInt32
+    let httpSuccesses: UInt32
+    let lastRequestTargetSource: BridgeTargetSource
+    let lastRequestTargetHost: String
+    let lastRequestTargetPort: Int
+    let lastHTTPError: Int32
+    let lastHTTPStatus: Int
+
+    var currentTarget: BridgeTarget {
+        BridgeTarget(
+            source: currentTargetSource,
+            host: currentTargetHost,
+            port: currentTargetPort
+        )
+    }
+
+    var lastBridgeAttempt: LastBridgeAttempt? {
+        guard httpAttempts > 0 else { return nil }
+        return LastBridgeAttempt(
+            target: BridgeTarget(
+                source: lastRequestTargetSource,
+                host: lastRequestTargetHost,
+                port: lastRequestTargetPort
+            ),
+            error: lastHTTPError,
+            status: lastHTTPStatus
+        )
+    }
+
+    var finding: BridgeReachabilityFinding {
+        if !wifiConnected { return .wifiDisconnected }
+        if !paired { return .unpaired }
+        if httpAttempts == 0 { return .pollingNotObserved }
+        if lastHTTPStatus > 0 {
+            if lastHTTPStatus == 401 || lastHTTPStatus == 403 {
+                return .authenticationRejected
+            }
+            if (200..<300).contains(lastHTTPStatus) {
+                return .bridgeReached
+            }
+            return .unexpectedResponse
+        }
+        return .transportFailure
+    }
+
+    private var findingPresentation: (label: String, detail: String) {
+        let attemptedTarget = lastBridgeAttempt?.target.description ?? currentTarget.description
+        return switch finding {
+        case .wifiDisconnected:
+            ("设备 Wi-Fi 未连接", "设备当前没有可用的 Wi-Fi 连接。")
+        case .unpaired:
+            ("设备尚未完成配对", "设备已有网络，但尚未载入 Bridge 配对身份。")
+        case .pollingNotObserved:
+            (
+                "已联网，但未观察到 Bridge 请求",
+                "设备已连上 Wi-Fi 并持有 Bridge 目标，但本次启动后 HTTP 请求计数仍为 0；应检查设备轮询任务。"
+            )
+        case .transportFailure:
+            (
+                "设备无法连接 Bridge",
+                "设备已经尝试访问 \(attemptedTarget)，但未收到 HTTP 响应；最近错误码为 \(lastHTTPError)。"
+            )
+        case .authenticationRejected:
+            (
+                "Bridge 拒绝了设备身份",
+                "设备已经访问到 Bridge，但身份校验返回 HTTP \(lastHTTPStatus)。"
+            )
+        case .bridgeReached:
+            (
+                "设备已经访问到 Bridge",
+                "设备最近一次访问 \(attemptedTarget) 返回 HTTP \(lastHTTPStatus)。"
+            )
+        case .unexpectedResponse:
+            (
+                "Bridge 返回了异常状态",
+                "设备已经访问到 Bridge，但最近返回 HTTP \(lastHTTPStatus)。"
+            )
+        }
+    }
+
+    var findingLabel: String { findingPresentation.label }
+
+    var findingDetail: String { findingPresentation.detail }
+
+    enum CodingKeys: String, CodingKey {
+        case wifiConnected = "wifi_connected"
+        case paired
+        case currentTargetSource = "current_target_source"
+        case currentTargetHost = "current_target_host"
+        case currentTargetPort = "current_target_port"
+        case discoveryAttempts = "discovery_attempts"
+        case lastDiscoveryError = "last_discovery_error"
+        case httpAttempts = "http_attempts"
+        case httpSuccesses = "http_successes"
+        case lastRequestTargetSource = "last_request_target_source"
+        case lastRequestTargetHost = "last_request_target_host"
+        case lastRequestTargetPort = "last_request_target_port"
+        case lastHTTPError = "last_http_error"
+        case lastHTTPStatus = "last_http_status"
+    }
+}
+
 struct PairedDeviceRecord: Codable, Equatable, Identifiable, Sendable {
     let deviceID: String
     var name: String

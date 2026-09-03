@@ -1026,6 +1026,93 @@ struct VibeStickAppTests {
     }
 
     @Test
+    func deviceNetworkSnapshotClassifiesEveryFindingAndKeepsAttemptTarget() throws {
+        let noAttempt = try JSONDecoder().decode(
+            DeviceNetworkSnapshot.self,
+            from: Data(
+                #"{"wifi_connected":true,"paired":true,"current_target_source":"fallback","current_target_host":"192.168.31.173","current_target_port":8765,"discovery_attempts":2,"last_discovery_error":261,"http_attempts":0,"http_successes":0,"last_request_target_source":"unknown","last_request_target_host":"","last_request_target_port":0,"last_http_error":0,"last_http_status":0}"#.utf8
+            )
+        )
+        #expect(noAttempt.finding == .pollingNotObserved)
+        #expect(noAttempt.currentTarget.description == "192.168.31.173:8765（回退地址）")
+        #expect(noAttempt.lastBridgeAttempt == nil)
+
+        let transportFailure = try JSONDecoder().decode(
+            DeviceNetworkSnapshot.self,
+            from: Data(
+                #"{"wifi_connected":true,"paired":true,"current_target_source":"fallback","current_target_host":"192.168.31.173","current_target_port":8765,"discovery_attempts":3,"last_discovery_error":0,"http_attempts":4,"http_successes":0,"last_request_target_source":"bonjour","last_request_target_host":"192.168.31.174","last_request_target_port":8765,"last_http_error":28679,"last_http_status":0}"#.utf8
+            )
+        )
+        #expect(transportFailure.finding == .transportFailure)
+        #expect(transportFailure.lastBridgeAttempt?.target.description == "192.168.31.174:8765（Bonjour）")
+
+        let rejected = try JSONDecoder().decode(
+            DeviceNetworkSnapshot.self,
+            from: Data(
+                #"{"wifi_connected":true,"paired":true,"current_target_source":"bonjour","current_target_host":"192.168.31.174","current_target_port":8765,"discovery_attempts":4,"last_discovery_error":0,"http_attempts":5,"http_successes":0,"last_request_target_source":"bonjour","last_request_target_host":"192.168.31.174","last_request_target_port":8765,"last_http_error":28674,"last_http_status":401}"#.utf8
+            )
+        )
+        #expect(rejected.finding == .authenticationRejected)
+
+        let serverFailure = try JSONDecoder().decode(
+            DeviceNetworkSnapshot.self,
+            from: Data(
+                #"{"wifi_connected":true,"paired":true,"current_target_source":"bonjour","current_target_host":"192.168.31.174","current_target_port":8765,"discovery_attempts":5,"last_discovery_error":0,"http_attempts":6,"http_successes":0,"last_request_target_source":"bonjour","last_request_target_host":"192.168.31.174","last_request_target_port":8765,"last_http_error":28674,"last_http_status":500}"#.utf8
+            )
+        )
+        #expect(serverFailure.finding == .unexpectedResponse)
+
+        let notFound = try JSONDecoder().decode(
+            DeviceNetworkSnapshot.self,
+            from: Data(
+                #"{"wifi_connected":true,"paired":true,"current_target_source":"bonjour","current_target_host":"192.168.31.174","current_target_port":8765,"discovery_attempts":5,"last_discovery_error":0,"http_attempts":6,"http_successes":0,"last_request_target_source":"bonjour","last_request_target_host":"192.168.31.174","last_request_target_port":8765,"last_http_error":28674,"last_http_status":404}"#.utf8
+            )
+        )
+        #expect(notFound.finding == .unexpectedResponse)
+
+        let reached = try JSONDecoder().decode(
+            DeviceNetworkSnapshot.self,
+            from: Data(
+                #"{"wifi_connected":true,"paired":true,"current_target_source":"bonjour","current_target_host":"192.168.31.174","current_target_port":8765,"discovery_attempts":6,"last_discovery_error":0,"http_attempts":7,"http_successes":1,"last_request_target_source":"bonjour","last_request_target_host":"192.168.31.174","last_request_target_port":8765,"last_http_error":0,"last_http_status":200}"#.utf8
+            )
+        )
+        #expect(reached.finding == .bridgeReached)
+
+        let unpaired = try JSONDecoder().decode(
+            DeviceNetworkSnapshot.self,
+            from: Data(
+                #"{"wifi_connected":true,"paired":false,"current_target_source":"fallback","current_target_host":"192.168.31.173","current_target_port":8765,"discovery_attempts":0,"last_discovery_error":0,"http_attempts":0,"http_successes":0,"last_request_target_source":"unknown","last_request_target_host":"","last_request_target_port":0,"last_http_error":0,"last_http_status":0}"#.utf8
+            )
+        )
+        #expect(unpaired.finding == .unpaired)
+
+        let disconnected = try JSONDecoder().decode(
+            DeviceNetworkSnapshot.self,
+            from: Data(
+                #"{"wifi_connected":false,"paired":true,"current_target_source":"fallback","current_target_host":"192.168.31.173","current_target_port":8765,"discovery_attempts":0,"last_discovery_error":0,"http_attempts":0,"http_successes":0,"last_request_target_source":"unknown","last_request_target_host":"","last_request_target_port":0,"last_http_error":0,"last_http_status":0}"#.utf8
+            )
+        )
+        #expect(disconnected.finding == .wifiDisconnected)
+    }
+
+    @Test
+    func usbDiagnosticReadReportsNoResponseWithoutClaimingUnsupported() async {
+        let client = DeviceSerialClient(commandPerformer: { command, portPath in
+            #expect(command == "VIBESTICK NETWORK_DIAGNOSTICS\n")
+            #expect(portPath == "/dev/cu.usbmodem-test")
+            throw PairingError.responseTimedOut
+        })
+
+        await #expect(throws: USBDiagnosticReadError.noResponse) {
+            try await client.readNetworkSnapshot(portPath: "/dev/cu.usbmodem-test")
+        }
+        #expect(
+            USBDiagnosticReadError.noResponse.errorDescription
+                == "设备未响应。请检查 USB 数据线、设备电源和端口占用；旧固件也可能不支持这项诊断。"
+        )
+    }
+
+    @Test
     func deviceIdentityDecodesPairingTransactionForLostAckRecovery() throws {
         let identity = try JSONDecoder().decode(
             DeviceIdentity.self,

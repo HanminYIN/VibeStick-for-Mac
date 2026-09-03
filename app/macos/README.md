@@ -10,7 +10,16 @@ plus [M3-A achievements and upstream comparison](../../docs/VIBESTICK_FOR_MAC_M3
 [M4 installation and recovery contract](../../docs/design/m4/M4_INSTALLATION_RECOVERY_CONTRACT.md),
 for the upstream boundary, implemented scope, real-device acceptance, and deferred work.
 
-## M1 foundation through 0.2.0 RC 1
+## Current development
+
+- Reads a bounded firmware network snapshot only after an explicit USB action.
+- Separates the current Bridge target from the most recent completed request target,
+  and classifies no-poll, transport, authentication, HTTP-response, and successful
+  reachability without adding automatic USB enumeration or device polling.
+- Reports a USB timeout as a non-response with actionable checks instead of claiming
+  that the connected firmware is unsupported.
+
+## M1 foundation through 0.2.0 RC 2
 
 The M1 app intentionally manages the existing stable installation instead of replacing it:
 

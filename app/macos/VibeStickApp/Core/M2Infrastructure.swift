@@ -335,10 +335,13 @@ struct DevicePairingPayload: Encodable, Sendable {
 }
 
 actor DeviceSerialClient {
+    typealias CommandPerformer = @Sendable (_ command: String, _ portPath: String) throws -> Data
+
     private struct CommandResponse: Decodable {
         let command: String
         let ok: Bool?
         let identity: DeviceIdentity?
+        let network: DeviceNetworkSnapshot?
         let error: String?
         let restartRequired: Bool?
 
@@ -346,9 +349,34 @@ actor DeviceSerialClient {
             case command
             case ok
             case identity
+            case network
             case error
             case restartRequired = "restart_required"
         }
+    }
+
+    private let commandPerformer: CommandPerformer?
+
+    init(commandPerformer: CommandPerformer? = nil) {
+        self.commandPerformer = commandPerformer
+    }
+
+    func readNetworkSnapshot(portPath: String) throws -> DeviceNetworkSnapshot {
+        let response: CommandResponse
+        do {
+            response = try perform(
+                command: "VIBESTICK NETWORK_DIAGNOSTICS\n",
+                portPath: portPath
+            )
+        } catch PairingError.responseTimedOut {
+            throw USBDiagnosticReadError.noResponse
+        }
+        guard response.command == "network_diagnostics",
+              response.ok == true,
+              let network = response.network else {
+            throw USBDiagnosticReadError.invalidResponse
+        }
+        return network
     }
 
     func identify(portPath: String) throws -> DeviceIdentity {
@@ -423,6 +451,10 @@ actor DeviceSerialClient {
     }
 
     private func perform<Response: Decodable>(command: String, portPath: String) throws -> Response {
+        if let commandPerformer {
+            let payload = try commandPerformer(command, portPath)
+            return try JSONDecoder().decode(Response.self, from: payload)
+        }
         guard portPath.hasPrefix("/dev/cu.usbmodem") else { throw PairingError.invalidSerialPort }
         try configureSerialPort(portPath)
         let descriptor = Darwin.open(portPath, O_RDWR | O_NOCTTY | O_NONBLOCK)
@@ -655,6 +687,20 @@ enum PairingError: LocalizedError {
         case .deviceRejected(let message): message
         case .invalidManualAddress: "手动 Bridge 地址无效；请填写 IPv4 地址或局域网主机名"
         case .noLocalAddress: "无法确定 Mac 的局域网地址；请在高级设置填写手动地址"
+        }
+    }
+}
+
+enum USBDiagnosticReadError: LocalizedError, Equatable {
+    case noResponse
+    case invalidResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .noResponse:
+            "设备未响应。请检查 USB 数据线、设备电源和端口占用；旧固件也可能不支持这项诊断。"
+        case .invalidResponse:
+            "设备返回的网络诊断数据不完整。"
         }
     }
 }
