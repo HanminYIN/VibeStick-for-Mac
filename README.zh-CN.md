@@ -3,6 +3,8 @@
 [English README](README.md)
 
 [![GitHub Pre-release](https://img.shields.io/badge/GitHub_Pre--release-v0.2.0--rc.2-2f81f7?logo=github)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
+[![CI](https://github.com/HanminYIN/VibeStick-for-Mac/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/HanminYIN/VibeStick-for-Mac/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
 [![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-0A84FF)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
 
@@ -30,6 +32,20 @@ VibeStick 面向 M5Stack StickS3，不是 M5Stack 官方项目。Codex、Claude 
 VibeStick for Mac 以 OpenAI Codex 作为主要工程协作者，覆盖产品设计、实现、
 测试、发布工程和安全审计。产品本身也接入本地 Codex 工作流，用来显示会话状态与
 额度窗口；Bridge API 不会暴露 Codex 凭据。
+
+## 开源维护
+
+本仓库是独立维护的 macOS 产品线，不是原始 VibeStick 项目的只读镜像。
+维护工作通过 [GitHub Issues](https://github.com/HanminYIN/VibeStick-for-Mac/issues)
+跟踪，改动通过 Pull Request 审阅，并由 Linux 与 macOS CI 验证。
+
+目前最需要的贡献包括：全新 Mac 安装报告、真实 StickS3 兼容性反馈、
+对局域网与固件维护边界的安全审查，以及带回归测试的聚焦修复。
+开始较大改动前，请先阅读 [贡献指南](CONTRIBUTING.md)、
+[公开 Roadmap](docs/ROADMAP.md) 和 [威胁模型](docs/THREAT_MODEL.md)。
+
+项目仍处于公开 RC 阶段，即使没有代码改动，真实用户的使用报告也很有价值；
+涉及敏感信息的安全问题请按 [SECURITY.md](SECURITY.md) 私下报告，不要创建公开 Issue。
 
 ## 0.2.0 RC 2
 

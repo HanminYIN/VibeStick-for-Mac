@@ -1,42 +1,53 @@
-# Roadmap
+# Public roadmap
 
-VibeStick for Mac has completed its local M0 stable-baseline, M1 native-control-center,
-M2 pairing/discovery/configuration-sync, M3-A Codex Focus, M3-B voice/send acceptance,
-and M3-C native ASR implementation checkpoints. See the
-[M1 achievements](VIBESTICK_FOR_MAC_M1_ACHIEVEMENTS.md),
-[M2 achievements and upstream comparison](VIBESTICK_FOR_MAC_M2_ACHIEVEMENTS.md),
-[M3-A achievements and upstream comparison](VIBESTICK_FOR_MAC_M3A_ACHIEVEMENTS.md),
-[M3-B voice/send achievements](VIBESTICK_FOR_MAC_M3B_ACHIEVEMENTS.md),
-[M3-C native ASR configuration achievements](VIBESTICK_FOR_MAC_M3C_ACHIEVEMENTS.md),
-and the detailed [VibeStick for Mac roadmap](VIBESTICK_FOR_MAC_ROADMAP.md).
+VibeStick for Mac is an actively maintained early-preview project. The current
+public release is `v0.2.0-rc.2`; development happens on `main`, and concrete
+work is tracked in [GitHub Issues](https://github.com/HanminYIN/VibeStick-for-Mac/issues).
 
-The milestones below preserve the earlier upstream planning context. The independently
-maintained macOS derivative now follows the detailed roadmap above.
+This page describes priorities, not promises or deadlines. An issue is the
+source of truth for scope, ownership, dependencies, and acceptance evidence.
 
-## v0.1.1
+## Current priorities
 
-- Clean repository structure.
-- Standardize VibeStick branding.
-- Remove old prototype branding and unclear image assets.
-- Add third-party code and asset audit.
-- Add README and initial docs.
-- Add minimal bridge token hardening.
-- Rebuild a clean public git history.
-- Keep the current prototype runnable.
+1. **Independent installation evidence**
+   - Validate first install, permission guidance, background-component setup,
+     uninstall, and rollback on a clean Apple Silicon Mac.
+   - Keep the existing RC limitation visible until that external validation is
+     complete.
 
-## v0.1.2
+2. **Distribution trust**
+   - Prepare a reproducible Developer ID signing and notarization path without
+     committing credentials or weakening current integrity checks.
+   - Continue publishing release checksums, source identities, limitations,
+     and CI evidence.
 
-- Package the Mac App / helper workflow.
-- Publish GitHub Release artifacts.
-- Attach firmware binaries to releases.
-- Improve install and configuration flow.
-- Improve icon and brand polish.
-- Improve error handling and diagnostics.
+3. **Real-device compatibility and contributor feedback**
+   - Collect reproducible reports from StickS3 users across supported macOS 15+
+     versions and common 2.4 GHz network setups.
+   - Turn confirmed failures into focused issues and regression tests.
 
-## v0.2.0
+4. **Security review**
+   - Review the LAN Bridge, pairing tokens, Keychain access, Accessibility
+     helper, audio/ASR flow, diagnostic redaction, release supply chain, and
+     guarded USB/firmware operations against the
+     [threat model](THREAT_MODEL.md).
 
-- Support more coding agents and providers.
-- Make the state protocol more flexible.
-- Add configurable sound and notification settings.
-- Improve UI polish across StickS3 and macOS.
-- Explore device abstraction beyond StickS3.
+5. **Stable 0.2.0 release**
+   - Close release-blocking defects, update bilingual documentation, and ship a
+     stable release only after its stated acceptance boundary has passed.
+
+## Later exploration
+
+- Additional coding-agent providers with explicit opt-in and credential
+  isolation.
+- More configurable device pages, alerts, and sound behavior.
+- Device abstraction beyond StickS3 after the current hardware path is stable.
+- Official Codex App Server approval integration only if one-time approval can
+  remain precisely bound, visible, and revocable.
+
+## Contributing
+
+Real installation reports, security review, documentation improvements, and
+small tested fixes are welcome. See [CONTRIBUTING.md](../CONTRIBUTING.md) and
+use the repository's issue forms. Sensitive findings belong in a private
+GitHub Security Advisory as described in [SECURITY.md](../SECURITY.md).

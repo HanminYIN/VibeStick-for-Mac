@@ -10,6 +10,12 @@
 > M3-B + M3-C 验收后功能检查点：13083f68276a0f15104a9b51f4135b2b8cf11501
 > M4-0 至 M4-2 本地检查点：2fe4e1024f6e8c5be9f650332f6b213e16b5c9d8
 
+> 当前实现说明：本文保留 M1 至 M4 的设计演进记录。凡下文提到“把 Python
+> Bridge 封装进 App”或 `vibestick-for-mac` 开发分支，均属于迁移前历史方案；
+> `v0.2.0-rc.2` 的发行运行时为原生 Swift App/Bridge/HUD/Paste，Python
+> 目录仅保留为参考与兼容测试实现，当前公开开发分支为 `main`。面向贡献者的
+> 当前优先级以 [公开 Roadmap](ROADMAP.md) 和 GitHub Issues 为准。
+
 ## 1. 文档目的
 
 本文档记录 VibeStick for Mac 二次开发已经确认的产品边界、交互规则、技术方向、实施顺序和验收标准。后续开发以本文档为主线，优先保护当前稳定能力，避免在实现过程中反复改变核心方向。
@@ -18,7 +24,7 @@
 
 - 原项目：https://github.com/GaryGaryyy/VibeStick
 - 独立维护仓库：https://github.com/HanminYIN/VibeStick-for-Mac（已脱离上游 Fork network，保留 upstream 来源与完整历史）
-- 开发分支：vibestick-for-mac
+- 当前公开开发分支：`main`（历史开发分支为 `vibestick-for-mac`）
 - 原项目 main 保持不变，不向上游自动提交个人化改动。
 
 ## 2. 产品定位
@@ -139,11 +145,11 @@ flowchart LR
 架构原则：
 
 - Mac 前端使用原生 SwiftUI。
-- 第一版把现有 Python Bridge 作为应用内部组件封装，用户无需安装 Python。
+- 当前发行版使用原生 Swift Bridge；保留的 Python Bridge 仅作为参考与兼容测试实现，普通用户无需安装 Python。
 - HUD、Paste 和 Bridge 由主程序统一显示、启动、停止、检查和修复。
 - 普通设置使用统一配置模型，敏感值进入钥匙串。
 - 前端通过结构化健康状态管理后台组件，不依赖解析面向用户的杂乱终端日志。
-- 只有出现明确的稳定性、性能或体积收益时，才逐步把 Bridge 功能迁移到 Swift。
+- Bridge 行为变更需同步更新原生 Swift 实现、协议约束与兼容测试，避免参考实现和发行运行时漂移。
 
 ## 7. Mac 程序信息架构
 

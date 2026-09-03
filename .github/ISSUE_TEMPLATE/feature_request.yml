@@ -1,0 +1,63 @@
+name: Feature request
+description: Propose a bounded improvement to the supported product
+title: "[Feature]: "
+labels:
+  - enhancement
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please describe the user problem before the proposed implementation.
+        Larger changes should preserve the local-first, explicit-permission,
+        rollback-aware product boundaries described in the roadmap and threat model.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: Who is affected, and what cannot they do safely or reliably today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe observable behavior rather than a preferred internal implementation.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Primary area
+      options:
+        - macOS App
+        - Native Bridge
+        - HUD or Paste helper
+        - StickS3 firmware
+        - Voice or ASR
+        - Installation or release packaging
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: boundaries
+    attributes:
+      label: Permissions and safety boundaries
+      description: Note any network, filesystem, Keychain, Accessibility, microphone, USB, firmware, provider, or destructive action involved.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance evidence
+      description: What tests, real-device checks, or documentation would demonstrate completion?
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: I checked the public roadmap and existing issues for related work.
+          required: true
