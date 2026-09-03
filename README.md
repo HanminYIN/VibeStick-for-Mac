@@ -3,6 +3,8 @@
 [中文说明](README.zh-CN.md)
 
 [![GitHub Pre-release](https://img.shields.io/badge/GitHub_Pre--release-v0.2.0--rc.2-2f81f7?logo=github)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
+[![CI](https://github.com/HanminYIN/VibeStick-for-Mac/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/HanminYIN/VibeStick-for-Mac/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![macOS 15+](https://img.shields.io/badge/macOS-15%2B-000000?logo=apple)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
 [![Apple Silicon](https://img.shields.io/badge/Apple_Silicon-arm64-0A84FF)](https://github.com/HanminYIN/VibeStick-for-Mac/releases/tag/v0.2.0-rc.2)
 
@@ -37,6 +39,23 @@ collaborator across product design, implementation, testing, release
 engineering, and safety review. The product also integrates with the local
 Codex workflow to display session state and quota windows; it does not expose
 Codex credentials through its Bridge API.
+
+## Open-source maintenance
+
+This repository is the independently maintained macOS product line, not a
+read-only mirror of the original VibeStick project. Maintenance work is tracked
+in [GitHub Issues](https://github.com/HanminYIN/VibeStick-for-Mac/issues), and
+changes are reviewed through pull requests with Linux and macOS CI.
+
+The most useful contributions today are clean-machine installation reports,
+real StickS3 compatibility feedback, security review of the local-network and
+firmware-maintenance boundaries, and focused fixes with regression tests. See
+[CONTRIBUTING.md](CONTRIBUTING.md), the [public roadmap](docs/ROADMAP.md), and
+the [threat model](docs/THREAT_MODEL.md) before starting substantial work.
+
+This is still an early public release candidate. Reports from real users are
+welcome even when they do not include a code change; security-sensitive reports
+should follow [SECURITY.md](SECURITY.md) instead of a public issue.
 
 ## 0.2.0 RC 2
 

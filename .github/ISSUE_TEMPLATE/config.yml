@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/HanminYIN/VibeStick-for-Mac/security/advisories/new
+    about: Report vulnerabilities or other sensitive security findings privately.
+  - name: Installation and configuration guide
+    url: https://github.com/HanminYIN/VibeStick-for-Mac#readme
+    about: Check requirements, installation steps, current limits, and troubleshooting first.

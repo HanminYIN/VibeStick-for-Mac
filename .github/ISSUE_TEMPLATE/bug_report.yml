@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a reproducible VibeStick for Mac or StickS3 problem
+title: "[Bug]: "
+labels:
+  - bug
+  - needs-triage
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve VibeStick for Mac. Do not include API keys,
+        Wi-Fi credentials, pairing tokens, recordings, raw logs, or sensitive
+        diagnostics. Report security issues privately through SECURITY.md.
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      description: For example, v0.2.0-rc.2 or a commit SHA.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - macOS App
+        - Native Bridge
+        - HUD or Paste helper
+        - StickS3 firmware
+        - Voice or ASR
+        - Installation or release packaging
+        - Documentation
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Mac model/architecture, macOS version, and StickS3 firmware version where relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Give the smallest repeatable sequence, with sensitive values removed.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Redacted evidence
+      description: Optional bounded logs, screenshots, or diagnostics with credentials, paths, identities, and recordings removed.
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Safety check
+      options:
+        - label: I removed secrets and sensitive local or device information from this report.
+          required: true
+        - label: This is not a vulnerability report; security issues will be reported privately.
+          required: true
