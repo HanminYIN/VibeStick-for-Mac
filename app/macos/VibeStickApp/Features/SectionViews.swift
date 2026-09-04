@@ -809,7 +809,11 @@ struct UpdatesAndRecoveryView: View {
                             model.requestRefresh(forcePermissionCheck: true)
                         }
                         .buttonStyle(.bordered)
-                        .disabled(model.isRefreshing || model.runtimeInstallInProgress)
+                        .disabled(
+                            model.isRefreshing
+                                || model.runtimeInstallInProgress
+                                || model.runtimeRemovalInProgress
+                        )
                     }
 
                     Text(maintenancePlan.summary)
@@ -873,7 +877,67 @@ struct UpdatesAndRecoveryView: View {
                                 }
                             }
                             .buttonStyle(.borderedProminent)
-                            .disabled(model.runtimeInstallInProgress || model.isRefreshing)
+                            .disabled(
+                                model.runtimeInstallInProgress
+                                    || model.runtimeRemovalInProgress
+                                    || model.isRefreshing
+                            )
+                        }
+                    }
+
+                    Divider()
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text("移除后台组件")
+                                    .font(.subheadline.weight(.semibold))
+                                Text(removalPlan.summary)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button("移除…", role: .destructive) {
+                                model.requestRuntimeRemoval()
+                            }
+                            .buttonStyle(.bordered)
+                            .disabled(
+                                !removalPlan.allowsRemoval
+                                    || model.serviceActionInProgress
+                                    || model.runtimeInstallInProgress
+                                    || model.runtimeRemovalInProgress
+                                    || model.flashingToolActionInProgress
+                                    || model.deviceBackupActionInProgress
+                                    || model.deviceFlashActionInProgress
+                                    || model.isRefreshing
+                            )
+                        }
+
+                        if model.runtimeRemovalInProgress {
+                            ProgressView("正在执行受管组件移除事务…")
+                                .controlSize(.small)
+                        }
+
+                        Text("将移除")
+                            .font(.caption.weight(.semibold))
+                        ForEach(removalPlan.scopes, id: \.rawValue) { scope in
+                            Label(scope.title, systemImage: "minus.circle")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Text("明确保留")
+                            .font(.caption.weight(.semibold))
+                            .padding(.top, 2)
+                        ForEach(RuntimeRemovalPlan.preservedCategories, id: \.self) { category in
+                            Label(category, systemImage: "checkmark.shield")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        ForEach(removalPlan.blockers, id: \.rawValue) { blocker in
+                            Label(blocker.title, systemImage: "exclamationmark.shield")
+                                .font(.caption)
+                                .foregroundStyle(.orange)
                         }
                     }
                 }
@@ -1154,6 +1218,18 @@ struct UpdatesAndRecoveryView: View {
             Text("确认后会短暂停止受管 Bridge 与 HUD，验证 DMG 内载荷，备份现有安装，再启动并检查新组件。任何验证失败都会尝试恢复旧运行时和原服务状态。")
         }
         .confirmationDialog(
+            "移除 VibeStick 受管后台组件？",
+            isPresented: $model.runtimeRemovalConfirmationPresented,
+            titleVisibility: .visible
+        ) {
+            Button("停止并移除受管组件", role: .destructive) {
+                model.confirmRuntimeRemoval()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("仅移除 Bridge、HUD、Paste 和两个 VibeStick 后台启动项，并释放端口 8765。配置、凭据、设备资料、固件恢复资料和主 App 会保留。执行前会再次预检；失败时自动回退，无法完整回退则明确进入需要恢复状态。")
+        }
+        .confirmationDialog(
             "下载并校验固定版本的烧录工具？",
             isPresented: $model.flashingToolDownloadConfirmationPresented,
             titleVisibility: .visible
@@ -1334,6 +1410,10 @@ struct UpdatesAndRecoveryView: View {
 
     private var maintenancePlan: RuntimeMaintenancePlan {
         RuntimeMaintenancePlanner.make(from: model.runtimeSnapshot)
+    }
+
+    private var removalPlan: RuntimeRemovalPlan {
+        RuntimeRemovalPlanner.make(from: model.runtimeSnapshot)
     }
 
     private var installationActionAvailable: Bool {

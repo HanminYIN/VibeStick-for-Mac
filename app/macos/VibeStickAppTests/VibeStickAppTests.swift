@@ -511,6 +511,79 @@ struct VibeStickAppTests {
     }
 
     @Test
+    func managedLaunchAgentOwnershipFailsClosedWithoutAProgramPath() {
+        let expected = "/managed/VibeStickBridge"
+        #expect(
+            ManagedLaunchAgentOwnership.resolve(
+                loaded: true,
+                programPath: nil,
+                expectedProgramPath: expected
+            ) == .incomplete
+        )
+        #expect(
+            ManagedLaunchAgentOwnership.resolve(
+                loaded: true,
+                programPath: "/external/Bridge",
+                expectedProgramPath: expected
+            ) == .external
+        )
+        #expect(
+            ManagedLaunchAgentOwnership.resolve(
+                loaded: true,
+                programPath: expected,
+                expectedProgramPath: expected
+            ) == .managed
+        )
+    }
+
+    @Test
+    func onlyConnectionRefusalProvesTheManagedPortHasNoListener() {
+        #expect(BridgeEndpointFailureClassifier.confirmsNoListener(.cannotConnectToHost))
+        #expect(!BridgeEndpointFailureClassifier.confirmsNoListener(.timedOut))
+        #expect(!BridgeEndpointFailureClassifier.confirmsNoListener(.networkConnectionLost))
+    }
+
+    @Test
+    func serviceRestorationRequiresTheExactCheckpointAndPortState() {
+        let bridge = "/managed/VibeStickBridge"
+        let hud = "/managed/VibeStickHUD"
+        let healthy = RuntimeRestorationObservation(
+            bridgeLoaded: true,
+            bridgeRunning: true,
+            bridgeProgramPath: bridge,
+            hudLoaded: true,
+            hudRunning: true,
+            hudProgramPath: hud,
+            endpoint: .expected
+        )
+        #expect(
+            RuntimeServiceRestorationValidator.matches(
+                checkpoint: .allRunning,
+                observation: healthy,
+                expectedBridgeProgramPath: bridge,
+                expectedHUDProgramPath: hud
+            )
+        )
+        let unhealthy = RuntimeRestorationObservation(
+            bridgeLoaded: true,
+            bridgeRunning: false,
+            bridgeProgramPath: bridge,
+            hudLoaded: true,
+            hudRunning: true,
+            hudProgramPath: hud,
+            endpoint: .unavailable
+        )
+        #expect(
+            !RuntimeServiceRestorationValidator.matches(
+                checkpoint: .allRunning,
+                observation: unhealthy,
+                expectedBridgeProgramPath: bridge,
+                expectedHUDProgramPath: hud
+            )
+        )
+    }
+
+    @Test
     func protectsFreshRecordingWhenHealthEndpointIsUnavailable() {
         let now = Date(timeIntervalSince1970: 1_000)
         let protected = RecordingActivityResolver.shouldProtect(
@@ -749,6 +822,149 @@ struct VibeStickAppTests {
         let plan = RuntimeMaintenancePlanner.make(from: snapshot)
         #expect(plan.phase == .checking)
         #expect(plan.actions.isEmpty)
+    }
+
+    @Test
+    func runtimeRemovalPlanShowsBoundedScopeAndPreservationContract() {
+        let plan = RuntimeRemovalPlanner.make(from: runtimeSnapshot())
+
+        #expect(plan.phase == .removable)
+        #expect(plan.allowsRemoval)
+        #expect(plan.scopes == [.bridge, .hud, .paste, .launchAgents])
+        #expect(RuntimeRemovalPlan.preservedCategories.contains("当前配置与本地凭据"))
+        #expect(RuntimeRemovalPlan.preservedCategories.contains("固件、固件备份与恢复记录"))
+        #expect(RuntimeRemovalPlan.preservedCategories.contains("VibeStick 主 App"))
+    }
+
+    @Test
+    func runtimeRemovalPlanAllowsAnIdempotentAlreadyRemovedConfirmation() {
+        let absent = runtimeSnapshot(
+            bridge: component(.bridge, phase: .notInstalled, installed: false, ownership: .none),
+            hud: component(.hud, phase: .notInstalled, installed: false, ownership: .none),
+            paste: component(.paste, phase: .notInstalled, installed: false, ownership: .none)
+        )
+        let plan = RuntimeRemovalPlanner.make(from: absent)
+
+        #expect(plan.phase == .alreadyRemoved)
+        #expect(plan.allowsRemoval)
+    }
+
+    @Test(arguments: [
+        RuntimeMaintenanceAction.waitForRecording,
+        .resolvePortConflict,
+        .preserveExternalBridge,
+    ])
+    func runtimeRemovalPlanBlocksUnsafeRuntimeOwnership(
+        expectedBlocker: RuntimeMaintenanceAction
+    ) {
+        let snapshot: RuntimeSnapshot
+        switch expectedBlocker {
+        case .waitForRecording:
+            snapshot = runtimeSnapshot(recording: true)
+        case .resolvePortConflict:
+            snapshot = runtimeSnapshot(
+                bridge: component(
+                    .bridge,
+                    phase: .portConflict,
+                    ownership: .conflictingProcess
+                )
+            )
+        case .preserveExternalBridge:
+            snapshot = runtimeSnapshot(
+                bridge: component(
+                    .bridge,
+                    installed: false,
+                    ownership: .externalProcess
+                )
+            )
+        default:
+            Issue.record("Unexpected test blocker")
+            return
+        }
+
+        let plan = RuntimeRemovalPlanner.make(from: snapshot)
+        #expect(plan.phase == .blocked)
+        #expect(plan.blockers == [expectedBlocker])
+        #expect(!plan.allowsRemoval)
+    }
+
+    @Test
+    func runtimeRemovalPlanBlocksIncompleteInspection() {
+        let plan = RuntimeRemovalPlanner.make(
+            from: runtimeSnapshot(checkedAt: .distantPast)
+        )
+        #expect(plan.phase == .checking)
+        #expect(!plan.allowsRemoval)
+    }
+
+    @Test(arguments: ["recording", "transcribing"])
+    func voiceWorkResolverProtectsEveryActiveRuntimePhase(status: String) {
+        #expect(
+            RecordingActivityResolver.shouldProtect(
+                claimsActive: false,
+                status: status,
+                modifiedAt: .distantPast,
+                bridgeProcessRunning: true
+            )
+        )
+    }
+
+    @Test
+    func staleRecordingPendingStatusDefersToAuthoritativePendingDocument() {
+        #expect(
+            PendingSendActivityResolver.reconcile(
+                recordingClaimsPendingSend: true,
+                document: .active
+            ) == .active
+        )
+        #expect(
+            PendingSendActivityResolver.reconcile(
+                recordingClaimsPendingSend: true,
+                document: .inactive
+            ) == .inactive
+        )
+        #expect(
+            PendingSendActivityResolver.reconcile(
+                recordingClaimsPendingSend: true,
+                document: nil
+            ) == .invalid
+        )
+    }
+
+    @Test
+    func pendingSendDocumentBlocksOnlyWhileItsStateIsActive() {
+        #expect(
+            PendingSendActivityResolver.classify(
+                schemaVersion: 1,
+                phase: "pending",
+                expiresAtEpoch: 130,
+                now: 100
+            ) == .active
+        )
+        #expect(
+            PendingSendActivityResolver.classify(
+                schemaVersion: 1,
+                phase: "pending",
+                expiresAtEpoch: 90,
+                now: 100
+            ) == .inactive
+        )
+        #expect(
+            PendingSendActivityResolver.classify(
+                schemaVersion: 1,
+                phase: "sent",
+                expiresAtEpoch: nil,
+                now: 100
+            ) == .inactive
+        )
+        #expect(
+            PendingSendActivityResolver.classify(
+                schemaVersion: nil,
+                phase: "pending",
+                expiresAtEpoch: 130,
+                now: 100
+            ) == .invalid
+        )
     }
 
     private func component(
@@ -1593,6 +1809,233 @@ struct VibeStickAppTests {
                 "preflight", "validate", "paste", "revalidate", "stop",
                 "bootstrap", "start", "bootstrap-rollback", "stop", "restore",
             ]
+        )
+    }
+
+    @Test
+    func runtimeRemovalRemovesOnlyManagedBackgroundTargetsAndPreservesUserState() async throws {
+        let fixture = try makeRuntimeInstallFixture("RemovalSuccess")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let preserved = try makeRuntimeRemovalPreservedState(fixture: fixture)
+        let controller = MockRuntimeInstallController(preservePaste: false)
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: nil,
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
+        )
+
+        let receipt = try await installer.removeBackgroundComponents()
+
+        #expect(receipt.outcome == .removed)
+        #expect(receipt.removedScopes == [.bridge, .hud, .paste, .launchAgents])
+        #expect(receipt.removedTargetCount == 6)
+        #expect(receipt.servicePortReleased)
+        #expect(receipt.rollbackAvailable)
+        #expect(!receipt.redactedSummary.contains(fixture.root.path))
+        for target in runtimeRemovalTargetURLs(fixture.layout) {
+            #expect(!FileManager.default.fileExists(atPath: target.path))
+        }
+        for item in preserved {
+            #expect(FileManager.default.fileExists(atPath: item.path))
+        }
+        #expect(try String(contentsOf: fixture.privateConfiguration, encoding: .utf8) == "do-not-touch")
+        let transactions = try FileManager.default.contentsOfDirectory(
+            at: fixture.layout.backupsDirectory,
+            includingPropertiesForKeys: nil
+        )
+        #expect(transactions.count == 1)
+        let transaction = try #require(transactions.first)
+        let receiptURL = transaction.appendingPathComponent("removal-receipt-v1.json")
+        let receiptData = try Data(contentsOf: receiptURL)
+        #expect(FileManager.default.fileExists(atPath: receiptURL.path))
+        #expect(!String(decoding: receiptData, as: UTF8.self).contains(fixture.root.path))
+        #expect(await controller.recordedEvents() == [
+            "preflight", "revalidate", "stop", "verify-removed",
+        ])
+    }
+
+    @Test(arguments: [
+        RuntimeRemovalFault.afterStop,
+        .afterFirstMove,
+        .beforeVerification,
+    ])
+    func runtimeRemovalRollsBackEveryMutationFault(fault: RuntimeRemovalFault) async throws {
+        let fixture = try makeRuntimeInstallFixture("RemovalRollback-\(fault.rawValue)")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = MockRuntimeInstallController(preservePaste: false)
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: nil,
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
+        )
+
+        do {
+            _ = try await installer.removeBackgroundComponents(fault: fault)
+            Issue.record("Expected removal fault \(fault.rawValue)")
+        } catch let error as RuntimeRemovalError {
+            #expect(error.localizedDescription.contains("原后台组件和服务状态已恢复"))
+        }
+
+        for target in runtimeRemovalTargetURLs(fixture.layout) {
+            #expect(FileManager.default.fileExists(atPath: target.path))
+        }
+        #expect(try String(contentsOf: fixture.privateConfiguration, encoding: .utf8) == "do-not-touch")
+        #expect(await controller.didRestore(.allRunning))
+    }
+
+    @Test
+    func runtimeRemovalRestoresServicesWhenStoppingFailsPartway() async throws {
+        let fixture = try makeRuntimeInstallFixture("RemovalPartialStop")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = MockRuntimeInstallController(
+            preservePaste: false,
+            failStop: true
+        )
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: nil,
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
+        )
+
+        await #expect(throws: RuntimeRemovalError.self) {
+            try await installer.removeBackgroundComponents()
+        }
+
+        for target in runtimeRemovalTargetURLs(fixture.layout) {
+            #expect(FileManager.default.fileExists(atPath: target.path))
+        }
+        #expect(await controller.didRestore(.allRunning))
+        #expect(await controller.recordedEvents() == [
+            "preflight", "revalidate", "stop", "restore",
+        ])
+    }
+
+    @Test
+    func runtimeRemovalIsIdempotentWithoutCreatingATransaction() async throws {
+        let fixture = try makeRuntimeInstallFixture("RemovalIdempotent")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        for target in runtimeRemovalTargetURLs(fixture.layout) {
+            try FileManager.default.removeItem(at: target)
+        }
+        let controller = MockRuntimeInstallController(
+            preservePaste: false,
+            checkpoint: .allStopped
+        )
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: nil,
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
+        )
+
+        let receipt = try await installer.removeBackgroundComponents()
+
+        #expect(receipt.outcome == .alreadyRemoved)
+        #expect(receipt.removedTargetCount == 0)
+        #expect(!receipt.rollbackAvailable)
+        #expect(!FileManager.default.fileExists(atPath: fixture.layout.backupsDirectory.path))
+        #expect(await controller.recordedEvents() == ["preflight"])
+    }
+
+    @Test
+    func runtimeRemovalRevalidatesBeforeAnyMutation() async throws {
+        let fixture = try makeRuntimeInstallFixture("RemovalRevalidationBlock")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = MockRuntimeInstallController(
+            preservePaste: false,
+            blockRevalidation: true
+        )
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: nil,
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
+        )
+
+        await #expect(throws: RuntimeInstallError.self) {
+            try await installer.removeBackgroundComponents()
+        }
+
+        for target in runtimeRemovalTargetURLs(fixture.layout) {
+            #expect(FileManager.default.fileExists(atPath: target.path))
+        }
+        #expect(!FileManager.default.fileExists(atPath: fixture.layout.backupsDirectory.path))
+        #expect(await controller.recordedEvents() == ["preflight", "revalidate"])
+    }
+
+    @Test
+    func runtimeRemovalRejectsASymlinkedManagedContainerBeforeMutation() async throws {
+        let fixture = try makeRuntimeInstallFixture("RemovalSymlinkBoundary")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let outside = fixture.root.appendingPathComponent("external-components", isDirectory: true)
+        try FileManager.default.moveItem(at: fixture.layout.componentsDirectory, to: outside)
+        try FileManager.default.createSymbolicLink(
+            at: fixture.layout.componentsDirectory,
+            withDestinationURL: outside
+        )
+        let controller = MockRuntimeInstallController(preservePaste: false)
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: nil,
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
+        )
+
+        await #expect(throws: RuntimeRemovalError.self) {
+            try await installer.removeBackgroundComponents()
+        }
+
+        #expect(
+            FileManager.default.fileExists(
+                atPath: outside.appendingPathComponent("VibeStick Bridge.app").path
+            )
+        )
+        #expect(!FileManager.default.fileExists(atPath: fixture.layout.backupsDirectory.path))
+        #expect(await controller.recordedEvents() == ["preflight"])
+    }
+
+    @Test
+    func runtimeRemovalReportsRecoveryRequiredWhenServiceRollbackFails() async throws {
+        let fixture = try makeRuntimeInstallFixture("RemovalRecoveryRequired")
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let controller = MockRuntimeInstallController(
+            preservePaste: false,
+            failRemovalVerification: true,
+            failRestore: true
+        )
+        let installer = RuntimeInstaller(
+            layout: fixture.layout,
+            payloadRoot: nil,
+            serviceController: controller,
+            configurationBootstrapper: MockRuntimeConfigurationBootstrapper()
+        )
+
+        do {
+            _ = try await installer.removeBackgroundComponents()
+            Issue.record("Expected recovery-required outcome")
+        } catch let error as RuntimeRemovalError {
+            guard case .recoveryRequired = error else {
+                Issue.record("Expected recoveryRequired, received \(error)")
+                return
+            }
+            #expect(error.localizedDescription.contains("需要恢复处理"))
+        }
+
+        for target in runtimeRemovalTargetURLs(fixture.layout) {
+            #expect(FileManager.default.fileExists(atPath: target.path))
+        }
+        let receipts = try FileManager.default.contentsOfDirectory(
+            at: fixture.layout.backupsDirectory,
+            includingPropertiesForKeys: nil
+        )
+        #expect(receipts.count == 1)
+        #expect(
+            FileManager.default.fileExists(
+                atPath: receipts[0].appendingPathComponent("removal-receipt-v1.json").path
+            )
         )
     }
 
@@ -2874,6 +3317,59 @@ private func makeRuntimeInstallFixture(_ label: String) throws -> RuntimeInstall
     )
 }
 
+private extension RuntimeServiceCheckpoint {
+    static let allRunning = RuntimeServiceCheckpoint(
+        bridgeWasLoaded: true,
+        bridgeWasRunning: true,
+        hudWasLoaded: true,
+        hudWasRunning: true
+    )
+
+    static let allStopped = RuntimeServiceCheckpoint(
+        bridgeWasLoaded: false,
+        bridgeWasRunning: false,
+        hudWasLoaded: false,
+        hudWasRunning: false
+    )
+}
+
+private func runtimeRemovalTargetURLs(_ layout: RuntimeInstallLayout) -> [URL] {
+    [
+        layout.runtimeDirectory,
+        layout.bridgeApp,
+        layout.hudApp,
+        layout.pasteApp,
+        layout.bridgeLaunchAgent,
+        layout.hudLaunchAgent,
+    ]
+}
+
+private func makeRuntimeRemovalPreservedState(
+    fixture: RuntimeInstallFixture
+) throws -> [URL] {
+    let files = [
+        fixture.layout.supportDirectory.appendingPathComponent("managed-runtime-v1.json"),
+        fixture.layout.supportDirectory.appendingPathComponent("devices-v1.json"),
+        fixture.layout.supportDirectory.appendingPathComponent("device-config-v1.json"),
+        fixture.layout.supportDirectory.appendingPathComponent(
+            "FirmwarePayload.noindex/manifest-v1.json"
+        ),
+        fixture.layout.supportDirectory.appendingPathComponent(
+            "FirmwareBackups.noindex/verified/receipt-v1.json"
+        ),
+        fixture.layout.supportDirectory.appendingPathComponent(
+            "FirmwareTransactions.noindex/latest-v1.json"
+        ),
+        fixture.root.appendingPathComponent(
+            "Applications/VibeStick for Mac.app/Contents/MacOS/VibeStick for Mac"
+        ),
+    ]
+    for (index, file) in files.enumerated() {
+        try writeTestFile("preserve-\(index)", to: file, mode: index == files.count - 1 ? 0o755 : 0o600)
+    }
+    return files
+}
+
 private final class RuntimeInstallEventTrace: @unchecked Sendable {
     private let lock = NSLock()
     private var recorded: [String] = []
@@ -2890,24 +3386,37 @@ private final class RuntimeInstallEventTrace: @unchecked Sendable {
 private actor MockRuntimeInstallController: RuntimeInstallServiceControlling {
     private let preservePaste: Bool
     private let trace: RuntimeInstallEventTrace?
+    private let checkpoint: RuntimeServiceCheckpoint
+    private let blockRevalidation: Bool
+    private let failStop: Bool
+    private let failRemovalVerification: Bool
+    private let failRestore: Bool
     private var events: [String] = []
     private var restoredCheckpoint: RuntimeServiceCheckpoint?
 
-    init(preservePaste: Bool, trace: RuntimeInstallEventTrace? = nil) {
+    init(
+        preservePaste: Bool,
+        trace: RuntimeInstallEventTrace? = nil,
+        checkpoint: RuntimeServiceCheckpoint = .allRunning,
+        blockRevalidation: Bool = false,
+        failStop: Bool = false,
+        failRemovalVerification: Bool = false,
+        failRestore: Bool = false
+    ) {
         self.preservePaste = preservePaste
         self.trace = trace
+        self.checkpoint = checkpoint
+        self.blockRevalidation = blockRevalidation
+        self.failStop = failStop
+        self.failRemovalVerification = failRemovalVerification
+        self.failRestore = failRestore
     }
 
     func preflight() -> RuntimeInstallPreflight {
         events.append("preflight")
         trace?.append("preflight")
         return RuntimeInstallPreflight(
-            checkpoint: RuntimeServiceCheckpoint(
-                bridgeWasLoaded: true,
-                bridgeWasRunning: true,
-                hudWasLoaded: true,
-                hudWasRunning: true
-            )
+            checkpoint: checkpoint
         )
     }
 
@@ -2916,15 +3425,13 @@ private actor MockRuntimeInstallController: RuntimeInstallServiceControlling {
         trace?.append("validate")
     }
 
-    func revalidateBeforeMutation() -> RuntimeServiceCheckpoint {
+    func revalidateBeforeMutation() throws -> RuntimeServiceCheckpoint {
         events.append("revalidate")
         trace?.append("revalidate")
-        return RuntimeServiceCheckpoint(
-            bridgeWasLoaded: true,
-            bridgeWasRunning: true,
-            hudWasLoaded: true,
-            hudWasRunning: true
-        )
+        if blockRevalidation {
+            throw RuntimeInstallError.blocked("fixture revalidation block")
+        }
+        return checkpoint
     }
 
     func canPreservePasteIdentity(existing: URL, candidate: URL) -> Bool {
@@ -2933,9 +3440,12 @@ private actor MockRuntimeInstallController: RuntimeInstallServiceControlling {
         return preservePaste
     }
 
-    func stopManagedServices() {
+    func stopManagedServices() throws {
         events.append("stop")
         trace?.append("stop")
+        if failStop {
+            throw RuntimeInstallError.serviceFailure("fixture partial stop failure")
+        }
     }
 
     func startInstalledServices() {
@@ -2948,9 +3458,20 @@ private actor MockRuntimeInstallController: RuntimeInstallServiceControlling {
         trace?.append("verify")
     }
 
-    func restoreServiceState(_ checkpoint: RuntimeServiceCheckpoint) {
+    func verifyManagedServicesRemoved() throws {
+        events.append("verify-removed")
+        trace?.append("verify-removed")
+        if failRemovalVerification {
+            throw RuntimeInstallError.serviceFailure("fixture removal verification failure")
+        }
+    }
+
+    func restoreServiceState(_ checkpoint: RuntimeServiceCheckpoint) throws {
         events.append("restore")
         trace?.append("restore")
+        if failRestore {
+            throw RuntimeInstallError.serviceFailure("fixture restore failure")
+        }
         restoredCheckpoint = checkpoint
     }
 

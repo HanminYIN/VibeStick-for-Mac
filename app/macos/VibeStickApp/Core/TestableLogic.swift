@@ -243,6 +243,103 @@ enum RuntimeMaintenancePlanner {
     }
 }
 
+enum RuntimeRemovalPhase: String, Equatable, Sendable {
+    case checking
+    case removable
+    case alreadyRemoved
+    case blocked
+}
+
+enum RuntimeRemovalScope: String, CaseIterable, Equatable, Sendable {
+    case bridge
+    case hud
+    case paste
+    case launchAgents
+
+    var title: String {
+        switch self {
+        case .bridge: "设备连接服务（含旧运行时）"
+        case .hud: "屏幕提示服务"
+        case .paste: "文字输入服务"
+        case .launchAgents: "两个受管后台启动项"
+        }
+    }
+}
+
+struct RuntimeRemovalPlan: Equatable, Sendable {
+    let phase: RuntimeRemovalPhase
+    let scopes: [RuntimeRemovalScope]
+    let blockers: [RuntimeMaintenanceAction]
+
+    static let preservedCategories = [
+        "当前配置与本地凭据",
+        "设备登记与设备设置",
+        "固件、固件备份与恢复记录",
+        "VibeStick 主 App",
+    ]
+
+    var allowsRemoval: Bool {
+        phase == .removable || phase == .alreadyRemoved
+    }
+
+    var summary: String {
+        switch phase {
+        case .checking:
+            "等待当前只读检查完成后，才能生成移除计划。"
+        case .removable:
+            "可移除受管后台组件；确认后先保留可回退副本，再停止并移除。"
+        case .alreadyRemoved:
+            "只读检查未发现完整的受管后台安装；仍可运行幂等确认，不会扩大移除范围。"
+        case .blocked:
+            "当前状态不允许安全移除；不会停止进程或改动文件。"
+        }
+    }
+}
+
+enum RuntimeRemovalPlanner {
+    static func make(from snapshot: RuntimeSnapshot) -> RuntimeRemovalPlan {
+        let components = [snapshot.bridge, snapshot.hud, snapshot.paste]
+        let scopes = RuntimeRemovalScope.allCases
+
+        if snapshot.checkedAt == .distantPast || components.contains(where: {
+            $0.phase == .unknown || $0.phase == .starting
+        }) {
+            return RuntimeRemovalPlan(phase: .checking, scopes: scopes, blockers: [])
+        }
+        if snapshot.isRecordingActive {
+            return RuntimeRemovalPlan(
+                phase: .blocked,
+                scopes: scopes,
+                blockers: [.waitForRecording]
+            )
+        }
+        if snapshot.bridge.ownership == .conflictingProcess
+            || components.contains(where: { $0.phase == .portConflict }) {
+            return RuntimeRemovalPlan(
+                phase: .blocked,
+                scopes: scopes,
+                blockers: [.resolvePortConflict]
+            )
+        }
+        if snapshot.bridge.ownership == .externalProcess {
+            return RuntimeRemovalPlan(
+                phase: .blocked,
+                scopes: scopes,
+                blockers: [.preserveExternalBridge]
+            )
+        }
+
+        let allAbsent = components.allSatisfy {
+            !$0.isInstalled && $0.phase == .notInstalled && $0.ownership == .none
+        }
+        return RuntimeRemovalPlan(
+            phase: allAbsent ? .alreadyRemoved : .removable,
+            scopes: scopes,
+            blockers: []
+        )
+    }
+}
+
 enum LaunchAgentStateParser {
     static func isRunning(_ launchctlOutput: String) -> Bool {
         launchctlOutput
@@ -264,14 +361,133 @@ enum LaunchAgentStateParser {
     }
 }
 
+enum ManagedLaunchAgentOwnership: Equatable, Sendable {
+    case absent
+    case managed
+    case external
+    case incomplete
+
+    static func resolve(
+        loaded: Bool,
+        programPath: String?,
+        expectedProgramPath: String
+    ) -> Self {
+        guard loaded else { return .absent }
+        guard let programPath, !programPath.isEmpty else { return .incomplete }
+        return programPath == expectedProgramPath ? .managed : .external
+    }
+}
+
+enum BridgeEndpointFailureClassifier {
+    static func confirmsNoListener(_ code: URLError.Code) -> Bool {
+        code == .cannotConnectToHost
+    }
+}
+
+enum RuntimeEndpointObservation: Equatable, Sendable {
+    case expected
+    case unexpected
+    case unavailable
+    case unknown
+}
+
+struct RuntimeRestorationObservation: Equatable, Sendable {
+    let bridgeLoaded: Bool
+    let bridgeRunning: Bool
+    let bridgeProgramPath: String?
+    let hudLoaded: Bool
+    let hudRunning: Bool
+    let hudProgramPath: String?
+    let endpoint: RuntimeEndpointObservation
+}
+
+enum RuntimeServiceRestorationValidator {
+    static func matches(
+        checkpoint: RuntimeServiceCheckpoint,
+        observation: RuntimeRestorationObservation,
+        expectedBridgeProgramPath: String,
+        expectedHUDProgramPath: String
+    ) -> Bool {
+        guard observation.bridgeLoaded == checkpoint.bridgeWasLoaded,
+              observation.bridgeRunning == checkpoint.bridgeWasRunning,
+              observation.hudLoaded == checkpoint.hudWasLoaded,
+              observation.hudRunning == checkpoint.hudWasRunning else {
+            return false
+        }
+        if checkpoint.bridgeWasLoaded,
+           ManagedLaunchAgentOwnership.resolve(
+               loaded: true,
+               programPath: observation.bridgeProgramPath,
+               expectedProgramPath: expectedBridgeProgramPath
+           ) != .managed {
+            return false
+        }
+        if checkpoint.hudWasLoaded,
+           ManagedLaunchAgentOwnership.resolve(
+               loaded: true,
+               programPath: observation.hudProgramPath,
+               expectedProgramPath: expectedHUDProgramPath
+           ) != .managed {
+            return false
+        }
+        return observation.endpoint == (
+            checkpoint.bridgeWasRunning ? .expected : .unavailable
+        )
+    }
+}
+
+enum PendingSendActivity: Equatable, Sendable {
+    case active
+    case inactive
+    case invalid
+}
+
+enum PendingSendActivityResolver {
+    static func classify(
+        schemaVersion: Int?,
+        phase: String?,
+        expiresAtEpoch: TimeInterval?,
+        now: TimeInterval = Date().timeIntervalSince1970
+    ) -> PendingSendActivity {
+        guard schemaVersion == 1, let phase = phase?.lowercased() else { return .invalid }
+        switch phase {
+        case "pending", "confirming":
+            guard let expiresAtEpoch, expiresAtEpoch.isFinite, expiresAtEpoch > 0 else {
+                return .invalid
+            }
+            return expiresAtEpoch >= now ? .active : .inactive
+        case "idle", "sent", "failed", "invalidated", "expired":
+            return .inactive
+        default:
+            return .invalid
+        }
+    }
+
+    static func reconcile(
+        recordingClaimsPendingSend: Bool,
+        document: PendingSendActivity?
+    ) -> PendingSendActivity {
+        if let document { return document }
+        return recordingClaimsPendingSend ? .invalid : .inactive
+    }
+}
+
 enum RecordingActivityResolver {
     static func shouldProtect(
         claimsActive: Bool,
+        status: String? = nil,
         modifiedAt: Date?,
         bridgeProcessRunning: Bool,
         now: Date = Date(),
         maximumAge: TimeInterval = 10 * 60
     ) -> Bool {
+        if let status = status?.lowercased() {
+            if ["recording", "transcribing"].contains(status) {
+                guard let modifiedAt else { return true }
+                let age = now.timeIntervalSince(modifiedAt)
+                return bridgeProcessRunning || (age >= 0 && age < maximumAge)
+            }
+        }
         guard claimsActive,
               bridgeProcessRunning,
               let modifiedAt else {

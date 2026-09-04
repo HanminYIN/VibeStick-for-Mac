@@ -383,6 +383,8 @@ struct ConnectionAndRuntimeView: View {
 
     private var serviceControlsDisabled: Bool {
         model.serviceActionInProgress
+            || model.runtimeInstallInProgress
+            || model.runtimeRemovalInProgress
             || model.runtimeSnapshot.isRecordingActive
             || model.runtimeSnapshot.checkedAt == .distantPast
             || model.runtimeSnapshot.bridge.ownership == .externalProcess
