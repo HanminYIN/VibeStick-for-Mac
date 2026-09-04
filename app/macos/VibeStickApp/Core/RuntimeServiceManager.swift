@@ -420,6 +420,7 @@ actor RuntimeServiceManager {
         let attributes = try? fileManager.attributesOfItem(atPath: SupportPaths.recordingFile.path)
         return RecordingActivityResolver.shouldProtect(
             claimsActive: dictionary?["active"] as? Bool == true,
+            status: dictionary?["status"] as? String,
             modifiedAt: attributes?[.modificationDate] as? Date,
             bridgeProcessRunning: bridgeProcessRunning
         )

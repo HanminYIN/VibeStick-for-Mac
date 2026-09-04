@@ -43,6 +43,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var serviceActionInProgress = false
     @Published private(set) var runtimeInstallInProgress = false
+    @Published private(set) var runtimeRemovalInProgress = false
     @Published private(set) var flashingToolActionInProgress = false
     @Published private(set) var deviceBackupActionInProgress = false
     @Published private(set) var deviceFlashActionInProgress = false
@@ -51,6 +52,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var asrSettingsSaveInProgress = false
     @Published var presentedMessage: AppMessage?
     @Published var runtimeInstallConfirmationPresented = false
+    @Published var runtimeRemovalConfirmationPresented = false
     @Published var flashingToolDownloadConfirmationPresented = false
     @Published var flashingToolPreparationConfirmationPresented = false
     @Published var flashingToolRemovalConfirmationPresented = false
@@ -592,7 +594,8 @@ final class AppModel: ObservableObject {
     }
 
     func performServiceAction(_ action: ServiceAction) {
-        guard !serviceActionInProgress, !deviceFlashActionInProgress else { return }
+        guard !serviceActionInProgress, !runtimeInstallInProgress,
+              !runtimeRemovalInProgress, !deviceFlashActionInProgress else { return }
         serviceActionInProgress = true
 
         Task {
@@ -625,7 +628,8 @@ final class AppModel: ObservableObject {
     }
 
     func requestRuntimeInstall() {
-        guard !deviceFlashActionInProgress else { return }
+        guard !serviceActionInProgress, !runtimeInstallInProgress,
+              !runtimeRemovalInProgress, !deviceFlashActionInProgress else { return }
         let plan = RuntimeMaintenancePlanner.make(from: runtimeSnapshot)
         guard plan.allowsPayloadInstall else {
             presentedMessage = AppMessage(
@@ -638,7 +642,8 @@ final class AppModel: ObservableObject {
     }
 
     func confirmRuntimeInstall() {
-        guard !runtimeInstallInProgress, !deviceFlashActionInProgress else { return }
+        guard !serviceActionInProgress, !runtimeInstallInProgress,
+              !runtimeRemovalInProgress, !deviceFlashActionInProgress else { return }
         runtimeInstallConfirmationPresented = false
         runtimeInstallInProgress = true
 
@@ -672,6 +677,59 @@ final class AppModel: ObservableObject {
                 await refresh(forcePermissionCheck: true)
                 presentedMessage = AppMessage(
                     title: "安装未完成",
+                    message: error.localizedDescription
+                )
+            }
+        }
+    }
+
+    func requestRuntimeRemoval() {
+        guard !serviceActionInProgress, !runtimeInstallInProgress, !runtimeRemovalInProgress,
+              !flashingToolActionInProgress, !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress else { return }
+        let plan = RuntimeRemovalPlanner.make(from: runtimeSnapshot)
+        guard plan.allowsRemoval else {
+            presentedMessage = AppMessage(
+                title: "当前不能移除",
+                message: plan.summary
+            )
+            return
+        }
+        runtimeRemovalConfirmationPresented = true
+    }
+
+    func confirmRuntimeRemoval() {
+        guard !serviceActionInProgress, !runtimeInstallInProgress, !runtimeRemovalInProgress,
+              !flashingToolActionInProgress, !deviceBackupActionInProgress,
+              !deviceFlashActionInProgress else { return }
+        runtimeRemovalConfirmationPresented = false
+        runtimeRemovalInProgress = true
+
+        Task {
+            await refresh(forcePermissionCheck: false)
+            let currentPlan = RuntimeRemovalPlanner.make(from: runtimeSnapshot)
+            guard currentPlan.allowsRemoval else {
+                runtimeRemovalInProgress = false
+                presentedMessage = AppMessage(
+                    title: "移除未开始",
+                    message: "重新检查后，当前状态不再允许安全移除。\n\n\(currentPlan.summary)"
+                )
+                return
+            }
+
+            do {
+                let receipt = try await runtimeInstaller.removeBackgroundComponents()
+                runtimeRemovalInProgress = false
+                await refresh(forcePermissionCheck: false)
+                presentedMessage = AppMessage(
+                    title: receipt.outcome == .removed ? "后台组件已移除" : "后台组件已经移除",
+                    message: receipt.redactedSummary
+                )
+            } catch {
+                runtimeRemovalInProgress = false
+                await refresh(forcePermissionCheck: false)
+                presentedMessage = AppMessage(
+                    title: "移除未完成",
                     message: error.localizedDescription
                 )
             }
@@ -787,13 +845,14 @@ final class AppModel: ObservableObject {
         guard !flashingToolActionInProgress,
               !deviceBackupActionInProgress,
               !deviceFlashActionInProgress,
+              !runtimeRemovalInProgress,
               flashingToolSnapshot.phase == .ready else { return }
         deviceInspectionConfirmationPresented = true
     }
 
     func confirmDeviceInspection() {
         guard !flashingToolActionInProgress, !deviceBackupActionInProgress,
-              !deviceFlashActionInProgress else { return }
+              !deviceFlashActionInProgress, !runtimeRemovalInProgress else { return }
         deviceInspectionConfirmationPresented = false
         deviceBackupActionInProgress = true
         deviceBackupSnapshot = .inspecting
@@ -823,6 +882,7 @@ final class AppModel: ObservableObject {
         guard !flashingToolActionInProgress,
               !deviceBackupActionInProgress,
               !deviceFlashActionInProgress,
+              !runtimeRemovalInProgress,
               flashingToolSnapshot.phase == .ready,
               deviceBackupSnapshot.phase == .ready,
               deviceBackupSnapshot.inspection != nil else { return }
@@ -833,6 +893,7 @@ final class AppModel: ObservableObject {
         guard !flashingToolActionInProgress,
               !deviceBackupActionInProgress,
               !deviceFlashActionInProgress,
+              !runtimeRemovalInProgress,
               let expectedInspection = deviceBackupSnapshot.inspection else { return }
         deviceBackupConfirmationPresented = false
         deviceBackupActionInProgress = true
@@ -998,7 +1059,12 @@ final class AppModel: ObservableObject {
     }
 
     private var deviceOperationIsIdle: Bool {
-        !flashingToolActionInProgress && !deviceBackupActionInProgress && !deviceFlashActionInProgress
+        !flashingToolActionInProgress
+            && !deviceBackupActionInProgress
+            && !deviceFlashActionInProgress
+            && !runtimeInstallInProgress
+            && !runtimeRemovalInProgress
+            && !serviceActionInProgress
     }
 
     private var deviceFlashPreflightIsReady: Bool {
