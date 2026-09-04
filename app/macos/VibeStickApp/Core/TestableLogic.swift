@@ -1,5 +1,18 @@
 import Foundation
 
+enum AppReleaseIdentity {
+    static var productVersion: String {
+        guard let configured = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String, !configured.isEmpty else {
+            return "0.2.0-dev"
+        }
+        return configured
+    }
+
+    static var userAgent: String { "VibeStick-for-Mac/\(productVersion)" }
+}
+
 enum ASRTestTranscriptComparator {
     static func normalized(_ value: String) -> String {
         value

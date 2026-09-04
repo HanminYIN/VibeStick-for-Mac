@@ -2,16 +2,20 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+. "$ROOT_DIR/scripts/release-config.sh"
+load_release_configuration "$ROOT_DIR"
+export VIBESTICK_RELEASE_CONFIG="$VIBESTICK_RELEASE_CONFIG_PATH"
 PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="${VIBESTICK_BUILD_ROOT:-$ROOT_DIR/.build/macos.noindex}"
-APP_PATH="$BUILD_ROOT/VibeStick for Mac.app"
-APP_BINARY="$APP_PATH/Contents/MacOS/VibeStick for Mac"
-DMG_PATH="$BUILD_ROOT/VibeStick-for-Mac-0.2.0-rc.2.dmg"
+APP_PATH="$BUILD_ROOT/$VIBESTICK_APP_BUNDLE_NAME"
+APP_BINARY="$APP_PATH/Contents/MacOS/$VIBESTICK_PRODUCT_NAME"
+APP_RECEIPT_PATH="$BUILD_ROOT/$VIBESTICK_APP_BUNDLE_NAME.build-receipt-v1.json"
+DMG_PATH="$BUILD_ROOT/$VIBESTICK_DMG_FILENAME"
 TEST_DERIVED_DATA="$BUILD_ROOT/VerificationTests-DerivedData"
 TEST_BUNDLE="$TEST_DERIVED_DATA/Build/Products/Debug/VibeStickForMacTests.xctest"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 RUN_LAUNCH_SMOKE="${VIBESTICK_RUN_LAUNCH_SMOKE:-1}"
-TRUSTED_FIRMWARE_PAYLOAD="${VIBESTICK_TRUSTED_FIRMWARE_PAYLOAD:-$ROOT_DIR/release/firmware/sticks3/0.2.0-m4.4a}"
+TRUSTED_FIRMWARE_PAYLOAD="${VIBESTICK_TRUSTED_FIRMWARE_PAYLOAD:-$ROOT_DIR/$VIBESTICK_FIRMWARE_PAYLOAD_PATH}"
 SWIFT_MODULE_CACHE="$BUILD_ROOT/SwiftModuleCache.noindex"
 mkdir -p "$SWIFT_MODULE_CACHE"
 
@@ -37,11 +41,39 @@ assert_bundle_version() {
   info_plist="$bundle_path/Contents/Info.plist"
   short_version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$info_plist")"
   build_version="$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$info_plist")"
-  if [ "$short_version" != "0.2.0" ] || [ "$build_version" != "11" ]; then
-    printf '%s\n' "FAIL: $bundle_label version is $short_version ($build_version), expected 0.2.0 (11)" >&2
+  if [ "$short_version" != "$VIBESTICK_PRODUCT_VERSION" ] \
+    || [ "$build_version" != "$VIBESTICK_BUILD_VERSION" ]; then
+    printf '%s\n' "FAIL: $bundle_label version is $short_version ($build_version), expected $VIBESTICK_PRODUCT_VERSION ($VIBESTICK_BUILD_VERSION)" >&2
     exit 1
   fi
-  printf '%s\n' "PASS: $bundle_label version is 0.2.0 (11)"
+  printf '%s\n' "PASS: $bundle_label version is $VIBESTICK_PRODUCT_VERSION ($VIBESTICK_BUILD_VERSION)"
+}
+
+assert_release_configuration() {
+  release_app="$1"
+  release_label="$2"
+  release_info="$release_app/Contents/Info.plist"
+  release_embedded_config="$release_app/Contents/Resources/ReleaseConfiguration-v1.json"
+
+  if [ ! -f "$release_embedded_config" ] \
+    || ! /usr/bin/cmp -s "$VIBESTICK_RELEASE_CONFIG_PATH" "$release_embedded_config"; then
+    printf '%s\n' "FAIL: $release_label does not contain the exact validated release configuration" >&2
+    exit 1
+  fi
+  observed_label="$(/usr/bin/plutil -extract VibeStickReleaseLabel raw -o - "$release_info")"
+  observed_title="$(/usr/bin/plutil -extract VibeStickReleaseTitle raw -o - "$release_info")"
+  observed_summary="$(/usr/bin/plutil -extract VibeStickReleaseSummary raw -o - "$release_info")"
+  if [ "$observed_label" != "$VIBESTICK_RELEASE_LABEL" ] \
+    || [ "$observed_title" != "$VIBESTICK_APP_RELEASE_TITLE" ] \
+    || [ "$observed_summary" != "$VIBESTICK_APP_RELEASE_SUMMARY" ]; then
+    printf '%s\n' "FAIL: $release_label App wording differs from the release configuration" >&2
+    exit 1
+  fi
+  python3 "$ROOT_DIR/scripts/release_artifact.py" verify \
+    "$release_app" \
+    "$VIBESTICK_RELEASE_CONFIG_PATH" \
+    "$APP_RECEIPT_PATH"
+  printf '%s\n' "PASS: $release_label matches its validated configuration and sealed App receipt"
 }
 
 assert_local_network_metadata() {
@@ -117,6 +149,11 @@ assert_trusted_firmware_payload() {
   python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" verify-source \
     "$TRUSTED_FIRMWARE_PAYLOAD" "$ROOT_DIR/firmware/sticks3"
   python3 "$ROOT_DIR/scripts/firmware-payload-manifest.py" verify "$candidate_root"
+  candidate_payload_version="$(/usr/bin/plutil -extract payloadVersion raw -o - "$candidate_root/manifest-v1.json")"
+  if [ "$candidate_payload_version" != "$VIBESTICK_FIRMWARE_PAYLOAD_VERSION" ]; then
+    printf '%s\n' "FAIL: $candidate_label firmware payload is $candidate_payload_version, expected $VIBESTICK_FIRMWARE_PAYLOAD_VERSION" >&2
+    exit 1
+  fi
   for payload_file in bootloader.bin partition-table.bin vibe-stick.bin manifest-v1.json; do
     if ! /usr/bin/cmp -s "$TRUSTED_FIRMWARE_PAYLOAD/$payload_file" "$candidate_root/$payload_file"; then
       printf '%s\n' "FAIL: $candidate_label firmware payload differs from the accepted M4-5K payload" >&2
@@ -443,7 +480,7 @@ assert_m4_firmware_payload_source_contract() {
     || ! /usr/bin/grep -F 'assert-no-secrets' "$payload_builder" >/dev/null \
     || ! /usr/bin/grep -F 'VIBESTICK_ALLOW_FIRMWARE_REBUILD:-0' "$payload_builder" >/dev/null \
     || ! /usr/bin/grep -F 'refusing to rebuild without VIBESTICK_ALLOW_FIRMWARE_REBUILD=1' "$payload_builder" >/dev/null \
-    || ! /usr/bin/grep -F 'release/firmware/sticks3/0.2.0-m4.4a' "$payload_builder" >/dev/null \
+    || ! /usr/bin/grep -F 'VIBESTICK_FIRMWARE_PAYLOAD_PATH' "$payload_builder" >/dev/null \
     || ! /usr/bin/grep -F 'release/licenses/firmware' "$payload_builder" >/dev/null \
     || ! /usr/bin/grep -F 'static let preservedNVS' "$firmware_source" >/dev/null \
     || ! /usr/bin/grep -F '"partition-table.bin": 0x8000' "$firmware_source" >/dev/null \
@@ -760,8 +797,8 @@ cleanup_all() {
     stop_smoke_app "$ACTIVE_SMOKE_PID"
     ACTIVE_SMOKE_PID=""
   fi
-  if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT/VibeStick for Mac.app" ]; then
-    "$LSREGISTER_PATH" -u "$MOUNT_POINT/VibeStick for Mac.app" >/dev/null 2>&1 || true
+  if [ -n "$MOUNT_POINT" ] && [ -d "$MOUNT_POINT/$VIBESTICK_APP_BUNDLE_NAME" ]; then
+    "$LSREGISTER_PATH" -u "$MOUNT_POINT/$VIBESTICK_APP_BUNDLE_NAME" >/dev/null 2>&1 || true
   fi
   if [ "$mounted" -eq 1 ] && [ -n "$MOUNT_POINT" ]; then
     /usr/bin/hdiutil detach "$MOUNT_POINT" >/dev/null 2>&1 || true
@@ -953,6 +990,7 @@ assert_m4_device_flash_source_contract
 "$ROOT_DIR/scripts/build-macos-app.sh"
 assert_binary "$APP_BINARY" "VibeStick for Mac"
 assert_bundle_version "$APP_PATH" "VibeStick for Mac"
+assert_release_configuration "$APP_PATH" "built app"
 /usr/bin/codesign --verify --deep --strict "$APP_PATH"
 assert_app_icon "$APP_PATH" "built app"
 assert_menu_bar_icon "$APP_PATH" "built app"
@@ -966,6 +1004,11 @@ assert_local_network_metadata "$APP_PATH" "$BRIDGE_APP" "built app and Bridge"
 
 /usr/bin/xcrun swift -module-cache-path "$SWIFT_MODULE_CACHE" \
   "$ROOT_DIR/scripts/runtime-payload-manifest.swift" verify "$PAYLOAD_ROOT"
+runtime_payload_version="$(/usr/bin/plutil -extract payloadVersion raw -o - "$PAYLOAD_ROOT/manifest-v1.json")"
+if [ "$runtime_payload_version" != "$VIBESTICK_RUNTIME_PAYLOAD_VERSION" ]; then
+  printf '%s\n' "FAIL: embedded runtime payload is $runtime_payload_version, expected $VIBESTICK_RUNTIME_PAYLOAD_VERSION" >&2
+  exit 1
+fi
 printf '%s\n' "PASS: embedded native Swift runtime payload manifest and exact file set verified"
 FIRMWARE_PAYLOAD_ROOT="$APP_PATH/Contents/Resources/FirmwarePayload.noindex"
 assert_trusted_firmware_payload "$FIRMWARE_PAYLOAD_ROOT" "embedded M4-4A"
@@ -1002,7 +1045,7 @@ xcodebuild \
   CODE_SIGNING_ALLOWED=NO \
   build-for-testing
 
-"$LSREGISTER_PATH" -u "$TEST_DERIVED_DATA/Build/Products/Debug/VibeStick for Mac.app" >/dev/null 2>&1 || true
+"$LSREGISTER_PATH" -u "$TEST_DERIVED_DATA/Build/Products/Debug/$VIBESTICK_APP_BUNDLE_NAME" >/dev/null 2>&1 || true
 
 sign_and_verify_bundle "$TEST_BUNDLE" "VibeStick hostless tests"
 assert_binary "$TEST_BUNDLE/Contents/MacOS/VibeStickForMacTests" "VibeStick hostless tests"
@@ -1029,8 +1072,8 @@ MOUNT_POINT="$(/usr/bin/mktemp -d "$BUILD_ROOT/dmg-verify.XXXXXX")"
 /usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT_POINT" "$DMG_PATH" >/dev/null
 mounted=1
 
-if [ ! -d "$MOUNT_POINT/VibeStick for Mac.app" ]; then
-  printf '%s\n' "FAIL: DMG does not contain VibeStick for Mac.app" >&2
+if [ ! -d "$MOUNT_POINT/$VIBESTICK_APP_BUNDLE_NAME" ]; then
+  printf '%s\n' "FAIL: DMG does not contain $VIBESTICK_APP_BUNDLE_NAME" >&2
   exit 1
 fi
 if [ ! -L "$MOUNT_POINT/Applications" ] || [ "$(/usr/bin/readlink "$MOUNT_POINT/Applications")" != "/Applications" ]; then
@@ -1045,10 +1088,11 @@ if [ "$root_entry_count" != "2" ]; then
   exit 1
 fi
 
-MOUNTED_APP="$MOUNT_POINT/VibeStick for Mac.app"
+MOUNTED_APP="$MOUNT_POINT/$VIBESTICK_APP_BUNDLE_NAME"
 /usr/bin/codesign --verify --deep --strict "$MOUNTED_APP"
 assert_binary "$MOUNTED_APP/Contents/MacOS/VibeStick for Mac" "DMG VibeStick for Mac"
 assert_bundle_version "$MOUNTED_APP" "DMG VibeStick for Mac"
+assert_release_configuration "$MOUNTED_APP" "DMG app"
 assert_local_network_metadata \
   "$MOUNTED_APP" \
   "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex/Components.noindex/VibeStick Bridge.app" \
@@ -1059,6 +1103,11 @@ assert_license_bundle "$MOUNTED_APP" "DMG app"
 /usr/bin/xcrun swift -module-cache-path "$SWIFT_MODULE_CACHE" \
   "$ROOT_DIR/scripts/runtime-payload-manifest.swift" verify \
   "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex"
+mounted_runtime_payload_version="$(/usr/bin/plutil -extract payloadVersion raw -o - "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex/manifest-v1.json")"
+if [ "$mounted_runtime_payload_version" != "$VIBESTICK_RUNTIME_PAYLOAD_VERSION" ]; then
+  printf '%s\n' "FAIL: DMG runtime payload is $mounted_runtime_payload_version, expected $VIBESTICK_RUNTIME_PAYLOAD_VERSION" >&2
+  exit 1
+fi
 printf '%s\n' "PASS: DMG native Swift runtime payload manifest verified after mounting"
 assert_bundle_version \
   "$MOUNTED_APP/Contents/Resources/RuntimePayload.noindex/Components.noindex/VibeStick Bridge.app" \
