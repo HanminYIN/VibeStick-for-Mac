@@ -171,7 +171,7 @@ actor ASRTestService: ASRTesting {
         request.httpMethod = "POST"
         request.timeoutInterval = 30
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.setValue("VibeStick-for-Mac/0.2", forHTTPHeaderField: "User-Agent")
+        request.setValue(AppReleaseIdentity.userAgent, forHTTPHeaderField: "User-Agent")
         if !cleanedKey.isEmpty {
             request.setValue("Bearer \(cleanedKey)", forHTTPHeaderField: "Authorization")
         }

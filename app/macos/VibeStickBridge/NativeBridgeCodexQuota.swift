@@ -86,7 +86,10 @@ final class NativeCodexAppServerTransport: NativeCodexQuotaTransport {
             "method": "initialize",
             "id": 1,
             "params": [
-                "clientInfo": ["name": "vibestick-bridge", "version": "0.2.0"],
+                "clientInfo": [
+                    "name": "vibestick-bridge",
+                    "version": NativeBridgeReleaseIdentity.version,
+                ],
                 "capabilities": ["experimentalApi": true],
             ],
         ], to: input.fileHandleForWriting),

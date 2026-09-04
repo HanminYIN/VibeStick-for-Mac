@@ -269,7 +269,7 @@ actor URLSessionFlashingToolDownloader: FlashingToolDownloading {
         var request = URLRequest(url: sourceURL)
         request.httpMethod = "GET"
         request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
-        request.setValue("VibeStick-for-Mac-M4-3", forHTTPHeaderField: "User-Agent")
+        request.setValue(AppReleaseIdentity.userAgent, forHTTPHeaderField: "User-Agent")
 
         let (temporaryURL, response) = try await session.download(for: request)
         guard let httpResponse = response as? HTTPURLResponse,

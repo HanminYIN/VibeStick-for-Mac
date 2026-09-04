@@ -2,17 +2,19 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+. "$ROOT_DIR/scripts/release-config.sh"
+load_release_configuration "$ROOT_DIR"
 FIRMWARE_ROOT="$ROOT_DIR/firmware/sticks3"
 BUILD_ROOT="${VIBESTICK_FIRMWARE_BUILD_ROOT:-${VIBESTICK_BUILD_ROOT:-$ROOT_DIR/.build/macos.noindex}/FirmwarePayload.noindex}"
 IDF_BUILD_ROOT="$BUILD_ROOT/idf"
 CACHE_ROOT="$BUILD_ROOT/payload"
-APP_PATH="${1:-$ROOT_DIR/.build/macos.noindex/VibeStick for Mac.app}"
+APP_PATH="${1:-$ROOT_DIR/.build/macos.noindex/$VIBESTICK_APP_BUNDLE_NAME}"
 PAYLOAD_ROOT="$APP_PATH/Contents/Resources/FirmwarePayload.noindex"
-PAYLOAD_VERSION="0.2.0-m4.4a"
+PAYLOAD_VERSION="$VIBESTICK_FIRMWARE_PAYLOAD_VERSION"
 MANIFEST_TOOL="$ROOT_DIR/scripts/firmware-payload-manifest.py"
 SECRET_HEADER="$FIRMWARE_ROOT/include/vibe_stick_secrets.h"
 IDF_ROOT="${VIBE_STICK_IDF_PATH:-${IDF_PATH:-$HOME/esp/esp-idf}}"
-TRUSTED_PAYLOAD="${VIBESTICK_TRUSTED_FIRMWARE_PAYLOAD:-$ROOT_DIR/release/firmware/sticks3/0.2.0-m4.4a}"
+TRUSTED_PAYLOAD="${VIBESTICK_TRUSTED_FIRMWARE_PAYLOAD:-$ROOT_DIR/$VIBESTICK_FIRMWARE_PAYLOAD_PATH}"
 TRUSTED_LICENSES="${VIBESTICK_TRUSTED_FIRMWARE_LICENSES:-$ROOT_DIR/release/licenses/firmware}"
 ALLOW_FIRMWARE_REBUILD="${VIBESTICK_ALLOW_FIRMWARE_REBUILD:-0}"
 
@@ -96,6 +98,11 @@ rm -rf "$PAYLOAD_ROOT"
 mkdir -p "$(dirname -- "$PAYLOAD_ROOT")"
 /usr/bin/ditto --norsrc --noextattr "$PAYLOAD_SOURCE" "$PAYLOAD_ROOT"
 "$PYTHON_PATH" "$MANIFEST_TOOL" verify "$PAYLOAD_ROOT"
+embedded_payload_version="$(/usr/bin/plutil -extract payloadVersion raw -o - "$PAYLOAD_ROOT/manifest-v1.json")"
+if [ "$embedded_payload_version" != "$PAYLOAD_VERSION" ]; then
+  printf '%s\n' "Embedded firmware payload is $embedded_payload_version, expected $PAYLOAD_VERSION" >&2
+  exit 1
+fi
 
 if [ ! -d "$TRUSTED_LICENSES" ]; then
   printf '%s\n' "Tracked firmware license directory is missing: $TRUSTED_LICENSES" >&2

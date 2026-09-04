@@ -520,7 +520,10 @@ final class NativeOpenAICompatibleTranscriber: NativeVoiceTranscriber {
         request.httpMethod = "POST"
         request.httpBody = body
         request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-        request.setValue("VibeStick/0.2 macOS", forHTTPHeaderField: "User-Agent")
+        request.setValue(
+            "VibeStick/\(NativeBridgeReleaseIdentity.version) macOS",
+            forHTTPHeaderField: "User-Agent"
+        )
         request.setValue("close", forHTTPHeaderField: "Connection")
         if !configuration.apiKey.isEmpty {
             request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")

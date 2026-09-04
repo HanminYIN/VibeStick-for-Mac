@@ -143,9 +143,7 @@ final class AppModel: ObservableObject {
             )
         legacyMigrationFlow = M4LegacyMigrationUIFlow(builder: migrationBuilder)
         let initialDiagnosticSnapshot = M4DiagnosticAppSnapshotFactory.make(
-            appVersion: Bundle.main.object(
-                forInfoDictionaryKey: "CFBundleShortVersionString"
-            ) as? String ?? "0.2.0-dev",
+            appVersion: AppReleaseIdentity.productVersion,
             appBuild: Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
                 ?? "local",
             bridge: .empty,
@@ -179,11 +177,22 @@ final class AppModel: ObservableObject {
     }
 
     var appVersion: String {
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
-            ?? "0.2.0-dev"
+        let version = AppReleaseIdentity.productVersion
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "local"
-        return "\(version) (\(build)) · RC 2"
+        let releaseLabel = Bundle.main.object(forInfoDictionaryKey: "VibeStickReleaseLabel") as? String
+            ?? "Local"
+        return "\(version) (\(build)) · \(releaseLabel)"
+    }
+
+    var appReleaseTitle: String {
+        Bundle.main.object(forInfoDictionaryKey: "VibeStickReleaseTitle") as? String
+            ?? "关于这个本地构建"
+    }
+
+    var appReleaseSummary: String {
+        Bundle.main.object(forInfoDictionaryKey: "VibeStickReleaseSummary") as? String
+            ?? "这是未通过发布管线封存的本地构建。"
     }
 
     func start() {
@@ -269,9 +278,7 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshDiagnosticSnapshot() async {
-        let version = Bundle.main.object(
-            forInfoDictionaryKey: "CFBundleShortVersionString"
-        ) as? String ?? "0.2.0-dev"
+        let version = AppReleaseIdentity.productVersion
         let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String
             ?? "local"
         await diagnosticSnapshotStore.replace(

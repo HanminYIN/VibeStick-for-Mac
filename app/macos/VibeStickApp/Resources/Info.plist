@@ -32,6 +32,12 @@
     </array>
     <key>NSHumanReadableCopyright</key>
     <string>VibeStick contributors</string>
+    <key>VibeStickReleaseLabel</key>
+    <string>Local</string>
+    <key>VibeStickReleaseTitle</key>
+    <string>关于这个本地构建</string>
+    <key>VibeStickReleaseSummary</key>
+    <string>这是未通过发布管线封存的本地构建。</string>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>

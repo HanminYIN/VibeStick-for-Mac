@@ -2,11 +2,13 @@
 set -eu
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)"
+. "$ROOT_DIR/scripts/release-config.sh"
+load_release_configuration "$ROOT_DIR"
 PROJECT_PATH="$ROOT_DIR/app/macos/VibeStick.xcodeproj"
 BUILD_ROOT="${VIBESTICK_BUILD_ROOT:-$ROOT_DIR/.build/macos.noindex}"
-APP_PATH="${1:-$BUILD_ROOT/VibeStick for Mac.app}"
+APP_PATH="${1:-$BUILD_ROOT/$VIBESTICK_APP_BUNDLE_NAME}"
 PAYLOAD_ROOT="$APP_PATH/Contents/Resources/RuntimePayload.noindex"
-PAYLOAD_VERSION="0.2.0-rc.2-native"
+PAYLOAD_VERSION="$VIBESTICK_RUNTIME_PAYLOAD_VERSION"
 LSREGISTER_PATH="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
 SWIFT_MODULE_CACHE="$BUILD_ROOT/SwiftModuleCache.noindex"
 mkdir -p "$SWIFT_MODULE_CACHE"
@@ -24,6 +26,8 @@ for target in VibeStickBridge VibeStickHUD VibeStickPaste; do
     -destination 'platform=macOS,arch=arm64' \
     -derivedDataPath "$BUILD_ROOT/$target-DerivedData" \
     CODE_SIGNING_ALLOWED=NO \
+    CURRENT_PROJECT_VERSION="$VIBESTICK_BUILD_VERSION" \
+    MARKETING_VERSION="$VIBESTICK_PRODUCT_VERSION" \
     REGISTER_APP_WITH_LAUNCH_SERVICES=NO \
     build
 done
@@ -42,6 +46,16 @@ mkdir -p "$PAYLOAD_ROOT/Components.noindex"
 /usr/bin/ditto --norsrc --noextattr "$BRIDGE_APP" "$PAYLOAD_ROOT/Components.noindex/VibeStick Bridge.app"
 /usr/bin/ditto --norsrc --noextattr "$HUD_APP" "$PAYLOAD_ROOT/Components.noindex/VibeStick HUD.app"
 /usr/bin/ditto --norsrc --noextattr "$PASTE_APP" "$PAYLOAD_ROOT/Components.noindex/VibeStick Paste.app"
+
+for payload_app in \
+  "$PAYLOAD_ROOT/Components.noindex/VibeStick Bridge.app" \
+  "$PAYLOAD_ROOT/Components.noindex/VibeStick HUD.app" \
+  "$PAYLOAD_ROOT/Components.noindex/VibeStick Paste.app"; do
+  /usr/bin/plutil -replace CFBundleShortVersionString -string \
+    "$VIBESTICK_PRODUCT_VERSION" "$payload_app/Contents/Info.plist"
+  /usr/bin/plutil -replace CFBundleVersion -string \
+    "$VIBESTICK_BUILD_VERSION" "$payload_app/Contents/Info.plist"
+done
 
 PASTE_PAYLOAD_APP="$PAYLOAD_ROOT/Components.noindex/VibeStick Paste.app"
 mkdir -p "$PASTE_PAYLOAD_APP/Contents/Resources"

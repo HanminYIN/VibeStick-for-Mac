@@ -31,7 +31,8 @@ do {
 }
 
 assembly.server.start()
-if let data = "VibeStick Bridge 0.2.0 listening on http://0.0.0.0:8765\n".data(using: .utf8) {
+let bridgeVersion = NativeBridgeReleaseIdentity.version
+if let data = "VibeStick Bridge \(bridgeVersion) listening on http://0.0.0.0:8765\n".data(using: .utf8) {
     FileHandle.standardOutput.write(data)
 }
 dispatchMain()

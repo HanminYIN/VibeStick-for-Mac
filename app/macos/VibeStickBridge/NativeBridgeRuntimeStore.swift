@@ -125,8 +125,19 @@ struct NativeBridgeRuntimePaths {
     }
 }
 
+enum NativeBridgeReleaseIdentity {
+    static var version: String {
+        guard let configured = Bundle.main.object(
+            forInfoDictionaryKey: "CFBundleShortVersionString"
+        ) as? String, !configured.isEmpty else {
+            return "0.2.0-dev"
+        }
+        return configured
+    }
+}
+
 final class NativeBridgeRuntimeStore: NativeBridgeRoutingStore {
-    static let version = "0.2.0"
+    static var version: String { NativeBridgeReleaseIdentity.version }
     static let manualStatusSeconds: TimeInterval = 60
     static let deviceOnlineSeconds: TimeInterval = 10
     static let quotaStaleSeconds: TimeInterval = 30 * 60
